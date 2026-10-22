@@ -22,6 +22,12 @@ EDITABLE_FIELDS = (
     "joined_on", "employment_type", "status", "notes",
 )
 
+#: Personal / bank fields an employee may request to change (approved by HR).
+PROFILE_FIELDS = (
+    "email", "phone", "address", "bank_name", "account_holder",
+    "account_number", "ifsc", "pan", "aadhaar_last4", "emergency_contact",
+)
+
 
 class ValidationError(ValueError):
     """User-facing validation failure (shown as a form error)."""
@@ -202,10 +208,14 @@ def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) ->
     if "status" in data and data["status"] not in ("active", "inactive"):
         raise ValidationError("Status must be active or inactive.")
 
-    for field in ("email", "phone", "department", "designation", "employment_type", "status", "notes"):
+    text_fields = ("department", "designation", "employment_type", "status", "notes") + PROFILE_FIELDS
+    for field in text_fields:
         if field in data:
             value = data[field]
-            updates[field] = (value or "").strip() or None if isinstance(value, str) or value is None else value
+            text = (value or "").strip() or None if isinstance(value, str) or value is None else value
+            if field == "ifsc" and isinstance(text, str):
+                text = text.upper()
+            updates[field] = text
 
     if "joined_on" in data:
         updates["joined_on"] = _clean_date(data.get("joined_on"))

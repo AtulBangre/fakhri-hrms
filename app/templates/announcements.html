@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Noticeboard · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Noticeboard</h1>
+    <div class="sub">{{ stats.active }} live · {{ stats.pinned }} pinned · shown on the HR dashboard and every employee portal</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/notifications">📨 Notification log</a>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Post an announcement</h2></div>
+      <div class="card-body">
+        <form method="post" action="/announcements">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="field">
+            <label for="title">Title</label>
+            <input id="title" name="title" type="text" required maxlength="160" placeholder="Diwali holiday list published">
+          </div>
+          <div class="field">
+            <label for="body">Message</label>
+            <textarea id="body" name="body" required placeholder="What does everyone need to know?"></textarea>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="level">Tone</label>
+              <select id="level" name="level">
+                {% for value in levels %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="audience">Who sees it</label>
+              <select id="audience" name="audience">
+                {% for value in audiences %}<option value="{{ value }}">{{ 'everyone' if value == 'all' else value }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="expires_on">Hide after (optional)</label>
+              <input id="expires_on" name="expires_on" type="date">
+            </div>
+            <div class="field">
+              <label>Options</label>
+              <div class="checkline" style="padding-top:.3rem">
+                <input id="pinned" name="pinned" type="checkbox" value="1">
+                <label for="pinned" style="margin:0">Pin to the top</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+          <div class="small muted mb-1">Also send it out ({{ employee_count }} active employees):</div>
+          <div class="checkline mb-1"><input id="also_email" name="also_email" type="checkbox" value="1" checked>
+            <label for="also_email" style="margin:0">Email everyone with an address</label></div>
+          <div class="checkline mb-2"><input id="also_whatsapp" name="also_whatsapp" type="checkbox" value="1">
+            <label for="also_whatsapp" style="margin:0">WhatsApp everyone with a number</label></div>
+          <div class="checkline mb-2"><input id="send_now" name="send_now" type="checkbox" value="1" checked>
+            <label for="send_now" style="margin:0">Send immediately (otherwise the background sender handles it)</label></div>
+
+          <button class="btn btn-primary btn-block" type="submit">Publish</button>
+          <div class="small muted mt-1">Email driver: {{ email_driver }} · WhatsApp: {{ whatsapp_provider }}</div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head"><h2>All announcements</h2></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Title</th><th>Tone</th><th>Audience</th><th>Posted</th><th>Live</th><th></th></tr></thead>
+          <tbody>
+          {% for note in items %}
+            <tr>
+              <td data-label="Title">
+                <strong>{{ note.title }}</strong>
+                {% if note.pinned %}<span class="chip chip-primary">pinned</span>{% endif %}
+                <span class="sub">{{ note.body[:90] }}{% if note.body | length > 90 %}…{% endif %}</span>
+              </td>
+              <td data-label="Tone"><span class="chip {{ 'chip-danger' if note.level == 'urgent' else ('chip-warn' if note.level == 'warning' else ('chip-ok' if note.level == 'success' else 'chip-info')) }}">{{ note.level }}</span></td>
+              <td data-label="Audience">{{ note.audience }}</td>
+              <td data-label="Posted" class="nowrap">{{ note.created_at[:16].replace('T', ' ') }}</td>
+              <td data-label="Live"><span class="chip {{ 'chip-ok' if note.active else 'chip-muted' }}">{{ 'live' if note.active else 'hidden' }}</span></td>
+              <td class="actions-cell">
+                <div style="display:flex;gap:.3rem;justify-content:flex-end">
+                  <form method="post" action="/announcements/{{ note.id }}/toggle">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm" type="submit">{{ 'Hide' if note.active else 'Show' }}</button>
+                  </form>
+                  <form method="post" action="/announcements/{{ note.id }}/delete" data-confirm="Delete this announcement?">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="6" class="empty-state"><span class="ico">📣</span>Nothing posted yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Outbox</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">Waiting</span><span class="v">{{ outbox.pending }}</span></div>
+          <div><span class="k">Sent</span><span class="v">{{ outbox.sent }}</span></div>
+          <div><span class="k">Failed</span><span class="v">{{ outbox.failed }}</span></div>
+        </div>
+        <a class="btn btn-block mt-2" href="/notifications">Open the log</a>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>Recently sent</h3></div>
+      <div class="card-body">
+        <div class="timeline">
+          {% for row in recent %}
+            <div class="timeline-item">
+              <span class="t">{{ row.created_at[11:16] }}</span>
+              <div style="flex:1;min-width:0">
+                <strong class="small">{{ row.channel }}</strong>
+                <span class="sub muted" style="display:block">{{ row.recipient }} · {{ row.category }}</span>
+              </div>
+              <span class="chip {{ 'chip-ok' if row.status == 'sent' else ('chip-danger' if row.status == 'failed' else 'chip-warn') }}">{{ row.status }}</span>
+            </div>
+          {% else %}
+            <div class="small muted">Nothing sent yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>How delivery works</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1">Messages are queued in the database and a background thread sends them every
+          {{ settings.notify_interval_seconds | int }}s — so a kiosk scan never waits for SMTP.</p>
+        <p class="mb-1"><strong>Email:</strong> {{ email_driver }}</p>
+        <p class="mb-0"><strong>WhatsApp:</strong> {{ whatsapp_provider }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

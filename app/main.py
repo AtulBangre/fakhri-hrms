@@ -26,7 +26,11 @@ from .config import BRAND, Settings, get_settings
 from .db import Storage
 from .deps import STATIC_DIR, get_session, templates
 from .face import FaceService
-from .routes import admin, attendance, auth_routes, dashboard, employees, kiosk, leave, meta, payroll
+from .notify import NotificationWorker
+from .routes import (
+    account, admin, attendance, auth_routes, dashboard, employees,
+    engagement, field, kiosk, leave, me, meta, payroll, records,
+)
 
 logger = logging.getLogger("hrms")
 
@@ -45,6 +49,8 @@ async def lifespan(app: FastAPI):
 
     app.state.storage = Storage(settings)
     app.state.face = FaceService(settings)
+    app.state.notifier = NotificationWorker(app.state.storage, settings)
+    app.state.notifier.start()
 
     created = ensure_default_users(app.state.storage, settings)
     health = app.state.face.health()
@@ -74,6 +80,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        app.state.notifier.stop()
         app.state.storage.close()
         logger.info("HRMS stopped")
 
@@ -154,6 +161,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(attendance.router)
     app.include_router(leave.router)
     app.include_router(payroll.router)
+    app.include_router(me.router)
+    app.include_router(account.router)
+    app.include_router(engagement.router)
+    app.include_router(records.router)
+    app.include_router(field.router)
     app.include_router(admin.router)
     app.include_router(kiosk.router)
 

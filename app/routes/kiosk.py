@@ -17,9 +17,10 @@ import logging
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from ..auth import SessionUser, current_user
+from ..auth import SessionUser, require_hr_or_kiosk
 from ..deps import get_face, get_settings_dep, get_storage, render
 from ..face import FaceServiceError, FaceServiceUnavailable
+from .. import notify
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
 from ..services import orgtime
@@ -40,7 +41,7 @@ def device_label_for(user: SessionUser) -> str:
 @router.get("/kiosk")
 def kiosk_screen(
     request: Request,
-    user: SessionUser = Depends(current_user),
+    user: SessionUser = Depends(require_hr_or_kiosk),
     storage=Depends(get_storage),
     settings=Depends(get_settings_dep),
     face=Depends(get_face),
@@ -64,7 +65,7 @@ def kiosk_screen(
 @router.post("/api/kiosk/scan")
 def kiosk_scan(
     request: Request,
-    user: SessionUser = Depends(current_user),
+    user: SessionUser = Depends(require_hr_or_kiosk),
     storage=Depends(get_storage),
     settings=Depends(get_settings_dep),
     face=Depends(get_face),
@@ -148,6 +149,8 @@ def kiosk_scan(
         detail=f"{employee['code']} sim={identification.similarity} device={device}",
     )
 
+    _notify_punch(storage, settings, employee, outcome)
+
     body = outcome.as_dict()
     body.update(
         {
@@ -165,7 +168,7 @@ def kiosk_scan(
 @router.get("/api/kiosk/status")
 def kiosk_status(
     request: Request,
-    user: SessionUser = Depends(current_user),
+    user: SessionUser = Depends(require_hr_or_kiosk),
     storage=Depends(get_storage),
     settings=Depends(get_settings_dep),
     face=Depends(get_face),
@@ -220,3 +223,42 @@ def kiosk_status(
         ]
 
     return JSONResponse(payload)
+
+
+def _notify_punch(storage, settings, employee: dict, outcome) -> None:
+    """Queue the punch-in / check-out confirmation (and a late warning).
+
+    Fire-and-forget on purpose: the queue write is a single insert, so the gate
+    never waits for SMTP. Nothing is sent if the employee has no contact details.
+    """
+    if outcome.action not in ("check_in", "check_out"):
+        return
+    is_in = outcome.action == "check_in"
+    if is_in and not settings.notify_punch_in:
+        return
+
+    template = "punch_in" if is_in else "check_out"
+    ctx = {
+        "name": (employee.get("name") or "").split(" ")[0] or "there",
+        "time": (outcome.check_in if is_in else outcome.check_out) or "",
+        "date": orgtime.today_str(settings),
+        "late_minutes": outcome.late_minutes,
+        "shift_start": storage.get_setting("shift_start", "09:30"),
+        "worked": orgtime.format_minutes(outcome.worked_minutes),
+    }
+    if settings.notify_email_enabled and employee.get("email"):
+        notify.queue_email(
+            storage, employee["email"], template, settings=settings,
+            category=f"attendance_{template}", **ctx,
+        )
+    if settings.notify_whatsapp_attendance and employee.get("phone"):
+        notify.queue_whatsapp(
+            storage, employee["phone"], template, settings=settings, **ctx
+        )
+    # an explicit late alert, independent of the punch-in confirmation
+    if is_in and outcome.late_minutes and settings.notify_late and settings.notify_email_enabled:
+        if employee.get("email"):
+            notify.queue_email(
+                storage, employee["email"], "punch_in", settings=settings,
+                category="late_alert", **ctx,
+            )

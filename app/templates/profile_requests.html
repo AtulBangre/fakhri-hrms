@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Profile changes · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Profile change requests</h1>
+    <div class="sub">Employees cannot edit bank details or their address themselves — they request, you approve.</div>
+  </div>
+  <div class="page-actions"><a class="btn" href="/employees">Employees</a></div>
+</div>
+
+<div class="card flush mb-3">
+  <div class="card-head">
+    <h2>Waiting for you</h2>
+    <span class="spacer"></span>
+    <span class="chip {{ 'chip-warn' if pending else 'chip-ok' }}">{{ pending | length }} pending</span>
+  </div>
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead><tr><th>Employee</th><th>Field</th><th>Current</th><th>Requested</th><th>When</th><th></th></tr></thead>
+      <tbody>
+      {% for item in pending %}
+        <tr>
+          <td data-label="Employee">
+            <a href="/employees/{{ item.employee_id }}"><strong>{{ item.employee_name }}</strong></a>
+            <span class="sub">{{ item.employee_code }}</span>
+          </td>
+          <td data-label="Field"><span class="chip chip-primary">{{ item.field_label }}</span></td>
+          <td data-label="Current" class="small muted">{{ item.old_value or '—' }}</td>
+          <td data-label="Requested" class="small"><strong>{{ item.new_value }}</strong></td>
+          <td data-label="When" class="small nowrap">{{ item.requested_at[:16].replace('T', ' ') }}</td>
+          <td class="actions-cell">
+            <div style="display:flex;gap:.3rem;flex-wrap:wrap;justify-content:flex-end">
+              <form method="post" action="/profile-requests/{{ item.id }}/approve">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <button class="btn btn-sm btn-primary" type="submit">Approve</button>
+              </form>
+              <form method="post" action="/profile-requests/{{ item.id }}/reject"
+                    data-confirm="Reject this change?">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <input type="hidden" name="note" value="">
+                <button class="btn btn-sm btn-danger" type="submit">Reject</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty-state"><span class="ico">✅</span>No pending requests.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="card-head"><h2>Recent decisions</h2></div>
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead><tr><th>Employee</th><th>Field</th><th>Value</th><th>Status</th><th>Decided by</th><th>When</th></tr></thead>
+      <tbody>
+      {% for item in decided %}
+        <tr>
+          <td data-label="Employee">{{ item.employee_name }}<span class="sub">{{ item.employee_code }}</span></td>
+          <td data-label="Field" class="small">{{ fields.get(item.field, item.field) }}</td>
+          <td data-label="Value" class="small">{{ item.new_value }}</td>
+          <td data-label="Status"><span class="chip {{ 'chip-ok' if item.status == 'approved' else 'chip-danger' }}">{{ item.status }}</span></td>
+          <td data-label="Decided by" class="small">{{ item.decided_by or '—' }}</td>
+          <td data-label="When" class="small nowrap">{{ (item.decided_at or '')[:16].replace('T', ' ') }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty-state">No decisions yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

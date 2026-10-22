@@ -2,8 +2,9 @@
 
 **Attendance, people and payroll for Fakhri IT Services** — a mobile-first PWA
 that marks attendance by **face recognition**, keeps salary and leave records,
-and runs monthly payroll. Two logins: an HR console and a locked-down **gate
-kiosk** that can only scan.
+and runs monthly payroll. Three logins: an **HR console**, a locked-down **gate
+kiosk** that can only scan, and an **employee portal** where each person sees
+their own attendance, payslips and leave.
 
 Themed with the company's own palette, pulled from
 [fakhriitservices.com](https://www.fakhriitservices.com): primary **#870808**,
@@ -23,6 +24,72 @@ font families (Poppins headings, Inter body).
 | 5 | **Mobile-first responsive PWA** | Sidebar on desktop, bottom tab bar on phones, installable manifests (`/manifest.webmanifest` for HR, `/kiosk.webmanifest` for the gate), service worker + offline page, camera capture via `getUserMedia` |
 | 6 | **HR login** | `hr` role — everything: people, attendance, leave, payroll, settings, audit log |
 | 7 | **Public/gate login that only marks attendance** | `kiosk` role — opening any HR page bounces straight back to the scanner; no salaries, no employee edits |
+
+### Notifications, noticeboard and self-service
+
+* **Email + WhatsApp/SMS outbox.** Every message is queued in SQLite and sent by a
+  background thread, so a kiosk scan never waits for SMTP. Three drivers ship:
+  `console` (writes real `.eml` files to `data/outbox/` — the default, so the whole
+  thing works with no credentials), `smtp`, and `twilio`/`meta` for WhatsApp.
+* **Automatic messages:** punch-in/check-out confirmation, a late alert, "your
+  leave was requested" to HR, "your leave was approved/rejected" to the employee,
+  "your profile change was decided", and **payslips with the PDF attached**.
+* **Noticeboard** (`/announcements`) — post a notice once; it appears on the HR
+  dashboard and every employee portal, and can be mailed/WhatsApped to everyone in
+  the same action. Pin it, expire it, hide it.
+* **Notification log** (`/notifications`) — what was sent to whom, when, why it
+  failed, with "send queued now", "retry failed" and a test-message button.
+* **Forgot password** (`/forgot-password`) — email OTP, 10-minute expiry, 5
+  attempts, 60-second cooldown, stored hashed, and the same response whether or
+  not the account exists (no user enumeration).
+* **Payslip PDFs** — a real A4 PDF per payslip (fpdf2, core fonts, no font files
+  to ship), downloadable by HR and by the employee from their own portal.
+* **Profile & bank change workflow** (`/me/profile` → `/profile-requests`) —
+  employees request changes; **nothing updates until HR approves**, and every
+  decision is in the audit log.
+
+### Employee records: documents, assets, expenses, field attendance
+
+* **Document vault** (`/documents`) — Aadhaar, PAN, offer letters, contracts and resumes
+  per employee. Uploads are validated by **magic number, not file extension**, capped at
+  8 MB, and stored under random names in `data/uploads/`; the original filename is only a
+  label. HR verifies each file; the employee sees only their own. PDF/JPEG/PNG/WebP.
+* **Asset register** (`/assets`) — laptops, phones, SIMs, ID cards and peripherals with
+  tag, serial and cost. Assign to an employee, return to stock, and the full assignment
+  history is kept per asset. Employees see their own holdings at `/me/assets`.
+* **Expense claims** (`/me/expenses`) — employee submits an amount, date, description and
+  an optional **receipt photo**; HR approves or rejects in `/expenses`. Receipts are
+  private to the claimant and HR. Approved totals per status are shown on both pages.
+* **Field / remote attendance** (`/me/field`, `/locations`) — HR defines allowed places
+  with a radius; staff check in from a phone using browser geolocation (plus an optional
+  selfie). The server measures the distance with the haversine formula and **only marks
+  attendance inside the fence**; an outside attempt is recorded with its distance but does
+  not mark anything. Attendance written this way is tagged `source='field'` and carries the
+  location in `device_label`.
+
+  > **Honest limit:** phone GPS can be mocked. Geo-fencing raises the effort and leaves
+  > evidence (coordinates, accuracy, distance, selfie) for HR to review — it does not prove
+  > presence. Do not use it as the only control for anything security-critical.
+
+### Employee portal (`/me`) — self-service
+
+Each employee gets their own login (username = employee code, e.g. `fits001`,
+password set by HR on the employee page or in bulk with `cli.py ess`). They see
+**only their own** data — every query is filtered by the employee id inside the
+signed session, and there is no employee-id parameter in the URLs to tamper with:
+
+* **`/me`** — today's status (checked in / out / on leave / not marked), this
+  month's present/half/leave/absent counts, leave balance, latest payslip.
+* **`/me/attendance`** — day-by-day history with in/out times, hours and notes.
+* **`/me/leave`** — balance and their own requests; **applying creates a
+  `pending` request** that changes nothing until HR approves it.
+* **`/me/payslips`** — their own payslips, printable to PDF. Someone else's
+  payslip id returns "not found", not a permission error that confirms it exists.
+
+HR approving a request stamps it onto the attendance calendar in the same action,
+so payroll stays correct without a second reconciliation step. Rejecting it
+leaves attendance untouched. Employees can withdraw a pending request themselves;
+an approved one needs HR (cancelling restores the days).
 
 ### …plus what a real HRMS needs
 
@@ -66,6 +133,9 @@ Want data to click through immediately?
 ```bash
 ./.venv/bin/python3 cli.py seed-demo --employees 12
 ./.venv/bin/python3 cli.py seed-demo --employees 12 --enrol   # needs the Face API running
+
+# give everyone an employee-portal login (prints each password once)
+./.venv/bin/python3 cli.py ess --missing-only
 ```
 
 ### 2. Docker (both services, one command)
@@ -142,17 +212,19 @@ screen costs you nothing in the records.
 
 ## Roles and access
 
-| | `hr` | `kiosk` |
-|---|---|---|
-| Dashboard, employees, salaries | ✅ | ❌ (redirected to the scanner) |
-| Leave, payroll, settings, audit | ✅ | ❌ |
-| Open `/kiosk` and scan | ✅ (for testing) | ✅ |
+| | `hr` | `kiosk` | `employee` |
+|---|---|---|---|
+| Dashboard, employees, salaries | ✅ | ❌ (redirected to the scanner) | ❌ |
+| Leave, payroll, settings, audit | ✅ | ❌ | ❌ |
+| Open `/kiosk` and scan | ✅ (for testing) | ✅ | ❌ (redirected to `/me`) |
+| Own attendance, payslips, leave | ✅ | ❌ | ✅ **only their own** |
 | Device label on scans | “HR console” | the device label you set (`Main Gate`, `Back Gate`, …) |
 | Other people's attendance on screen | full dashboard | **nothing** — the scanner shows no names, counts or history |
 
-Sessions are signed, HTTP-only cookies: **12 hours** for HR, **30 days** for the
-kiosk so the gate device does not need a daily sign-in. Every state-changing
-request needs the session's CSRF token. Passwords are stored as salted
+Sessions are signed, HTTP-only cookies: **12 hours** for HR and employees, **30
+days** for the kiosk so the gate device does not need a daily sign-in.
+
+Every state-changing request needs the session's CSRF token. Passwords are stored as salted
 **scrypt** hashes; the plaintext is never written anywhere.
 
 ---
@@ -236,13 +308,18 @@ hrms/
 │   │   ├── leave.py       paid/unpaid/half-day leave, balances
 │   │   └── payroll.py     runs, LOP maths, payslips, exports
 │   ├── routes/            auth, dashboard, employees, attendance, leave,
-│   │                      payroll, admin/settings, kiosk, meta
-│   ├── templates/         17 Jinja templates (branded, print-friendly payslip)
+│   │                      payroll, admin/settings, kiosk, **me (ESS)**, meta
+│   ├── templates/         37 Jinja templates (branded, print-friendly payslip)
 │   └── static/            css/app.css · js/app.js · js/kiosk.js · sw.js · icons
 ├── scripts/               make_icons.py, seed_demo.py, verify_e2e.py, setup_local.sh
-├── tests/                 113 tests (68 service/unit + 45 web)
+├── tests/                 206 tests (services, web, ESS, notifications, records)
 ├── deploy/                Caddyfile, hrms.service (systemd)
-├── cli.py                 doctor · init · serve · users · stats · seed-demo
+├── cli.py                 doctor · init · serve · users · ess · stats · seed-demo
+├── app/notify.py          outbox queue + email / WhatsApp / SMS drivers
+├── app/pdf.py             payslip PDF renderer
+├── app/uploads.py         validated file storage (magic-number sniffing, 8 MB cap)
+├── app/services/records.py  documents · assets · expense claims
+├── app/services/field.py  geo-fenced field attendance
 └── Dockerfile · docker-compose.yml · .env.example
 ```
 
@@ -251,7 +328,7 @@ hrms/
 ## Tests
 
 ```bash
-./.venv/bin/python3 -m pytest            # 113 tests, ~9 s
+./.venv/bin/python3 -m pytest            # 206 tests, ~27 s
 ./.venv/bin/python3 cli.py doctor        # environment + face service check
 ./.venv/bin/python3 scripts/verify_e2e.py --help
 ```

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}My payslips · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>My payslips</h1>
+    <div class="sub">{{ employee.name }} · {{ employee.code }}{% if employee.department %} · {{ employee.department }}{% endif %}</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/me">← My day</a>
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead>
+        <tr><th>Month</th><th class="num">Gross</th><th class="num">Present days</th><th class="num">LOP</th>
+          <th class="num">Bonus</th><th class="num">Deductions</th><th class="num">Net pay</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for slip in slips %}
+        <tr>
+          <td data-label="Month"><strong>{{ slip.period }}</strong></td>
+          <td data-label="Gross" class="num">{{ slip.monthly_gross | money }}</td>
+          <td data-label="Present days" class="num">{{ slip.present_days | number }}</td>
+          <td data-label="LOP" class="num">
+            {% if slip.lop_days %}<span class="chip chip-danger">{{ slip.lop_days | number }}</span>{% else %}0{% endif %}
+          </td>
+          <td data-label="Bonus" class="num">{{ slip.bonus | money if slip.bonus else '—' }}</td>
+          <td data-label="Deductions" class="num">{{ slip.total_deductions | money }}</td>
+          <td data-label="Net pay" class="num"><strong>{{ slip.net_pay | money }}</strong></td>
+          <td data-label="Status">
+            <span class="chip {{ 'chip-ok' if slip.run_status != 'draft' else 'chip-warn' }}">
+              {{ 'final' if slip.run_status != 'draft' else 'draft' }}
+            </span>
+          </td>
+          <td class="actions-cell">
+            <a class="btn btn-sm" href="/me/payslips/{{ slip.id }}">Open</a>
+            <a class="btn btn-sm btn-primary" href="/me/payslips/{{ slip.id }}.pdf">PDF</a>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9" class="empty-state"><span class="ico">📄</span>
+          No payslips yet — your first one appears as soon as HR runs payroll for the month.
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-foot small muted">
+    "Draft" means HR has calculated the month but not finalised it — the figures can still change. Open a payslip
+    to print it or save it as a PDF.
+  </div>
+</div>
+{% endblock %}

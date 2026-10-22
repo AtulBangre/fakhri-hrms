@@ -66,6 +66,15 @@
             <button class="btn" type="submit">Reopen</button>
           </form>
         {% endif %}
+        {% if run.status != 'draft' %}
+          <form method="post" action="/payroll/email">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="period" value="{{ period }}">
+            <input type="hidden" name="only_missing" value="1">
+            <input type="hidden" name="send_now" value="1">
+            <button class="btn btn-primary" type="submit">✉️ Email payslips</button>
+          </form>
+        {% endif %}
         {% if run.status != 'paid' %}
           <form method="post" action="/payroll/delete" data-confirm="Delete the {{ period_label }} run and all its payslips?">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -124,6 +133,7 @@
             <td data-label="Net pay" class="num"><strong>{{ slip.net_pay | money }}</strong></td>
             <td class="actions-cell">
               <a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}">Payslip</a>
+              <a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}.pdf">PDF</a>
             </td>
           </tr>
           {% if run.status == 'draft' %}

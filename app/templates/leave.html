@@ -13,6 +13,53 @@
   </div>
 </div>
 
+{% if pending %}
+<div class="card mb-3" style="border-color:var(--warning);background:var(--warning-soft)">
+  <div class="card-head" style="border-bottom-color:#f4e0bd">
+    <h2>⏳ Waiting for your approval ({{ pending | length }})</h2>
+    <span class="spacer"></span>
+    <span class="small">Employees requested these from their own login</span>
+  </div>
+  <div class="card-body" style="padding:0">
+    <div class="table-wrap">
+      <table class="data stack">
+        <thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th class="num">Days</th><th>Reason</th><th></th></tr></thead>
+        <tbody>
+        {% for item in pending %}
+          <tr>
+            <td data-label="Employee">
+              <a href="/employees/{{ item.employee_id }}"><strong>{{ item.employee_name }}</strong></a>
+              <span class="sub">{{ item.employee_code }}{% if item.department %} · {{ item.department }}{% endif %}</span>
+            </td>
+            <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
+            <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
+            <td data-label="Days" class="num">{{ item.days | number }}</td>
+            <td data-label="Reason" class="small">{{ item.reason or '—' }}</td>
+            <td class="actions-cell">
+              <div style="display:flex;gap:.35rem;flex-wrap:wrap;justify-content:flex-end">
+                <form method="post" action="/leave/{{ item.id }}/approve">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="period" value="{{ period }}">
+                  <button class="btn btn-sm btn-primary" type="submit">Approve</button>
+                </form>
+                <form method="post" action="/leave/{{ item.id }}/reject"
+                      data-confirm="Reject this request? The employee will see it was declined.">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="period" value="{{ period }}">
+                  <input type="hidden" name="reason" value="">
+                  <button class="btn btn-sm btn-danger" type="submit">Reject</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="grid grid-sidebar">
   <div>
     <div class="card mb-3">

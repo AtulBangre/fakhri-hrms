@@ -6,3 +6,4 @@ python-multipart==0.0.32
 httpx==0.28.1
 pillow==12.3.0
 python-dotenv==1.2.4
+fpdf2>=2.7.9

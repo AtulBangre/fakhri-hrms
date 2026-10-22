@@ -42,6 +42,7 @@ DK_LEN = 32
 
 ROLE_HR = "hr"
 ROLE_KIOSK = "kiosk"
+ROLE_EMPLOYEE = "employee"
 
 
 # --------------------------------------------------------------------- hashing
@@ -77,6 +78,7 @@ class SessionUser:
     display_name: str
     csrf: str
     device_label: str | None = None
+    employee_id: int | None = None
     exp: int = 0
 
     @property
@@ -86,6 +88,10 @@ class SessionUser:
     @property
     def is_kiosk(self) -> bool:
         return self.role == ROLE_KIOSK
+
+    @property
+    def is_employee(self) -> bool:
+        return self.role == ROLE_EMPLOYEE
 
     @property
     def initials(self) -> str:
@@ -114,6 +120,7 @@ def create_session_token(user: dict[str, Any], settings: Settings, *, lifetime_s
         "r": user["role"],
         "n": user.get("display_name") or user["username"],
         "d": user.get("device_label"),
+        "eid": user.get("employee_id"),
         "csrf": csrf,
         "exp": int(time.time()) + int(lifetime_seconds),
     }
@@ -125,6 +132,7 @@ def create_session_token(user: dict[str, Any], settings: Settings, *, lifetime_s
         role=payload["r"],
         display_name=payload["n"],
         device_label=payload["d"],
+        employee_id=payload.get("eid"),
         csrf=csrf,
         exp=payload["exp"],
     )
@@ -149,6 +157,7 @@ def read_session_token(token: str | None, settings: Settings) -> SessionUser | N
         role=payload["r"],
         display_name=payload.get("n") or payload["u"],
         device_label=payload.get("d"),
+        employee_id=payload.get("eid"),
         csrf=payload.get("csrf", ""),
         exp=int(payload["exp"]),
     )
@@ -203,14 +212,37 @@ def current_user(request: Request) -> SessionUser:
     return session
 
 
+def require_employee(request: Request) -> SessionUser:
+    """Employee portal pages: the caller must own an employee record."""
+    session = current_user(request)
+    if not session.is_employee or not session.employee_id:
+        if _wants_html(request):
+            raise HTTPException(
+                status_code=status.HTTP_303_SEE_OTHER,
+                headers={"Location": "/dashboard" if session.is_hr else "/kiosk"},
+            )
+        raise HTTPException(status_code=403, detail="Employee portal access required")
+    return session
+
+
+def require_hr_or_kiosk(request: Request) -> SessionUser:
+    """The gate scanner. An employee login must not be able to open it."""
+    session = current_user(request)
+    if session.is_employee:
+        if _wants_html(request):
+            raise HTTPException(
+                status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/me"}
+            )
+        raise HTTPException(status_code=403, detail="The scanner is not available to employee logins")
+    return session
+
+
 def require_hr(request: Request) -> SessionUser:
     session = current_user(request)
     if not session.is_hr:
         if _wants_html(request):
-            raise HTTPException(
-                status_code=status.HTTP_303_SEE_OTHER,
-                headers={"Location": "/kiosk?err=" + "Kiosk+login+can+only+mark+attendance"},
-            )
+            home = "/me" if session.is_employee else "/kiosk?err=Kiosk+login+can+only+mark+attendance"
+            raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": home})
         raise HTTPException(status_code=403, detail="HR access required")
     return session
 
@@ -250,14 +282,17 @@ def create_user(
     role: str,
     display_name: str | None = None,
     device_label: str | None = None,
+    employee_id: int | None = None,
 ) -> dict[str, Any]:
     password_hash, salt = hash_password(password)
     storage.execute(
         """
-        INSERT INTO users (username, password_hash, salt, role, display_name, device_label, active, created_at)
-        VALUES (?,?,?,?,?,?,1,?)
+        INSERT INTO users (username, password_hash, salt, role, display_name, device_label,
+                           active, created_at, employee_id)
+        VALUES (?,?,?,?,?,?,1,?,?)
         """,
-        (username.strip().lower(), password_hash, salt, role, display_name or username, device_label, utcnow_iso()),
+        (username.strip().lower(), password_hash, salt, role, display_name or username,
+         device_label, utcnow_iso(), employee_id),
     )
     user = get_user_by_username(storage, username)
     assert user is not None
@@ -358,3 +393,63 @@ def ensure_default_users(storage: Storage, settings: Settings) -> list[tuple[str
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         path.chmod(0o600)
     return created
+
+
+# ------------------------------------------------------- employee self-service
+def get_user_for_employee(storage: Storage, employee_id: int) -> dict[str, Any] | None:
+    """The portal login linked to one employee, if it exists."""
+    return storage.query_one(
+        "SELECT * FROM users WHERE employee_id = ? AND role = ? ORDER BY id LIMIT 1",
+        (employee_id, ROLE_EMPLOYEE),
+    )
+
+
+def ensure_employee_login(
+    storage: Storage, employee: dict[str, Any], *, password: str | None = None
+) -> tuple[dict[str, Any], str]:
+    """Create (or reset) the portal login for an employee.
+
+    The username is the employee code in lower case, which is unique and stable
+    (``FITS001`` → ``fits001``). Returns ``(user, plaintext_password)`` — the
+    password is shown once and never stored in readable form.
+    """
+    code = str(employee.get("code") or "").strip().lower()
+    if not code:
+        raise ValueError("Employee has no code, so a login cannot be created.")
+
+    existing = get_user_for_employee(storage, employee["id"])
+    new_password = password or generate_password()
+
+    if existing:
+        change_password(storage, existing["id"], new_password)
+        storage.execute(
+            "UPDATE users SET display_name = ?, active = 1 WHERE id = ?",
+            (employee.get("name") or existing["username"], existing["id"]),
+        )
+        refreshed = get_user(storage, existing["id"])
+        assert refreshed is not None
+        return refreshed, new_password
+
+    clash = get_user_by_username(storage, code)
+    if clash:
+        raise ValueError(
+            f"The username '{code}' is already taken by another login — change the employee code first."
+        )
+
+    user = create_user(
+        storage,
+        username=code,
+        password=new_password,
+        role=ROLE_EMPLOYEE,
+        display_name=employee.get("name") or code,
+        employee_id=employee["id"],
+    )
+    return user, new_password
+
+
+def disable_employee_login(storage: Storage, employee_id: int) -> bool:
+    user = get_user_for_employee(storage, employee_id)
+    if user is None:
+        return False
+    set_user_active(storage, user["id"], False)
+    return True

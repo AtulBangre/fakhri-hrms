@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}My assets · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>My assets</h1>
+    <div class="sub">Company property issued to you. Tell HR when you hand something back.</div>
+  </div>
+  <div class="page-actions"><a class="btn" href="/me">← My day</a></div>
+</div>
+
+<div class="card flush">
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead><tr><th>Tag</th><th>Item</th><th>Issued on</th><th>Condition</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td data-label="Tag" class="mono"><strong>{{ row.tag }}</strong></td>
+          <td data-label="Item">{{ row.name }}<span class="sub">{{ row.category_label }}{% if row.serial %} · {{ row.serial }}{% endif %}</span></td>
+          <td data-label="Issued on">{{ row.assigned_on }}</td>
+          <td data-label="Condition" class="small muted">{{ row.condition_note or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="empty-state"><span class="ico">💻</span>Nothing issued to you right now.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-foot small muted">
+    You are responsible for this equipment. If it is lost or damaged, tell HR so the record is updated.
+  </div>
+</div>
+{% endblock %}

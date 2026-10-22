@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Notification log · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Notification log</h1>
+    <div class="sub">Every message the HRMS has tried to send — email, WhatsApp, SMS — with its delivery state.</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/announcements">← Noticeboard</a>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat {{ 'warn' if stats.pending else 'ok' }}"><div class="label">Waiting</div><div class="value">{{ stats.pending }}</div>
+    <div class="foot">background sender picks these up</div></div>
+  <div class="stat ok"><div class="label">Sent</div><div class="value">{{ stats.sent }}</div><div class="foot">delivered to the driver</div></div>
+  <div class="stat {{ 'danger' if stats.failed else '' }}"><div class="label">Failed</div><div class="value">{{ stats.failed }}</div>
+    <div class="foot">after 3 attempts</div></div>
+  <div class="stat"><div class="label">Drivers</div>
+    <div class="value" style="font-size:.95rem;line-height:1.5">email: {{ email_driver }}<br>wa: {{ whatsapp_provider }}<br>sms: {{ sms_provider }}</div>
+    <div class="foot">configure with HRMS_* env vars</div></div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="filters">
+      <form method="post" action="/notifications/dispatch" style="display:inline">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn btn-primary" type="submit">▶ Send queued now</button>
+      </form>
+      <form method="post" action="/notifications/retry" style="display:inline"
+            data-confirm="Queue every failed message for another attempt?">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn" type="submit">↻ Retry failed</button>
+      </form>
+      <form method="get" action="/notifications" class="filters" style="margin-left:auto">
+        <div class="field">
+          <select name="status" onchange="this.form.submit()">
+            {% for value in ('all', 'pending', 'sent', 'failed') %}
+              <option value="{{ value }}" {{ 'selected' if status_filter == value }}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </form>
+    </div>
+    <hr class="divider">
+    <form method="post" action="/notifications/test" class="filters">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="field">
+        <label for="channel">Send a test</label>
+        <select id="channel" name="channel">
+          <option value="email">email</option>
+          <option value="whatsapp">whatsapp</option>
+          <option value="sms">sms</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="recipient">To</label>
+        <input id="recipient" name="recipient" type="text" placeholder="you@example.com or +91 90000 00000">
+      </div>
+      <button class="btn" type="submit">Send test</button>
+      <span class="small muted">Useful right after entering SMTP credentials.</span>
+    </form>
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead><tr><th>When</th><th>Channel</th><th>To</th><th>Category</th><th>Subject</th><th>Status</th><th>Tries</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td data-label="When" class="nowrap small">{{ row.created_at[:16].replace('T', ' ') }}</td>
+          <td data-label="Channel"><span class="chip chip-muted">{{ row.channel }}</span></td>
+          <td data-label="To" class="small">{{ row.recipient }}</td>
+          <td data-label="Category" class="small muted">{{ row.category }}</td>
+          <td data-label="Subject" class="small">
+            {{ row.subject or (row.body[:60] ~ '…') }}
+            {% if row.error %}<span class="sub" style="color:var(--danger)">{{ row.error[:120] }}</span>{% endif %}
+          </td>
+          <td data-label="Status">
+            <span class="chip {{ 'chip-ok' if row.status == 'sent' else ('chip-danger' if row.status == 'failed' else 'chip-warn') }}">{{ row.status }}</span>
+          </td>
+          <td data-label="Tries" class="num">{{ row.attempts }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="empty-state"><span class="ico">📨</span>No messages yet. Post an announcement or mark attendance to generate some.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

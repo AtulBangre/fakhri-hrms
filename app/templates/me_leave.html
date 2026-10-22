@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}My leave · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>My leave</h1>
+    <div class="sub">{{ balance.balance | number }} day(s) available · {{ balance.used_paid | number }} taken this year</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/me">← My day</a>
+    <a class="btn" href="/me/attendance">My attendance</a>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Apply for leave</h2></div>
+      <div class="card-body">
+        <form method="post" action="/me/leave">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="leave_type">Leave type</label>
+              <select id="leave_type" name="leave_type" required>
+                {% for value in leave_types %}
+                  <option value="{{ value }}">{{ leave_labels[value] }}{% if value == 'unpaid' %} — no pay{% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="from_date">Date</label>
+              <input id="from_date" name="from_date" type="date" value="{{ today.isoformat() }}" required>
+            </div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="to_date">To (leave blank for one day)</label>
+              <input id="to_date" name="to_date" type="date">
+            </div>
+            <div class="field">
+              <label>Half day</label>
+              <div class="checkline" style="padding-top:.5rem">
+                <input id="half_day" name="half_day" type="checkbox" value="1">
+                <label for="half_day" style="margin:0">Only half of that day</label>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="reason">Reason</label>
+            <input id="reason" name="reason" type="text" placeholder="family function, medical, personal…">
+          </div>
+          <button class="btn btn-primary" type="submit">Send request to HR</button>
+          <span class="small muted">HR approves it, then it appears in your attendance. You can withdraw it while it is still pending.</span>
+        </form>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head"><h2>My requests</h2></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Dates</th><th>Type</th><th class="num">Days</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+          {% for item in leaves %}
+            <tr>
+              <td data-label="Dates">
+                {{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}
+              </td>
+              <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
+              <td data-label="Days" class="num">{{ item.days | number }}</td>
+              <td data-label="Status">
+                <span class="chip {{ 'chip-ok' if item.status == 'approved' else ('chip-warn' if item.status == 'pending' else 'chip-muted') }}">{{ item.status }}</span>
+                {% if item.reason %}<span class="sub muted">{{ item.reason }}</span>{% endif %}
+              </td>
+              <td class="actions-cell">
+                {% if item.status == 'pending' %}
+                  <form method="post" action="/me/leave/{{ item.id }}/cancel" data-confirm="Withdraw this leave request?">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm" type="submit">Withdraw</button>
+                  </form>
+                {% elif item.status == 'approved' %}
+                  <span class="small muted">ask HR to cancel</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty-state"><span class="ico">🌴</span>No requests yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Balance</h3></div>
+      <div class="card-body">
+        <div style="font-family:var(--font-heading);font-size:2.2rem;font-weight:600;line-height:1">
+          {{ balance.balance | number }}<span class="small muted"> days</span>
+        </div>
+        <div class="kv small mt-2">
+          <div><span class="k">Earned so far</span><span class="v">{{ balance.accrued | number }}</span></div>
+          <div><span class="k">Paid leave taken</span><span class="v">{{ balance.used_paid | number }}</span></div>
+          <div><span class="k">Unpaid taken</span><span class="v">{{ balance.used_unpaid | number }}</span></div>
+          <div><span class="k">Waiting for approval</span><span class="v">{{ balance.pending | number }}</span></div>
+          <div><span class="k">Months of service</span><span class="v">{{ balance.months_of_service }}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>How it works</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1"><strong>Paid / sick / casual</strong> — paid in full and taken from your balance.</p>
+        <p class="mb-1"><strong>Unpaid</strong> — no balance impact, but that day is not paid.</p>
+        <p class="mb-1"><strong>Half day</strong> — a single date only, worth 0.5 day.</p>
+        <p class="mb-0"><strong>Weekly offs and holidays</strong> inside your dates are skipped and never charged.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Who to ask</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-0">Your request goes to HR. If it is urgent, message HR directly — the system does not send
+          reminders, so an approved request shows up in your attendance within a minute of HR clicking approve.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

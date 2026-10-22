@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}My documents · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>My documents</h1>
+    <div class="sub">Upload your Aadhaar, PAN, offer letter or contract. HR verifies them — only you and HR can see them.</div>
+  </div>
+  <div class="page-actions"><a class="btn" href="/me">← My day</a></div>
+</div>
+
+{% if summary.missing_required %}
+  <div class="alert alert-warn">
+    <span class="ico">📄</span>
+    <div>Still missing: <strong>{% for c in summary.missing_required %}{{ categories.get(c, c) }}{% if not loop.last %}, {% endif %}{% endfor %}</strong> — please upload when you can.</div>
+  </div>
+{% endif %}
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Upload a document</h2></div>
+      <div class="card-body">
+        <form method="post" action="/me/documents" enctype="multipart/form-data">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="category">Type</label>
+              <select id="category" name="category">
+                {% for value, label in categories.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="title">Title (optional)</label>
+              <input id="title" name="title" type="text" placeholder="Aadhaar — front">
+            </div>
+          </div>
+          <div class="field">
+            <label for="file">File</label>
+            <input id="file" name="file" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required>
+            <div class="hint">PDF, JPG, PNG or WebP · up to 8 MB. Use your phone camera to photograph the document.</div>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit">Upload</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head"><h2>My files</h2><span class="spacer"></span>
+        <span class="small muted">{{ summary.total }} uploaded</span></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Type</th><th>File</th><th>Uploaded</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for row in rows %}
+            <tr>
+              <td data-label="Type"><span class="chip chip-info">{{ row.category_label }}</span></td>
+              <td data-label="File" class="small">
+                <a href="/documents/{{ row.id }}/file">{{ row.filename }}</a>
+                <span class="sub muted">{{ sizes.get(row.id, '') }}</span>
+              </td>
+              <td data-label="Uploaded" class="small nowrap">{{ row.uploaded_at[:16].replace('T', ' ') }}</td>
+              <td data-label="Status">
+                <span class="chip {{ 'chip-ok' if row.verified else 'chip-warn' }}">{{ 'verified' if row.verified else 'waiting for HR' }}</span>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="empty-state"><span class="ico">📁</span>Nothing uploaded yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Why this is needed</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1"><strong>Aadhaar</strong> — identity and address for statutory records.</p>
+        <p class="mb-1"><strong>PAN</strong> — required for TDS and your Form 16.</p>
+        <p class="mb-0"><strong>Offer letter / contract</strong> — your employment terms.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Your privacy</h3></div>
+      <div class="card-body small muted">
+        Only HR and you can open these files. They are stored under random names on the server, and the type is
+        checked from the file contents — not from its name. Ask HR to delete a file if you have uploaded the wrong one.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

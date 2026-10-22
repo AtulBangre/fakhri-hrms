@@ -234,6 +234,58 @@
     </div>
 
     <div class="card mb-3">
+      <div class="card-head"><h3>Employee portal</h3>
+        {% if ess_user %}<span class="spacer"></span>
+          <span class="chip {{ 'chip-ok' if ess_user.active else 'chip-muted' }}">{{ 'active' if ess_user.active else 'disabled' }}</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% if ess_user %}
+          <div class="kv small mb-2">
+            <div><span class="k">Username</span><span class="v mono">{{ ess_user.username }}</span></div>
+            <div><span class="k">Last sign-in</span><span class="v">{{ ess_user.last_login_at | nice_date('%d %b %Y %H:%M') if ess_user.last_login_at else 'never' }}</span></div>
+          </div>
+          <p class="small muted">They can see their own attendance, payslips and leave balance, and apply for leave
+            (it arrives in your approval queue). They cannot see anyone else's data.</p>
+          <details class="disclosure" style="margin-bottom:.5rem">
+            <summary>🔑 Reset their password</summary>
+            <div class="card-body">
+              <form method="post" action="/employees/{{ employee.id }}/portal">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <div class="field">
+                  <label for="portal-pass">New password</label>
+                  <input id="portal-pass" name="password" type="text" minlength="8" value="{{ suggested_password }}" required>
+                  <div class="hint">Copy it first — it is not shown again anywhere.</div>
+                </div>
+                <button class="btn btn-sm btn-primary" type="submit">Set password</button>
+              </form>
+            </div>
+          </details>
+          {% if ess_user.active %}
+            <form method="post" action="/employees/{{ employee.id }}/portal/disable"
+                  data-confirm="Disable this portal login?">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <button class="btn btn-sm btn-block" type="submit">Disable portal login</button>
+            </form>
+          {% endif %}
+        {% else %}
+          <p class="small muted">Give this person their own login: they can then check attendance, print payslips and
+            request leave without asking HR.</p>
+          <form method="post" action="/employees/{{ employee.id }}/portal">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <div class="field">
+              <label for="portal-pass">Password</label>
+              <input id="portal-pass" name="password" type="text" minlength="8" value="{{ suggested_password }}" required>
+              <div class="hint">Username will be <span class="mono">{{ employee.code | lower }}</span>.
+                Copy the password now — it is not stored in readable form.</div>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit">Create portal login</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
       <div class="card-head"><h3>Contact</h3></div>
       <div class="card-body">
         <div class="kv">

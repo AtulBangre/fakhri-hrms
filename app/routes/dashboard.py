@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 
 from ..auth import SessionUser, require_hr
 from ..deps import get_face, get_settings_dep, get_storage, render
+from ..services import announcements as announcement_service
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
 from ..services import leave as leave_service
@@ -43,6 +44,8 @@ def dashboard(
         pending_face=employees_service.employees_missing_face(storage)[:5],
         leave_today=leave_service.list_leave(storage, period=current_period, limit=5),
         recent_leave=leave_service.list_leave(storage, limit=5),
+        announcements=announcement_service.visible_for(storage, "hr"),
+        company_notice_footer=storage.get_setting("company_notice_footer", ""),
     )
 
 

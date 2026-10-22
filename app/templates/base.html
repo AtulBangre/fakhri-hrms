@@ -1,19 +1,42 @@
 {# App shell: top bar, sidebar (desktop), drawer + bottom tabs (mobile). #}
 {% macro navlinks() -%}
-  <div class="nav-section">Attendance</div>
-  <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}"><span class="ico">📊</span> Dashboard</a>
-  <a href="/attendance" class="{{ 'active' if active == 'attendance' }}"><span class="ico">🗓️</span> Daily board</a>
-  <a href="/attendance/register" class="{{ 'active' if active == 'register' }}"><span class="ico">📋</span> Monthly register</a>
-  <a href="/leave" class="{{ 'active' if active == 'leave' }}"><span class="ico">🌴</span> Leave</a>
-  <div class="nav-section">People</div>
-  <a href="/employees" class="{{ 'active' if active == 'employees' }}"><span class="ico">👥</span> Employees</a>
-  <a href="/employees/new" class=""><span class="ico">➕</span> Add employee</a>
-  <div class="nav-section">Money</div>
-  <a href="/payroll" class="{{ 'active' if active == 'payroll' }}"><span class="ico">💰</span> Payroll</a>
-  <div class="nav-section">System</div>
-  <a href="/kiosk"><span class="ico">📷</span> Gate scanner</a>
-  <a href="/settings" class="{{ 'active' if active == 'settings' }}"><span class="ico">⚙️</span> Settings</a>
-  <a href="/audit" class="{{ 'active' if active == 'audit' }}"><span class="ico">🧾</span> Audit log</a>
+  {% if user and user.is_employee %}
+    <div class="nav-section">My space</div>
+    <a href="/me" class="{{ 'active' if active == 'me' }}"><span class="ico">🏠</span> My day</a>
+    <a href="/me/attendance" class="{{ 'active' if active == 'me-attendance' }}"><span class="ico">🗓️</span> My attendance</a>
+    <a href="/me/leave" class="{{ 'active' if active == 'me-leave' }}"><span class="ico">🌴</span> My leave</a>
+    <a href="/me/payslips" class="{{ 'active' if active == 'me-payslips' }}"><span class="ico">📄</span> My payslips</a>
+    <a href="/me/profile" class="{{ 'active' if active == 'me-profile' }}"><span class="ico">👤</span> My profile</a>
+    <div class="nav-section">Work</div>
+    <a href="/me/field" class="{{ 'active' if active == 'me-field' }}"><span class="ico">📍</span> Field attendance</a>
+    <a href="/me/documents" class="{{ 'active' if active == 'me-documents' }}"><span class="ico">📁</span> My documents</a>
+    <a href="/me/assets" class="{{ 'active' if active == 'me-assets' }}"><span class="ico">💻</span> My assets</a>
+    <a href="/me/expenses" class="{{ 'active' if active == 'me-expenses' }}"><span class="ico">🧾</span> My expenses</a>
+  {% else %}
+    <div class="nav-section">Attendance</div>
+    <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}"><span class="ico">📊</span> Dashboard</a>
+    <a href="/attendance" class="{{ 'active' if active == 'attendance' }}"><span class="ico">🗓️</span> Daily board</a>
+    <a href="/attendance/register" class="{{ 'active' if active == 'register' }}"><span class="ico">📋</span> Monthly register</a>
+    <a href="/leave" class="{{ 'active' if active == 'leave' }}"><span class="ico">🌴</span> Leave</a>
+    <div class="nav-section">People</div>
+    <a href="/employees" class="{{ 'active' if active == 'employees' }}"><span class="ico">👥</span> Employees</a>
+    <a href="/employees/new" class=""><span class="ico">➕</span> Add employee</a>
+    <div class="nav-section">Money</div>
+    <a href="/payroll" class="{{ 'active' if active == 'payroll' }}"><span class="ico">💰</span> Payroll</a>
+    <a href="/profile-requests" class="{{ 'active' if active == 'profile-requests' }}"><span class="ico">🧾</span> Profile changes</a>
+    <div class="nav-section">Records</div>
+    <a href="/documents" class="{{ 'active' if active == 'documents' }}"><span class="ico">📁</span> Documents</a>
+    <a href="/assets" class="{{ 'active' if active == 'assets' }}"><span class="ico">💻</span> Assets</a>
+    <a href="/expenses" class="{{ 'active' if active == 'expenses' }}"><span class="ico">🧾</span> Expense claims</a>
+    <a href="/locations" class="{{ 'active' if active == 'locations' }}"><span class="ico">📍</span> Field locations</a>
+    <div class="nav-section">Communicate</div>
+    <a href="/announcements" class="{{ 'active' if active == 'announcements' }}"><span class="ico">📣</span> Noticeboard</a>
+    <a href="/notifications"><span class="ico">📨</span> Notifications</a>
+    <div class="nav-section">System</div>
+    <a href="/kiosk"><span class="ico">📷</span> Gate scanner</a>
+    <a href="/settings" class="{{ 'active' if active == 'settings' }}"><span class="ico">⚙️</span> Settings</a>
+    <a href="/audit" class="{{ 'active' if active == 'audit' }}"><span class="ico">🧾</span> Audit log</a>
+  {% endif %}
 {%- endmacro %}
 
 {% macro flash() -%}
@@ -48,7 +71,7 @@
 <div class="app">
   <header class="topbar no-print">
     <button class="icon-btn" id="menuToggle" aria-label="Open menu">☰</button>
-    <a href="{{ '/kiosk' if user and user.is_kiosk else '/dashboard' }}" class="topbar-brand">
+    <a href="{{ '/me' if user and user.is_employee else ('/kiosk' if user and user.is_kiosk else '/dashboard') }}" class="topbar-brand">
       <span class="brand-mark">F</span>
       <span class="brand-text">
         <strong>{% block brandline %}{{ org_name }}{% endblock %}</strong>
@@ -57,7 +80,7 @@
     </a>
     <div class="topbar-actions">
       {% if user %}
-        <a class="icon-btn" href="/kiosk" title="Gate scanner">📷</a>
+        {% if not user.is_employee %}<a class="icon-btn" href="/kiosk" title="Gate scanner">📷</a>{% endif %}
         <form method="post" action="/logout" style="display:inline">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <button class="icon-btn" type="submit" title="Sign out">⏏</button>
@@ -98,11 +121,24 @@
   </div>
 
   <nav class="bottom-nav no-print">
-    <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}"><span class="ico">📊</span> Board</a>
-    <a href="/employees" class="{{ 'active' if active == 'employees' }}"><span class="ico">👥</span> People</a>
-    <a href="/kiosk"><span class="ico">📷</span> Scan</a>
-    <a href="/attendance" class="{{ 'active' if active == 'attendance' }}"><span class="ico">🗓️</span> Attendance</a>
-    <a href="/payroll" class="{{ 'active' if active == 'payroll' }}"><span class="ico">💰</span> Payroll</a>
+    {% if user and user.is_employee %}
+      <a href="/me" class="{{ 'active' if active == 'me' }}"><span class="ico">🏠</span> My day</a>
+      <a href="/me/attendance" class="{{ 'active' if active == 'me-attendance' }}"><span class="ico">🗓️</span> Attendance</a>
+      <a href="/me/leave" class="{{ 'active' if active == 'me-leave' }}"><span class="ico">🌴</span> Leave</a>
+      <a href="/me/payslips" class="{{ 'active' if active == 'me-payslips' }}"><span class="ico">📄</span> Payslips</a>
+      <form method="post" action="/logout" style="display:contents">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button type="submit" style="all:unset;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--muted);font-size:.66rem;cursor:pointer">
+          <span class="ico" style="font-size:1.15rem">⏏</span> Sign out
+        </button>
+      </form>
+    {% else %}
+      <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}"><span class="ico">📊</span> Board</a>
+      <a href="/employees" class="{{ 'active' if active == 'employees' }}"><span class="ico">👥</span> People</a>
+      <a href="/kiosk"><span class="ico">📷</span> Scan</a>
+      <a href="/attendance" class="{{ 'active' if active == 'attendance' }}"><span class="ico">🗓️</span> Attendance</a>
+      <a href="/payroll" class="{{ 'active' if active == 'payroll' }}"><span class="ico">💰</span> Payroll</a>
+    {% endif %}
   </nav>
 </div>
 

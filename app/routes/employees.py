@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 
-from ..auth import SessionUser, require_hr
+from .. import auth
+from ..auth import SessionUser, generate_password, get_user_for_employee, require_hr
 from ..deps import get_face, get_settings_dep, get_storage, redirect, render
 from ..face import FaceServiceError, FaceServiceUnavailable
 from ..services import attendance as attendance_service
@@ -179,8 +180,10 @@ def detail(
         today_row=attendance_service.get_row(storage, employee_id, today),
         leave_types=orgtime.ALL_LEAVE_TYPES,
         leave_labels=orgtime.LEAVE_LABELS,
-        statuses=[s for s in orgtime.ALL_STATUSES],
+
         all_statuses=orgtime.ALL_STATUSES,
+        ess_user=auth.get_user_for_employee(storage, employee_id),
+        suggested_password=auth.generate_password(),
     )
 
 
@@ -361,3 +364,57 @@ def payslips(
     return render(
         request, "employee_payslips.html", active="employees", user=user, employee=employee, slips=slips
     )
+
+
+@router.post("/{employee_id}/portal")
+def create_portal_login(
+    request: Request,
+    employee_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+    password: str = Form(...),
+):
+    """Create (or reset) the employee's self-service login.
+
+    HR sets or accepts the password in the form, so it is POSTed rather than put
+    in a redirect URL — nothing sensitive lands in a query string or access log.
+    """
+    from ..auth import ensure_employee_login, verify_form_csrf
+
+    verify_form_csrf(user, csrf)
+    if len(password) < 8:
+        return redirect(f"/employees/{employee_id}", err="Portal password must be at least 8 characters.")
+    employee = employees_service.get_employee(storage, employee_id)
+    if employee is None:
+        return redirect("/employees", err="Employee not found.")
+    try:
+        portal_user, _ = ensure_employee_login(storage, employee, password=password)
+    except ValueError as exc:
+        return redirect(f"/employees/{employee_id}", err=str(exc))
+    storage.audit(
+        actor=user.username, action="ess_login", entity="employee", entity_id=employee_id,
+        detail=f"username={portal_user['username']}",
+    )
+    return redirect(
+        f"/employees/{employee_id}",
+        ok=f"Portal login ready: username '{portal_user['username']}'. Share the password with {employee['name'].split()[0]} privately.",
+    )
+
+
+@router.post("/{employee_id}/portal/disable")
+def disable_portal_login(
+    request: Request,
+    employee_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+):
+    from ..auth import disable_employee_login, verify_form_csrf
+
+    verify_form_csrf(user, csrf)
+    disabled = disable_employee_login(storage, employee_id)
+    storage.audit(actor=user.username, action="ess_login_disabled", entity="employee", entity_id=employee_id)
+    if not disabled:
+        return redirect(f"/employees/{employee_id}", err="This employee has no portal login yet.")
+    return redirect(f"/employees/{employee_id}", ok="Portal login disabled — they can no longer sign in.")

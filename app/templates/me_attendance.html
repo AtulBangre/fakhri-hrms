@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}My attendance · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>My attendance</h1>
+    <div class="sub">{{ period_label }} · {{ employee.name }} ({{ employee.code }})</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/me">← My day</a>
+    <a class="btn" href="/me/leave">🌴 Apply for leave</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="filters" method="get" action="/me/attendance">
+      <div class="field"><label for="period">Month</label>
+        <input id="period" name="period" type="month" value="{{ period }}"></div>
+      <button class="btn btn-primary" type="submit">Show</button>
+      <a class="btn" href="/me/attendance">This month</a>
+    </form>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat ok"><div class="label">Present</div><div class="value">{{ summary.present | number }}</div>
+    <div class="foot">{{ summary.half_days | number }} half day</div></div>
+  <div class="stat"><div class="label">Paid leave</div><div class="value">{{ summary.paid_leave | number }}</div>
+    <div class="foot">{{ summary.unpaid_leave | number }} unpaid</div></div>
+  <div class="stat {{ 'danger' if summary.absent else '' }}"><div class="label">Absent</div>
+    <div class="value">{{ summary.absent | number }}</div><div class="foot">loss of pay</div></div>
+  <div class="stat"><div class="label">Hours recorded</div><div class="value">{{ summary.worked_minutes | duration }}</div>
+    <div class="foot">{{ summary.late_marks }} late mark{{ '' if summary.late_marks == 1 else 's' }}</div></div>
+</div>
+
+<div class="card flush">
+  <div class="card-head"><h2>{{ period_label }}</h2><span class="spacer"></span>
+    <span class="small muted">P present · ½ half day · L leave · A absent · W off · H holiday</span></div>
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead>
+        <tr><th>Date</th><th>Status</th><th>In</th><th>Out</th><th>Worked</th><th>Note</th></tr>
+      </thead>
+      <tbody>
+      {% for day in days %}
+        {% if not day.is_future or day.status not in ('pending',) %}
+        <tr {% if day.is_today %}style="background:var(--primary-soft)"{% endif %}>
+          <td data-label="Date">
+            <strong>{{ day.day | string }}</strong>
+            <span class="sub">{{ day.weekday }}{% if day.is_today %} · today{% endif %}</span>
+          </td>
+          <td data-label="Status">
+            <span class="{{ day.status | chip }}">{{ day.status_label }}</span>
+            {% if day.leave_type %}<span class="sub muted">{{ day.leave_type }}</span>{% endif %}
+          </td>
+          <td data-label="In">{{ day.check_in }}</td>
+          <td data-label="Out">{{ day.check_out }}</td>
+          <td data-label="Worked">
+            {{ day.worked }}
+            {% if day.late_minutes %}<span class="chip chip-warn" style="margin-left:.3rem">{{ day.late_minutes }}m late</span>{% endif %}
+          </td>
+          <td data-label="Note" class="small muted">{{ day.note or '—' }}</td>
+        </tr>
+        {% endif %}
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-foot small muted">
+    Weekly offs and holidays are paid and never count against you. A working day with no scan and no approved
+    leave shows as <strong>absent</strong> — ask HR to correct it if that is wrong.
+  </div>
+</div>
+{% endblock %}

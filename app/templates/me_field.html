@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Field attendance · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Field attendance</h1>
+    <div class="sub">For days you are not at the office. Your location is checked against the allowed places.</div>
+  </div>
+  <div class="page-actions"><a class="btn" href="/me">← My day</a></div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Mark attendance</h2>
+        <span class="spacer"></span><span class="chip chip-primary" id="geoBadge">location off</span></div>
+      <div class="card-body">
+        <div class="grid grid-2 mb-2">
+          <div class="field">
+            <label for="kind">Type</label>
+            <select id="kind">
+              <option value="check_in">Check in</option>
+              <option value="check_out">Check out</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="selfie">Selfie (optional)</label>
+            <input id="selfie" type="file" accept="image/*" capture="user">
+          </div>
+        </div>
+        <div class="field">
+          <label for="note">Note</label>
+          <input id="note" type="text" placeholder="Client visit — Arera Colony">
+        </div>
+
+        <div class="alert alert-info small" id="geoInfo">
+          <span class="ico">📍</span>
+          <div>Allow location access when the browser asks. Nothing is marked until your position is confirmed
+            inside one of the allowed places.</div>
+        </div>
+
+        <button class="btn btn-primary btn-block btn-lg" id="markBtn" disabled>📍 Mark attendance</button>
+        <div id="result" class="small mt-2"></div>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head"><h2>My recent checks</h2></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>When</th><th>Type</th><th>Location</th><th class="num">Distance</th><th>Result</th></tr></thead>
+          <tbody>
+          {% for row in checks %}
+            <tr>
+              <td data-label="When" class="small nowrap">{{ row.work_date }} {{ row.created_at[11:16] }}</td>
+              <td data-label="Type" class="small">{{ row.kind }}</td>
+              <td data-label="Location" class="small">{{ row.location_name or '—' }}</td>
+              <td data-label="Distance" class="num">{{ row.distance_m | round(0) | int }} m</td>
+              <td data-label="Result"><span class="chip {{ 'chip-ok' if row.inside else 'chip-danger' }}">{{ 'inside' if row.inside else 'outside' }}</span></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty-state">No field checks yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Allowed places</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          {% for loc in locations %}
+            <div><span class="k">{{ loc.name }}</span><span class="v">{{ loc.radius_m }} m</span></div>
+          {% else %}
+            <div><span class="k">HR has not set any location yet</span><span class="v">—</span></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Before you mark</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1">Turn on location services and stand still for a few seconds — GPS needs a moment to settle.</p>
+        <p class="mb-0">If you are just outside the circle, move closer or ask HR to widen the radius. Your attempt is
+          still recorded, so HR can see what happened.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const badge = document.getElementById('geoBadge');
+    const info = document.getElementById('geoInfo');
+    const btn = document.getElementById('markBtn');
+    const result = document.getElementById('result');
+    const csrf = document.querySelector('meta[name="csrf-token"]').content;
+    let position = null;
+
+    function setResult(html, cls) { result.className = 'small mt-2 ' + (cls || ''); result.innerHTML = html; }
+
+    if (!navigator.geolocation) {
+      badge.textContent = 'unsupported'; badges(); return;
+    }
+    badge.textContent = 'locating…';
+    navigator.geolocation.watchPosition(function (pos) {
+      position = pos;
+      badge.textContent = '📍 ±' + Math.round(pos.coords.accuracy) + ' m';
+      badge.className = 'chip chip-ok';
+      btn.disabled = false;
+    }, function (err) {
+      badge.textContent = 'blocked';
+      badge.className = 'chip chip-danger';
+      info.innerHTML = '<span class="ico">⚠️</span><div>Location was blocked (' + err.message +
+        '). Allow location for this site in your browser settings, then reload.</div>';
+      info.className = 'alert alert-err small';
+    }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
+
+    function badges() { btn.disabled = true; }
+
+    btn.addEventListener('click', function () {
+      if (!position) return;
+      btn.disabled = true;
+      setResult('Checking your location…');
+      const data = new FormData();
+      data.append('_csrf', csrf);
+      data.append('lat', position.coords.latitude);
+      data.append('lng', position.coords.longitude);
+      data.append('accuracy', position.coords.accuracy);
+      data.append('kind', document.getElementById('kind').value);
+      data.append('note', document.getElementById('note').value);
+      const selfie = document.getElementById('selfie').files[0];
+      if (selfie) data.append('selfie', selfie);
+
+      fetch('/api/field/check', { method: 'POST', body: data, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (body) {
+          if (body.ok) {
+            setResult('✅ ' + body.message, '');
+            result.style.color = 'var(--success)';
+          } else if (body.inside) {
+            setResult('⚠️ ' + body.message, '');
+            result.style.color = 'var(--warning)';
+          } else {
+            setResult('❌ ' + body.message, '');
+            result.style.color = 'var(--danger)';
+          }
+          setTimeout(function () { location.reload(); }, 2600);
+        })
+        .catch(function () {
+          setResult('❌ Could not reach the server. Try again.', '');
+          btn.disabled = false;
+        });
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}{{ asset.tag }} · Assets{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1 class="mono">{{ asset.tag }}</h1>
+    <div class="sub">{{ asset.name }} · {{ asset.category_label }}{% if asset.serial %} · {{ asset.serial }}{% endif %}</div>
+  </div>
+  <div class="page-actions"><a class="btn" href="/assets">← All assets</a></div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div class="card flush">
+    <div class="card-head"><h2>Assignment history</h2></div>
+    <div class="table-wrap">
+      <table class="data stack">
+        <thead><tr><th>Employee</th><th>From</th><th>To</th><th>Condition</th><th>By</th></tr></thead>
+        <tbody>
+        {% for row in history %}
+          <tr>
+            <td data-label="Employee"><a href="/employees/{{ row.employee_id }}">{{ row.employee_name }}</a>
+              <span class="sub">{{ row.employee_code }}</span></td>
+            <td data-label="From" class="small">{{ row.assigned_on }}</td>
+            <td data-label="To" class="small">{{ row.returned_on or 'still held' }}</td>
+            <td data-label="Condition" class="small">{{ row.condition_note or '—' }}</td>
+            <td data-label="By" class="small muted">{{ row.assigned_by or '—' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="empty-state">Never assigned.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Details</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">Status</span><span class="v">{{ asset.status_label }}</span></div>
+          <div><span class="k">Cost</span><span class="v">{{ asset.cost | money }}</span></div>
+          <div><span class="k">Purchased</span><span class="v">{{ asset.purchase_date or '—' }}</span></div>
+          <div><span class="k">Current holder</span>
+            <span class="v">{{ asset.holder.employee_name if asset.holder else '—' }}</span></div>
+        </div>
+        {% if asset.notes %}<hr class="divider"><div class="small muted">{{ asset.notes }}</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>{% if asset.holder %}Return{% else %}Assign{% endif %}</h3></div>
+      <div class="card-body">
+        {% if asset.holder %}
+          <form method="post" action="/assets/{{ asset.id }}/return">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <div class="field"><label for="cn">Condition on return</label>
+              <input id="cn" name="condition_note" type="text" placeholder="screen scratch, charger missing…"></div>
+            <button class="btn btn-primary btn-block" type="submit">Mark returned</button>
+          </form>
+        {% else %}
+          <form method="post" action="/assets/{{ asset.id }}/assign">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <div class="field"><label for="emp">Assign to</label>
+              <select id="emp" name="employee_id" required>
+                {% for person in employees %}<option value="{{ person.id }}">{{ person.name }} ({{ person.code }})</option>{% endfor %}
+              </select></div>
+            <div class="field"><label for="cn2">Condition</label>
+              <input id="cn2" name="condition_note" type="text" placeholder="new, boxed"></div>
+            <button class="btn btn-primary btn-block" type="submit">Assign</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

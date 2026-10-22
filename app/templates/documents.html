@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Documents · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Document vault</h1>
+    <div class="sub">{{ summary.total }} file(s) · {{ summary.missing_required | length }} employee(s) missing Aadhaar/PAN</div>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Upload a document</h2>
+        <span class="spacer"></span><span class="small muted">PDF / JPG / PNG / WebP · max 8 MB</span></div>
+      <div class="card-body">
+        <form method="post" action="/documents" enctype="multipart/form-data">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="employee_id">Employee</label>
+              <select id="employee_id" name="employee_id" required>
+                {% for person in employees %}
+                  <option value="{{ person.id }}">{{ person.name }} ({{ person.code }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="category">Document type</label>
+              <select id="category" name="category">
+                {% for value, label in categories.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="title">Title (optional)</label>
+              <input id="title" name="title" type="text" placeholder="Aadhaar — front and back"></div>
+            <div class="field"><label for="file">File</label>
+              <input id="file" name="file" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required></div>
+          </div>
+          <div class="field"><label for="notes">Notes</label>
+            <input id="notes" name="notes" type="text" placeholder="anything HR should know"></div>
+          <button class="btn btn-primary" type="submit">Upload</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head">
+        <h2>All documents</h2><span class="spacer"></span>
+        <form class="filters" method="get" action="/documents">
+          <div class="field">
+            <select name="employee_id" onchange="this.form.submit()">
+              <option value="">All employees</option>
+              {% for person in employees %}
+                <option value="{{ person.id }}" {{ 'selected' if filters.employee_id == person.id }}>{{ person.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <select name="category" onchange="this.form.submit()">
+              <option value="all">All types</option>
+              {% for value, label in categories.items() %}
+                <option value="{{ value }}" {{ 'selected' if filters.category == value }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Employee</th><th>Type</th><th>File</th><th>Uploaded</th><th>Verified</th><th></th></tr></thead>
+          <tbody>
+          {% for row in rows %}
+            <tr>
+              <td data-label="Employee"><a href="/employees/{{ row.employee_id }}">{{ row.employee_name }}</a>
+                <span class="sub">{{ row.employee_code }}</span></td>
+              <td data-label="Type"><span class="chip chip-info">{{ row.category_label }}</span></td>
+              <td data-label="File" class="small">
+                <a href="/documents/{{ row.id }}/file">{{ row.filename }}</a>
+                <span class="sub muted">{{ sizes.get(row.id, '') }}</span>
+              </td>
+              <td data-label="Uploaded" class="small nowrap">{{ row.uploaded_at[:16].replace('T', ' ') }}</td>
+              <td data-label="Verified">
+                <span class="chip {{ 'chip-ok' if row.verified else 'chip-muted' }}">{{ 'yes' if row.verified else 'no' }}</span>
+              </td>
+              <td class="actions-cell">
+                <div style="display:flex;gap:.3rem;justify-content:flex-end">
+                  {% if not row.verified %}
+                    <form method="post" action="/documents/{{ row.id }}/verify">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <button class="btn btn-sm" type="submit">Verify</button>
+                    </form>
+                  {% endif %}
+                  <form method="post" action="/documents/{{ row.id }}/delete" data-confirm="Delete this document permanently?">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="6" class="empty-state"><span class="ico">📁</span>No documents uploaded yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>By type</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          {% for value, label in categories.items() %}
+            <div><span class="k">{{ label }}</span><span class="v">{{ summary.by_category.get(value, 0) }}</span></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Privacy note</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1">Files are stored on this server under random names; the original filename is only a label.
+          Type is verified from the file's bytes, not its extension, and nothing above 8 MB is accepted.</p>
+        <p class="mb-0">Aadhaar and PAN are sensitive. Restrict access to this server, keep backups encrypted,
+          and use <strong>Delete</strong> — not just deactivate — when an employee leaves.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Request
+from fastapi import Response
 from fastapi.responses import PlainTextResponse
 
 from ..auth import SessionUser, require_hr, verify_form_csrf
+from .. import notify
 from ..deps import get_settings_dep, get_storage, redirect, render
+from ..pdf import filename_for, render_payslip
 from ..services import employees as employees_service
 from ..services import orgtime, payroll
 
@@ -133,6 +136,28 @@ def update_slip(
     return redirect("/payroll", period=period or None, ok="Payslip adjusted.")
 
 
+@router.get("/slip/{slip_id}.pdf")
+def payslip_pdf(
+    request: Request,
+    slip_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    slip = payroll.get_slip(storage, slip_id)
+    if slip is None:
+        return redirect("/payroll", err="Payslip not found.")
+    data = render_payslip(
+        slip, settings=settings,
+        org_name=storage.get_setting("org_name", settings.org_name),
+        period_label=orgtime.month_label(slip["period"]),
+    )
+    return Response(
+        content=data, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename_for(slip)}"'},
+    )
+
+
 @router.get("/slip/{slip_id}")
 def view_slip(
     request: Request,
@@ -166,3 +191,71 @@ def export(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="payroll-{period}.csv"'},
     )
+
+
+@router.post("/email")
+def email_payslips(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+    period: str = Form(...),
+    only_missing: str = Form(""),
+    send_now: str = Form(""),
+):
+    """Queue one payslip email per employee for a month, then optionally send."""
+    verify_form_csrf(user, csrf)
+    run = payroll.get_run(storage, period)
+    if run is None:
+        return redirect("/payroll", err=f"No payroll run for {period} yet.", period=period)
+    if run["status"] == "draft":
+        return redirect(
+            "/payroll", period=period,
+            err="Finalise the run before emailing payslips — draft figures can still change.",
+        )
+
+    slips = payroll.list_slips(storage, period)
+    queued, skipped, already = 0, 0, 0
+    months = orgtime.month_label(period)
+
+    for slip in slips:
+        employee = employees_service.get_employee(storage, slip["employee_id"])
+        address = (employee or {}).get("email")
+        if not address:
+            skipped += 1
+            continue
+        if only_missing:
+            previous = storage.query_one(
+                "SELECT id FROM notifications WHERE category='payslip' AND recipient=? "
+                "AND meta IS NULL AND body LIKE ? LIMIT 1",
+                (address, f"%{months}%"),
+            )
+            if previous:
+                already += 1
+                continue
+        row_id = notify.queue_email(
+            storage, address, "payslip", settings=settings, category="payslip",
+            name=(employee.get("name") or "").split(" ")[0] or "there",
+            period=months,
+            gross=f"Rs {float(slip['monthly_gross']):,.2f}",
+            deductions=f"Rs {float(slip['total_deductions']):,.2f}",
+            net=f"Rs {float(slip['net_pay']):,.2f}",
+        )
+        if row_id:
+            queued += 1
+            # keep the payslip id so the PDF can be regenerated as an attachment
+            storage.execute(
+                "UPDATE notifications SET meta=? WHERE id=?",
+                (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
+            )
+
+    message = f"Queued {queued} payslip email(s) for {months}"
+    if skipped:
+        message += f", {skipped} skipped (no email address)"
+    if already:
+        message += f", {already} already sent"
+    if queued and send_now:
+        results = notify.dispatch(storage, settings, limit=queued)
+        message += f". Sent {sum(1 for r in results if r.get('ok'))} now."
+    return redirect("/payroll", ok=message + ".", period=period)

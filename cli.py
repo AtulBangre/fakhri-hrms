@@ -8,6 +8,7 @@
     ./.venv/bin/python3 cli.py serve --port 8100      # run the app
     ./.venv/bin/python3 cli.py seed-demo --employees 12
     ./.venv/bin/python3 cli.py stats
+    ./.venv/bin/python3 cli.py ess --missing-only
 """
 
 from __future__ import annotations
@@ -278,6 +279,54 @@ def cmd_stats(args: argparse.Namespace, settings: Settings) -> int:
         storage.close()
 
 
+def cmd_ess(args: argparse.Namespace, settings: Settings) -> int:
+    """Create or reset employee self-service logins."""
+    storage = open_storage(settings)
+    try:
+        if args.employee:
+            employee = employees_service.get_employee_by_code(storage, args.employee.upper())
+            if employee is None:
+                employee = employees_service.get_employee(storage, int(args.employee)) if args.employee.isdigit() else None
+            if employee is None:
+                fail(f"employee '{args.employee}' not found")
+                return 1
+            people = [employee]
+        else:
+            people = employees_service.list_employees(storage, status="active", limit=1000)
+            people = [p for p in people if not args.missing_only or not auth.get_user_for_employee(storage, p["id"])]
+
+        if not people:
+            ok("nothing to do")
+            return 0
+
+        rows = []
+        for employee in people:
+            if args.disable:
+                disabled = auth.disable_employee_login(storage, employee["id"])
+                rows.append([employee["code"], employee["name"], "disabled" if disabled else "no login"])
+                continue
+            try:
+                portal_user, password = auth.ensure_employee_login(
+                    storage, employee, password=args.password
+                )
+            except ValueError as exc:
+                rows.append([employee["code"], employee["name"], colour(str(exc), RED)])
+                continue
+            storage.audit(actor="cli", action="ess_login", entity="employee", entity_id=employee["id"],
+                          detail=f"username={portal_user['username']}")
+            rows.append([employee["code"], employee["name"], colour(password, GREEN)])
+
+        print(colour("Employee self-service logins", BOLD))
+        table(["code", "name", "password (share privately, shown once)"], rows)
+        print()
+        print("  Portal: " + colour(f"{settings.public_base_url.rstrip('/')}/me", BOLD))
+        if not args.disable:
+            print(colour("  Passwords are not stored in readable form — save them now.", DIM))
+        return 0
+    finally:
+        storage.close()
+
+
 def cmd_make_icons(args: argparse.Namespace, settings: Settings) -> int:
     from scripts.make_icons import main as build_icons
 
@@ -335,6 +384,13 @@ def build_parser() -> argparse.ArgumentParser:
     stats = sub.add_parser("stats", help="today's numbers")
     stats.add_argument("--json", action="store_true")
     stats.set_defaults(func=cmd_stats)
+
+    ess = sub.add_parser("ess", help="create or reset employee portal logins")
+    ess.add_argument("--employee", help="employee code (FITS001) or id; omit for everyone")
+    ess.add_argument("--password", help="use this password instead of a generated one")
+    ess.add_argument("--missing-only", action="store_true", help="only employees without a login yet")
+    ess.add_argument("--disable", action="store_true", help="disable the portal logins instead")
+    ess.set_defaults(func=cmd_ess)
 
     icons = sub.add_parser("make-icons", help="regenerate the PWA icons")
     icons.set_defaults(func=cmd_make_icons)

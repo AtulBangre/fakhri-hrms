@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}My day · {{ org_name }}{% endblock %}
+{% block brandline %}{{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Hi, {{ employee.name.split(' ')[0] }}</h1>
+    <div class="sub">{{ today_label }} · shift {{ shift_start }}–{{ shift_end }}
+      {% if kind == 'holiday' %}· Holiday{% elif kind == 'week_off' %}· Weekly off{% endif %}</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/me/profile">👤 My profile</a>
+    <a class="btn" href="/me/leave">🌴 Apply for leave</a>
+    <a class="btn btn-primary" href="/me/payslips">📄 My payslips</a>
+  </div>
+</div>
+
+{# ---- today, as a big status card ---- #}
+{% include "_announcements.html" %}
+
+<div class="card mb-3" style="background:linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);border-color:var(--primary-dark);color:#fff">
+  <div class="card-body">
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <span class="avatar" style="width:56px;height:56px;font-size:1.05rem;background:rgba(255,255,255,.2)">{{ employee.name | initials }}</span>
+      <div style="flex:1;min-width:180px">
+        <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;opacity:.8">Today</div>
+        {% if today_row and today_row.status == 'present' and today_row.check_in and not today_row.check_out %}
+          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">
+            Checked in at {{ today_row.check_in | clock }}
+          </div>
+          <div style="font-size:.86rem;opacity:.85">You are still inside — scan at the gate again when you leave.</div>
+        {% elif today_row and today_row.check_out %}
+          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">
+            Checked out at {{ today_row.check_out | clock }}
+          </div>
+          <div style="font-size:.86rem;opacity:.85">
+            Worked {{ today_row.worked_minutes | duration }}{% if today_row.status == 'half_day' %} · marked as a half day{% endif %}
+            {% if today_row.check_in %} · in at {{ today_row.check_in | clock }}{% endif %}
+          </div>
+        {% elif today_row and today_row.status == 'leave' %}
+          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">On leave today</div>
+          <div style="font-size:.86rem;opacity:.85">{{ LEAVE_LABELS.get(today_row.leave_type, 'Approved leave') }}</div>
+        {% elif today_row and today_row.status == 'half_day' %}
+          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">Half day</div>
+          <div style="font-size:.86rem;opacity:.85">{{ LEAVE_LABELS.get(today_row.leave_type, 'Half day') }}</div>
+        {% elif kind == 'week_off' %}
+          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">Weekly off</div>
+          <div style="font-size:.86rem;opacity:.85">No need to scan today.</div>
+        {% elif kind == 'holiday' %}
+          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">Holiday</div>
+          <div style="font-size:.86rem;opacity:.85">Enjoy the day off.</div>
+        {% else %}
+          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">Not marked yet</div>
+          <div style="font-size:.86rem;opacity:.85">Scan at the gate when you arrive.</div>
+        {% endif %}
+      </div>
+      {% if today_row and today_row.late_minutes %}
+        <span class="chip" style="background:rgba(255,255,255,.2);color:#fff">{{ today_row.late_minutes }} min late</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat"><div class="label">Present</div><div class="value">{{ summary.present | number }}</div>
+    <div class="foot">{{ summary.half_days | number }} half day · {{ summary.late_marks }} late</div></div>
+  <div class="stat"><div class="label">Paid leave</div><div class="value">{{ summary.paid_leave | number }}</div>
+    <div class="foot">{{ summary.unpaid_leave | number }} unpaid (LOP)</div></div>
+  <div class="stat {{ 'danger' if summary.absent else '' }}"><div class="label">Absent</div>
+    <div class="value">{{ summary.absent | number }}</div><div class="foot">no scan, no leave</div></div>
+  <div class="stat accent"><div class="label">Leave balance</div><div class="value">{{ balance.balance | number }}</div>
+    <div class="foot">of {{ balance.accrued | number }} earned</div></div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head">
+        <h2>{{ period_label }}</h2>
+        <span class="spacer"></span>
+        <a class="btn btn-sm" href="/me/attendance?period={{ period }}">Day by day →</a>
+      </div>
+      <div class="card-body">
+        <div class="kv cols-2">
+          <div><span class="k">Present</span><span class="v">{{ summary.present | number }} days</span></div>
+          <div><span class="k">Half days</span><span class="v">{{ summary.half_days | number }}</span></div>
+          <div><span class="k">Paid leave</span><span class="v">{{ summary.paid_leave | number }}</span></div>
+          <div><span class="k">Unpaid leave (LOP)</span><span class="v">{{ summary.unpaid_leave | number }}</span></div>
+          <div><span class="k">Absent (LOP)</span><span class="v">{{ summary.absent | number }}</span></div>
+          <div><span class="k">Late marks</span><span class="v">{{ summary.late_marks }}</span></div>
+          <div><span class="k">Hours recorded</span><span class="v">{{ summary.worked_minutes | duration }}</span></div>
+          <div><span class="k">Week offs / holidays</span><span class="v">{{ summary.week_off }} / {{ summary.holiday }}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card flush mb-3">
+      <div class="card-head">
+        <h2>My leave requests</h2>
+        <span class="spacer"></span>
+        <a class="btn btn-sm btn-primary" href="/me/leave">Apply</a>
+      </div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Dates</th><th>Type</th><th class="num">Days</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for item in recent_leave %}
+            <tr>
+              <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
+              <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
+              <td data-label="Days" class="num">{{ item.days | number }}</td>
+              <td data-label="Status">
+                <span class="chip {{ 'chip-ok' if item.status == 'approved' else ('chip-warn' if item.status == 'pending' else 'chip-muted') }}">{{ item.status }}</span>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="empty-state"><span class="ico">🌴</span>No leave taken yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if pending %}
+        <div class="card-foot small muted">
+          {{ pending | length }} request waiting for HR approval.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Leave balance</h3></div>
+      <div class="card-body">
+        <div style="font-family:var(--font-heading);font-size:2rem;font-weight:600;line-height:1">{{ balance.balance | number }}<span class="small muted"> days</span></div>
+        <div class="progress mt-2" style="margin:.6rem 0 .4rem">
+          <span style="width: {{ [[(balance.used_paid / balance.accrued * 100) if balance.accrued else 0, 100] | min, 0] | max }}%"></span>
+        </div>
+        <div class="kv small">
+          <div><span class="k">Earned</span><span class="v">{{ balance.accrued | number }}</span></div>
+          <div><span class="k">Taken</span><span class="v">{{ balance.used_paid | number }}</span></div>
+          <div><span class="k">Pending approval</span><span class="v">{{ balance.pending | number }}</span></div>
+          <div><span class="k">Accrual</span><span class="v">{{ balance.accrual_per_month | number }} / month</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>My payslips</h3></div>
+      <div class="card-body">
+        {% if latest_slip %}
+          <div class="small muted">{{ latest_slip.period }}</div>
+          <div style="font-family:var(--font-heading);font-size:1.6rem;font-weight:600">{{ latest_slip.net_pay | money }}</div>
+          <div class="small muted mb-2">net pay · gross {{ latest_slip.monthly_gross | money }}</div>
+          <a class="btn btn-block" href="/me/payslips/{{ latest_slip.id }}">Open payslip</a>
+          {% if slips | length > 1 %}
+            <a class="btn btn-block btn-ghost mt-1" href="/me/payslips">All {{ slips | length }} payslips</a>
+          {% endif %}
+        {% else %}
+          <div class="empty-state" style="padding:1rem"><span class="ico">📄</span>No payslip yet — your first one appears when HR runs payroll.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>My details</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">Employee code</span><span class="v mono">{{ employee.code }}</span></div>
+          <div><span class="k">Department</span><span class="v">{{ employee.department or '—' }}</span></div>
+          <div><span class="k">Designation</span><span class="v">{{ employee.designation or '—' }}</span></div>
+          <div><span class="k">Joined</span><span class="v">{{ employee.joined_on | nice_date }}</span></div>
+        </div>
+        <div class="alert alert-info small mt-2" style="margin-bottom:0">
+          <span class="ico">🕐</span>
+          <div>Attendance comes from the face scanner at the gate. If a scan was missed, ask HR to correct it — you will see the correction here.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

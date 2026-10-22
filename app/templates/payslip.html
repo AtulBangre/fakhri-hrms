@@ -8,8 +8,9 @@
     <div class="sub">{{ slip.name }} · {{ label }}{% if run %} · run status <strong>{{ run.status }}</strong>{% endif %}</div>
   </div>
   <div class="page-actions">
-    <a class="btn" href="/payroll?period={{ slip.period }}">← Back to payroll</a>
-    <button class="btn btn-primary" onclick="window.print()">🖨️ Print / save PDF</button>
+    <a class="btn" href="{{ back_url or ('/payroll?period=' ~ slip.period) }}">← Back</a>
+    <a class="btn" href="{{ pdf_url or ('/payroll/slip/' ~ slip.id ~ '.pdf') }}">⬇️ Download PDF</a>
+    <button class="btn btn-primary" onclick="window.print()">🖨️ Print</button>
   </div>
 </div>
 

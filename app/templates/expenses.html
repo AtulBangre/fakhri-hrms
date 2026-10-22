@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Expenses · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Expense claims</h1>
+    <div class="sub">{{ stats.pending_count }} waiting · approved {{ stats.approved.total | money }} · pending {{ stats.pending.total | money }}</div>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat {{ 'warn' if stats.pending_count else 'ok' }}"><div class="label">Waiting</div>
+    <div class="value">{{ stats.pending.count }}</div><div class="foot">{{ stats.pending.total | money }}</div></div>
+  <div class="stat ok"><div class="label">Approved</div>
+    <div class="value">{{ stats.approved.count }}</div><div class="foot">{{ stats.approved.total | money }}</div></div>
+  <div class="stat"><div class="label">Rejected</div>
+    <div class="value">{{ stats.rejected.count }}</div><div class="foot">{{ stats.rejected.total | money }}</div></div>
+  <div class="stat"><div class="label">Paid out</div>
+    <div class="value">{{ stats.paid.count }}</div><div class="foot">{{ stats.paid.total | money }}</div></div>
+</div>
+
+<div class="card flush">
+  <div class="card-head">
+    <h2>All claims</h2><span class="spacer"></span>
+    <form class="filters" method="get" action="/expenses">
+      <div class="field">
+        <select name="status" onchange="this.form.submit()">
+          {% for value in ('all', 'pending', 'approved', 'rejected') %}
+            <option value="{{ value }}" {{ 'selected' if status_filter == value }}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </form>
+  </div>
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead><tr><th>Employee</th><th>Type</th><th>Date</th><th class="num">Amount</th><th>Receipt</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td data-label="Employee"><a href="/employees/{{ row.employee_id }}">{{ row.employee_name }}</a>
+            <span class="sub">{{ row.employee_code }}</span></td>
+          <td data-label="Type"><span class="chip chip-info">{{ row.category_label }}</span>
+            {% if row.description %}<span class="sub muted">{{ row.description[:60] }}</span>{% endif %}</td>
+          <td data-label="Date" class="small">{{ row.expense_date }}</td>
+          <td data-label="Amount" class="num"><strong>{{ row.amount | money }}</strong></td>
+          <td data-label="Receipt">
+            {% if row.has_receipt %}<a class="btn btn-sm" href="/expenses/{{ row.id }}/receipt">View</a>
+            {% else %}<span class="muted small">none</span>{% endif %}
+          </td>
+          <td data-label="Status">
+            <span class="chip {{ 'chip-ok' if row.status == 'approved' else ('chip-danger' if row.status == 'rejected' else 'chip-warn') }}">{{ row.status }}</span>
+            {% if row.note %}<span class="sub muted">{{ row.note }}</span>{% endif %}
+          </td>
+          <td class="actions-cell">
+            {% if row.status == 'pending' %}
+              <div style="display:flex;gap:.3rem;justify-content:flex-end">
+                <form method="post" action="/expenses/{{ row.id }}/approve">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <button class="btn btn-sm btn-primary" type="submit">Approve</button>
+                </form>
+                <form method="post" action="/expenses/{{ row.id }}/reject" data-confirm="Reject this claim?">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <button class="btn btn-sm btn-danger" type="submit">Reject</button>
+                </form>
+              </div>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="empty-state"><span class="ico">🧾</span>No claims submitted yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-foot small muted">
+    Approving a claim records it for reimbursement; pay it with the next payroll run and note the amount on the
+    payslip's "other" deduction or bonus line as you prefer. Receipts are stored privately and only HR or the
+    claimant can open them.
+  </div>
+</div>
+{% endblock %}

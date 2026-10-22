@@ -142,6 +142,105 @@ you exactly which dates were skipped and which were charged.
 
 ---
 
+## 4b. Approving leave that employees request themselves
+
+Employees can request leave from their own login (`/me/leave`). Those arrive as
+**pending** and change nothing until you decide:
+
+1. Open **Leave** — a highlighted card at the top lists everything waiting,
+   with the person, type, dates and reason.
+2. **Approve** → the days are written into the attendance calendar immediately
+   (weekly offs and holidays inside the range are skipped, and the confirmation
+   tells you which dates were skipped). Payroll will treat them as paid leave.
+3. **Reject** → nothing is written; the employee sees "rejected" on their page.
+
+An employee can withdraw their own request while it is pending. Once approved,
+only HR can cancel it — that also restores the attendance days.
+
+### Giving someone their portal login
+
+**Employees → (person) → Employee portal → Create portal login.** The username is
+their employee code in lower case (`FITS001` → `fits001`). The form shows a
+suggested password — copy it before you click, because it is never shown again.
+Share it privately; they can change it later, and you can reset it any time from
+the same card (or disable the login when someone leaves).
+
+Bulk option for a whole team, from the server:
+`./.venv/bin/python3 cli.py ess --missing-only`
+
+### What employees can see
+
+Only their own record: today's status, their month, their payslips and their
+leave balance. They cannot see anybody else's attendance, the payroll screen, or
+the gate scanner.
+
+## 4c. Noticeboard, emails and payslip dispatch
+
+**Post a notice** — *Noticeboard* in the sidebar. Write the title and message, pick a tone
+(info / success / warning / urgent), choose who sees it (everyone / employees / HR), and
+tick **Email everyone** if you want it in their inbox too. It appears immediately on the
+HR dashboard and on every employee's portal. Pin important ones; set *Hide after* to make
+it expire by itself.
+
+**See what was sent** — *Notifications*. Every message is listed with its state:
+*waiting* (queued), *sent*, or *failed* with the reason. Three useful buttons:
+**Send queued now**, **Retry failed**, and **Send a test** to check your SMTP details.
+
+**Email payslips** — *Payroll → pick the month*. A payslip can only be emailed once the
+run is **finalised** (draft figures can still change). Then press **✉️ Email payslips**:
+one email per employee with the **PDF attached**, skipping anyone with no email address.
+Each row also has a **PDF** button for a single download.
+
+> Delivery note: until your SMTP details are entered, every "email" is written to
+> `data/outbox/` on the server instead of being sent — handy for testing. Ask your
+> administrator to configure `HRMS_SMTP_*` for real delivery.
+
+## 4d. Approving profile and bank-detail changes
+
+Employees can request changes to their phone, email, address, emergency contact and
+**bank details** from their own portal. These arrive in **Profile changes**:
+
+1. Review the *current* value against the *requested* value.
+2. **Approve** → the employee record is updated on the spot, and the employee is emailed.
+3. **Reject** → nothing changes; the employee sees the rejection.
+
+Bank details never change silently — every approval records who did it and when, which is
+exactly what you want if a salary transfer is ever disputed.
+
+## 4e. Documents, assets and expense claims
+
+**Document vault** — *Documents*. Pick the employee, the document type (Aadhaar, PAN, offer
+letter, contract, resume, other), attach the file and upload. Press **Verify** once you have
+checked it. Employees can upload their own from *My documents*; you see everything.
+Only PDF/JPG/PNG/WebP up to 8 MB are accepted — the server checks the file's contents, not
+its name, so a renamed `.exe` is refused. **Delete** removes the file from disk as well as
+the record; do that when someone leaves.
+
+**Assets** — *Assets*. Add each item with a tag (`FITS-LAP-001`), name, category, serial
+and cost. **Assign** it to a person; a second assignment is refused until it is returned.
+Use the tag link to see the full assignment history. Employees see their own at *My assets*.
+
+**Expense claims** — employees submit from *My expenses* with an optional receipt photo.
+They arrive under *Expense claims*: **Approve** or **Reject**. Approved totals are shown at
+the top so you know what to reimburse. Pay approved claims with the next payroll run.
+
+## 4f. Field staff attendance (GPS)
+
+Field staff cannot scan a gate. Instead:
+
+1. **Set up the places** — *Field locations*. Add each site with a radius (200–300 m is
+   sensible; too tight and GPS drift blocks honest people). "Use my current position" fills
+   the coordinates from your own phone or laptop.
+2. **The employee** opens *Field attendance* on their phone, allows location access, picks
+   check-in or check-out, optionally adds a selfie, and presses **Mark attendance**.
+3. **The server** measures the distance. Inside the radius → attendance is marked and tagged
+   as a field check. Outside → nothing is marked, and the attempt is logged with the distance.
+4. **Review** — the *Field locations* page lists today's checks with distance and result.
+
+> Geo-fencing is a convenience control, not proof of presence: a phone's location can be
+> faked. Every check stores coordinates, accuracy, distance and selfie so you can review
+> anything suspicious.
+
 ## 5. Payroll
 
 **Payroll → pick the month → Generate payroll**

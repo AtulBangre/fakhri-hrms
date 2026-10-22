@@ -15,53 +15,13 @@ from fastapi.testclient import TestClient
 from app import auth
 from app.config import Settings
 from app.face import IdentificationResult
-from app.main import create_app
 from app.services import employees as employees_service
 from tests.conftest import HR_PASSWORD, HR_USERNAME, KIOSK_PASSWORD, KIOSK_USERNAME, FakeFaceService
+from tests.helpers import csrf_of
 
-CSRF_RE = re.compile(r'name="csrf-token" content="([^"]+)"')
 
 
 # --------------------------------------------------------------------- fixtures
-@pytest.fixture
-def app(settings: Settings):
-    application = create_app(settings)
-    with TestClient(application) as client:
-        application.state.client = client
-        yield application
-
-
-@pytest.fixture
-def client(app):
-    return app.state.client
-
-
-@pytest.fixture
-def fake_face(app) -> FakeFaceService:
-    """Swap the HTTP client for an in-memory fake after startup."""
-    fake = FakeFaceService()
-    app.state.face = fake
-    return fake
-
-
-@pytest.fixture
-def hr_client(client, storage, hr_user, kiosk_user):
-    """A signed-in HR session."""
-    response = client.post(
-        "/login",
-        data={"username": HR_USERNAME, "password": HR_PASSWORD, "next": ""},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303, response.text
-    return client
-
-
-def csrf_of(client: TestClient, path: str = "/dashboard") -> str:
-    page = client.get(path)
-    match = CSRF_RE.search(page.text)
-    assert match, f"no CSRF token found in {path}"
-    return match.group(1)
-
 
 # ----------------------------------------------------------------- auth flows
 def test_login_page_renders_branded_shell(client: TestClient):

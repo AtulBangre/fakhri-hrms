@@ -1,0 +1,30 @@
+{# Reusable noticeboard strip. Include with `announcements` in the context. #}
+{% if announcements %}
+<div class="card mb-3" style="border-color:var(--primary-soft-border);background:var(--primary-soft)">
+  <div class="card-head" style="border-bottom-color:var(--primary-soft-border)">
+    <h2>📌 Noticeboard</h2>
+    <span class="spacer"></span>
+    <span class="small muted">{{ announcements | length }} notice{{ '' if announcements | length == 1 else 's' }}</span>
+  </div>
+  <div class="card-body" style="padding:.9rem 1rem">
+    {% for note in announcements %}
+      <div style="display:flex;gap:.6rem;align-items:flex-start;{% if not loop.last %}padding-bottom:.6rem;margin-bottom:.6rem;border-bottom:1px dashed var(--primary-soft-border){% endif %}">
+        <span style="font-size:1.05rem;line-height:1.4">
+          {% if note.level == 'urgent' %}🚨{% elif note.level == 'warning' %}⚠️{% elif note.level == 'success' %}✅{% else %}📣{% endif %}
+        </span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+            <strong>{{ note.title }}</strong>
+            {% if note.pinned %}<span class="chip chip-primary">pinned</span>{% endif %}
+            {% if note.level == 'urgent' %}<span class="chip chip-danger">urgent</span>{% endif %}
+          </div>
+          <div class="small" style="white-space:pre-line">{{ note.body }}</div>
+          <div class="small muted" style="margin-top:.15rem">{{ note.created_at[:10] }}{% if note.created_by %} · {{ note.created_by }}{% endif %}</div>
+        </div>
+      </div>
+    {% endfor %}
+    {% set footer = company_notice_footer %}
+    {% if footer %}<div class="small muted">{{ footer }}</div>{% endif %}
+  </div>
+</div>
+{% endif %}

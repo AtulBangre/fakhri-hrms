@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import re
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+
+from app.main import create_app
 
 from app.config import Settings
 from app.db import Storage
@@ -206,3 +210,60 @@ def apply_leave(storage: Storage, settings: Settings):
         return leave_service.apply_leave(storage, settings, employee_id=employee_id, **kwargs)
 
     return _apply
+
+
+# ---------------------------------------------------------------- web fixtures
+
+
+@pytest.fixture
+def app(settings: Settings):
+    """The real application, with the Face API swapped for an in-memory fake."""
+    application = create_app(settings)
+    with TestClient(application) as client:
+        application.state.client = client
+        yield application
+
+
+@pytest.fixture
+def client(app):
+    return app.state.client
+
+
+@pytest.fixture
+def fake_face(app) -> FakeFaceService:
+    fake = FakeFaceService()
+    app.state.face = fake
+    return fake
+
+
+@pytest.fixture
+def hr_client(client, storage, hr_user, kiosk_user):
+    """A signed-in HR session."""
+    response = client.post(
+        "/login",
+        data={"username": HR_USERNAME, "password": HR_PASSWORD, "next": ""},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    return client
+
+
+@pytest.fixture
+def ess_credentials(storage, staff):
+    """A portal login for the first staff member."""
+    from app import auth
+
+    user, password = auth.ensure_employee_login(storage, staff[0], password="portal-pass-1")
+    return {"user": user, "username": user["username"], "password": password, "employee": staff[0]}
+
+
+@pytest.fixture
+def ess_client(client, ess_credentials, hr_user, kiosk_user):
+    """A signed-in employee session."""
+    response = client.post(
+        "/login",
+        data={"username": ess_credentials["username"], "password": ess_credentials["password"], "next": ""},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    return client

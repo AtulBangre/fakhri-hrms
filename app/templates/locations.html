@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Work locations · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Work locations &amp; field checks</h1>
+    <div class="sub">Geo-fence the places field staff may check in from. Today: {{ summary.inside }} inside, {{ summary.outside }} outside, {{ summary.attendance_marked }} attendance marked.</div>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Add a location</h2></div>
+      <div class="card-body">
+        <form method="post" action="/locations">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="form-row cols-2">
+            <div class="field"><label for="name">Name</label>
+              <input id="name" name="name" type="text" required placeholder="Client site — Arera Colony"></div>
+            <div class="field"><label for="radius_m">Radius (m)</label>
+              <input id="radius_m" name="radius_m" type="number" min="25" step="25" value="{{ default_radius }}"></div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="lat">Latitude</label>
+              <input id="lat" name="lat" type="text" required placeholder="23.2599" inputmode="decimal"></div>
+            <div class="field"><label for="lng">Longitude</label>
+              <input id="lng" name="lng" type="text" required placeholder="77.4126" inputmode="decimal"></div>
+          </div>
+          <div class="field"><label for="address">Address (optional)</label>
+            <input id="address" name="address" type="text"></div>
+          <button class="btn btn-primary" type="submit">Add location</button>
+          <button class="btn" type="button" id="useHere">📍 Use my current position</button>
+          <div class="small muted mt-1" id="geoStatus"></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card flush mb-3">
+      <div class="card-head"><h2>Locations</h2></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Name</th><th>Coordinates</th><th class="num">Radius</th><th>Active</th><th></th></tr></thead>
+          <tbody>
+          {% for row in rows %}
+            <tr>
+              <td data-label="Name"><strong>{{ row.name }}</strong>
+                {% if row.address %}<span class="sub">{{ row.address }}</span>{% endif %}</td>
+              <td data-label="Coordinates" class="small mono">{{ '%.5f' % row.lat }}, {{ '%.5f' % row.lng }}</td>
+              <td data-label="Radius" class="num">{{ row.radius_m }} m</td>
+              <td data-label="Active"><span class="chip {{ 'chip-ok' if row.active else 'chip-muted' }}">{{ 'yes' if row.active else 'off' }}</span></td>
+              <td class="actions-cell">
+                <div style="display:flex;gap:.3rem;justify-content:flex-end">
+                  <form method="post" action="/locations/{{ row.id }}/toggle">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm" type="submit">{{ 'Disable' if row.active else 'Enable' }}</button>
+                  </form>
+                  <form method="post" action="/locations/{{ row.id }}/delete" data-confirm="Remove this location?">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty-state"><span class="ico">📍</span>No locations yet — field attendance stays blocked until you add one.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head"><h2>Today's field checks</h2></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Time</th><th>Employee</th><th>Type</th><th>Location</th><th class="num">Distance</th><th>Result</th></tr></thead>
+          <tbody>
+          {% for row in checks %}
+            <tr>
+              <td data-label="Time" class="small nowrap">{{ row.created_at[11:16] }}</td>
+              <td data-label="Employee">{{ row.employee_name }}<span class="sub">{{ row.employee_code }}</span></td>
+              <td data-label="Type" class="small">{{ row.kind }}</td>
+              <td data-label="Location" class="small">{{ row.location_name or '—' }}</td>
+              <td data-label="Distance" class="num">{{ row.distance_m | round(0) | int }} m</td>
+              <td data-label="Result"><span class="chip {{ 'chip-ok' if row.inside else 'chip-danger' }}">{{ 'inside' if row.inside else 'outside' }}</span></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="6" class="empty-state">No field checks today.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>How geo-fencing works</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1">The employee's phone sends its coordinates. The server measures the distance to every active
+          location and marks attendance only when they are inside the circle.</p>
+        <p class="mb-1">Outside the circle, the attempt is recorded as <strong>outside</strong> with the distance — but
+          attendance is <strong>not</strong> marked.</p>
+        <p class="mb-0">Set the radius generously (200–300 m) so GPS drift does not block honest people. Every check keeps
+          its coordinates, accuracy and optional selfie for review.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>⚠️ Honest limit</h3></div>
+      <div class="card-body small muted">
+        A phone's GPS can be mocked. Geo-fencing raises the effort and leaves evidence; it does not prove someone was
+        physically there. Use it for field staff convenience, and review the checks — not as the only control for
+        anything security-critical.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('useHere').addEventListener('click', function () {
+    const status = document.getElementById('geoStatus');
+    if (!navigator.geolocation) { status.textContent = 'This browser has no geolocation.'; return; }
+    status.textContent = 'Getting your position…';
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      document.getElementById('lat').value = pos.coords.latitude.toFixed(6);
+      document.getElementById('lng').value = pos.coords.longitude.toFixed(6);
+      status.textContent = 'Filled from your device (±' + Math.round(pos.coords.accuracy) + ' m).';
+    }, function () {
+      status.textContent = 'Could not read your position — type the coordinates instead.';
+    }, { enableHighAccuracy: true, timeout: 10000 });
+  });
+</script>
+{% endblock %}

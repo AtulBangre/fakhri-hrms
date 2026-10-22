@@ -99,6 +99,45 @@ class Settings:
     default_kiosk_password: str = field(default_factory=lambda: _env("HRMS_DEFAULT_KIOSK_PASSWORD", ""))
     #: Duplicate kiosk scans from the same face inside this window are ignored.
     kiosk_debounce_seconds: int = field(default_factory=lambda: int(_env("HRMS_KIOSK_DEBOUNCE", "45")))
+
+    # --- notifications ---------------------------------------------------
+    #: Email transport. Leave ``smtp_host`` empty to use the console driver,
+    #: which writes real .eml files into data/outbox/ (demos and tests).
+    smtp_host: str = field(default_factory=lambda: _env("HRMS_SMTP_HOST", ""))
+    smtp_port: int = field(default_factory=lambda: int(_env("HRMS_SMTP_PORT", "587")))
+    smtp_user: str = field(default_factory=lambda: _env("HRMS_SMTP_USER", ""))
+    smtp_password: str = field(default_factory=lambda: _env("HRMS_SMTP_PASSWORD", ""))
+    smtp_from: str = field(default_factory=lambda: _env("HRMS_SMTP_FROM", ""))
+    smtp_tls: str = field(default_factory=lambda: _env("HRMS_SMTP_TLS", "starttls"))  # starttls|ssl|none
+    smtp_timeout: float = field(default_factory=lambda: float(_env("HRMS_SMTP_TIMEOUT", "20")))
+
+    #: WhatsApp / SMS provider: console | twilio | meta (meta = WhatsApp only)
+    whatsapp_provider: str = field(default_factory=lambda: _env("HRMS_WHATSAPP_PROVIDER", "console"))
+    sms_provider: str = field(default_factory=lambda: _env("HRMS_SMS_PROVIDER", "console"))
+    twilio_account_sid: str = field(default_factory=lambda: _env("HRMS_TWILIO_ACCOUNT_SID", ""))
+    twilio_auth_token: str = field(default_factory=lambda: _env("HRMS_TWILIO_AUTH_TOKEN", ""))
+    twilio_from: str = field(default_factory=lambda: _env("HRMS_TWILIO_FROM", ""))
+    meta_phone_id: str = field(default_factory=lambda: _env("HRMS_META_PHONE_ID", ""))
+    meta_token: str = field(default_factory=lambda: _env("HRMS_META_TOKEN", ""))
+
+    #: Master switch for outbound email (the queue still records messages)
+    notify_email_enabled: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_EMAIL", True))
+
+    #: Automatic triggers
+    notify_punch_in: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_PUNCH_IN", True))
+    notify_late: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_LATE", True))
+    notify_leave_email: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_LEAVE", True))
+    notify_whatsapp_attendance: bool = field(
+        default_factory=lambda: _env_bool("HRMS_NOTIFY_WHATSAPP_ATTENDANCE", False)
+    )
+    #: How often the background thread drains the outbox, in seconds
+    notify_interval_seconds: float = field(default_factory=lambda: float(_env("HRMS_NOTIFY_INTERVAL", "20")))
+
+    # --- self-service password reset -------------------------------------
+    otp_ttl_minutes: int = field(default_factory=lambda: int(_env("HRMS_OTP_TTL_MINUTES", "10")))
+    otp_max_attempts: int = field(default_factory=lambda: int(_env("HRMS_OTP_MAX_ATTEMPTS", "5")))
+    #: Minimum seconds between two OTP emails for the same account
+    otp_cooldown_seconds: int = field(default_factory=lambda: int(_env("HRMS_OTP_COOLDOWN", "60")))
     #: Show the employee's name on the gate screen. OFF by default: the scanner is
     #: shared, and a queue of colleagues should not see whose attendance was just
     #: marked. Turn it on only if your gate staff need it to verify a match.
@@ -165,4 +204,8 @@ SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
     ("currency_symbol", "₹", "Currency symbol", "text", "Used on payroll screens and payslips."),
     ("annual_leave_types", "paid,sick,casual,unpaid", "Leave types", "text",
      "Comma-separated leave types offered when applying leave."),
+    ("company_notice_footer", "", "Noticeboard footer", "text",
+     "Optional line shown under every announcement, e.g. a helpdesk number."),
+    ("geofence_radius_meters", "200", "GPS attendance radius (m)", "number",
+     "How close a field employee must be to an allowed location to mark attendance."),
 ]

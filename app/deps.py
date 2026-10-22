@@ -137,6 +137,8 @@ def compute_asset_version(static_dir: Path | None = None) -> str:
 ASSET_VERSION = compute_asset_version()
 
 templates.env.filters["zip"] = lambda left, right: zip(left, right)
+templates.env.filters["min"] = min
+templates.env.filters["max"] = max
 templates.env.globals.update(
     brand=BRAND,
     app_version=__version__,

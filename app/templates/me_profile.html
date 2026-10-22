@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}My profile · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>My profile</h1>
+    <div class="sub">Changes to your details go to HR for approval — nothing updates silently.</div>
+  </div>
+  <div class="page-actions"><a class="btn" href="/me">← My day</a></div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card">
+      <div class="card-head"><h2>Request a change</h2>
+        <span class="spacer"></span><span class="chip chip-primary">HR approves</span></div>
+      <div class="card-body">
+        <form method="post" action="/me/profile">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+
+          <div class="section-title">Contact</div>
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="phone">Phone</label>
+              <input id="phone" name="phone" type="tel" value="{{ employee.phone or '' }}">
+              <div class="hint">Current: {{ employee.phone or '—' }}</div>
+            </div>
+            <div class="field">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" value="{{ employee.email or '' }}">
+              <div class="hint">Used for payslips and password resets.</div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="address">Address</label>
+            <textarea id="address" name="address" placeholder="House, street, city, PIN">{{ employee.address or '' }}</textarea>
+          </div>
+          <div class="field">
+            <label for="emergency_contact">Emergency contact</label>
+            <input id="emergency_contact" name="emergency_contact" type="text"
+                   value="{{ employee.emergency_contact or '' }}" placeholder="Name · relation · phone">
+          </div>
+
+          <div class="section-title">Bank details</div>
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="bank_name">Bank name</label>
+              <input id="bank_name" name="bank_name" type="text" value="{{ employee.bank_name or '' }}">
+            </div>
+            <div class="field">
+              <label for="account_holder">Account holder</label>
+              <input id="account_holder" name="account_holder" type="text" value="{{ employee.account_holder or '' }}">
+            </div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="account_number">Account number</label>
+              <input id="account_number" name="account_number" type="text" inputmode="numeric"
+                     value="{{ employee.account_number or '' }}">
+              <div class="hint">Salary is paid to this account.</div>
+            </div>
+            <div class="field">
+              <label for="ifsc">IFSC</label>
+              <input id="ifsc" name="ifsc" type="text" value="{{ employee.ifsc or '' }}" placeholder="HDFC0001234"
+                     style="text-transform:uppercase">
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-block" type="submit">Send changes to HR</button>
+          <div class="small muted mt-1">Only fields you actually change are sent. Unchanged fields are ignored.</div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Waiting for approval</h3>
+        {% if pending %}<span class="spacer"></span><span class="chip chip-warn">{{ pending | length }}</span>{% endif %}</div>
+      <div class="card-body">
+        {% if pending %}
+          {% for item in pending %}
+            <div class="timeline-item mb-1">
+              <div style="flex:1;min-width:0">
+                <strong class="small">{{ item.field_label }}</strong>
+                <span class="sub muted" style="display:block">
+                  {{ item.old_value or '—' }} → {{ item.new_value if not item.masked else '•••• ' ~ item.new_value[-4:] }}
+                </span>
+              </div>
+              <form method="post" action="/me/profile/request/{{ item.id }}/cancel">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <button class="btn btn-sm" type="submit">Withdraw</button>
+              </form>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty-state" style="padding:1rem"><span class="ico">✅</span>Nothing pending.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>Recent decisions</h3></div>
+      <div class="card-body">
+        <div class="timeline">
+          {% for item in history %}
+            <div class="timeline-item">
+              <div style="flex:1;min-width:0">
+                <strong class="small">{{ fields.get(item.field, item.field) }}</strong>
+                <span class="sub muted" style="display:block">{{ item.new_value }}</span>
+              </div>
+              <span class="chip {{ 'chip-ok' if item.status == 'approved' else 'chip-danger' }}">{{ item.status }}</span>
+            </div>
+          {% else %}
+            <div class="small muted">No decisions yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Password</h3></div>
+      <div class="card-body">
+        <p class="small muted">You can reset it yourself — we email a one-time code to your address on file.</p>
+        <a class="btn btn-block" href="/forgot-password">Send me a reset code</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

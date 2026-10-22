@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}My expenses · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>My expenses</h1>
+    <div class="sub">Submit a travel/food bill with a photo of the receipt. HR approves, then it is reimbursed.</div>
+  </div>
+  <div class="page-actions"><a class="btn" href="/me">← My day</a></div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>New claim</h2></div>
+      <div class="card-body">
+        <form method="post" action="/me/expenses" enctype="multipart/form-data">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="form-row cols-3">
+            <div class="field"><label for="category">Type</label>
+              <select id="category" name="category">
+                {% for value, label in categories.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+              </select></div>
+            <div class="field"><label for="amount">Amount</label>
+              <input id="amount" name="amount" type="number" min="1" step="0.01" required placeholder="1250"></div>
+            <div class="field"><label for="expense_date">Date</label>
+              <input id="expense_date" name="expense_date" type="date" value="{{ today.isoformat() }}" required></div>
+          </div>
+          <div class="field"><label for="description">What was it for?</label>
+            <input id="description" name="description" type="text" placeholder="Cab to client office, Bhopal"></div>
+          <div class="field"><label for="receipt">Receipt</label>
+            <input id="receipt" name="receipt" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" capture="environment">
+            <div class="hint">Photo or PDF, up to 8 MB. A claim with a receipt is approved faster.</div></div>
+          <button class="btn btn-primary btn-block" type="submit">Submit claim</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head"><h2>My claims</h2><span class="spacer"></span>
+        <span class="small muted">approved {{ stats.approved.total | money }}</span></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Status</th><th>Receipt</th></tr></thead>
+          <tbody>
+          {% for row in rows %}
+            <tr>
+              <td data-label="Date" class="small">{{ row.expense_date }}</td>
+              <td data-label="Type">{{ row.category_label }}
+                {% if row.description %}<span class="sub muted">{{ row.description[:50] }}</span>{% endif %}</td>
+              <td data-label="Amount" class="num">{{ row.amount | money }}</td>
+              <td data-label="Status">
+                <span class="chip {{ 'chip-ok' if row.status == 'approved' else ('chip-danger' if row.status == 'rejected' else 'chip-warn') }}">{{ row.status }}</span>
+                {% if row.note %}<span class="sub muted">{{ row.note }}</span>{% endif %}
+              </td>
+              <td data-label="Receipt">
+                {% if row.has_receipt %}<a class="btn btn-sm" href="/expenses/{{ row.id }}/receipt">View</a>{% else %}—{% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty-state"><span class="ico">🧾</span>No claims yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Totals</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">Waiting</span><span class="v">{{ stats.pending.total | money }}</span></div>
+          <div><span class="k">Approved</span><span class="v">{{ stats.approved.total | money }}</span></div>
+          <div><span class="k">Rejected</span><span class="v">{{ stats.rejected.total | money }}</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Tips</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1">Photograph the bill flat, with the amount and date readable.</p>
+        <p class="mb-0">Approved claims are usually paid with the next payroll cycle — ask HR if you need it sooner.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

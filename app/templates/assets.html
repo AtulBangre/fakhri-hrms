@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Assets · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Assets</h1>
+    <div class="sub">{{ stats.total }} items · {{ stats.assigned }} assigned · {{ stats.in_stock }} in stock · book value {{ stats.value | money }}</div>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Add an asset</h2></div>
+      <div class="card-body">
+        <form method="post" action="/assets">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="form-row cols-2">
+            <div class="field"><label for="tag">Asset tag</label>
+              <input id="tag" name="tag" type="text" required placeholder="FITS-LAP-001" style="text-transform:uppercase"></div>
+            <div class="field"><label for="name">Name</label>
+              <input id="name" name="name" type="text" required placeholder="Dell Latitude 5440"></div>
+          </div>
+          <div class="form-row cols-3">
+            <div class="field"><label for="category">Category</label>
+              <select id="category" name="category">
+                {% for value, label in categories.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+              </select></div>
+            <div class="field"><label for="serial">Serial</label><input id="serial" name="serial" type="text"></div>
+            <div class="field"><label for="cost">Cost</label><input id="cost" name="cost" type="number" min="0" step="100" value="0"></div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="purchase_date">Purchase date</label>
+              <input id="purchase_date" name="purchase_date" type="date"></div>
+            <div class="field"><label for="notes">Notes</label><input id="notes" name="notes" type="text"></div>
+          </div>
+          <button class="btn btn-primary" type="submit">Add to register</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head">
+        <h2>Asset register</h2><span class="spacer"></span>
+        <form class="filters" method="get" action="/assets">
+          <div class="field"><input type="search" name="q" value="{{ filters.q }}" placeholder="tag, name, serial"></div>
+          <div class="field">
+            <select name="status" onchange="this.form.submit()">
+              <option value="all">All statuses</option>
+              {% for value, label in statuses.items() %}
+                <option value="{{ value }}" {{ 'selected' if filters.status == value }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn-sm" type="submit">Filter</button>
+        </form>
+      </div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Tag</th><th>Asset</th><th>Holder</th><th class="num">Cost</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+          {% for row in rows %}
+            <tr>
+              <td data-label="Tag"><a href="/assets/{{ row.id }}"><strong class="mono">{{ row.tag }}</strong></a></td>
+              <td data-label="Asset">{{ row.name }}<span class="sub">{{ row.category_label }}{% if row.serial %} · {{ row.serial }}{% endif %}</span></td>
+              <td data-label="Holder">
+                {% if row.holder %}
+                  <a href="/employees/{{ row.holder.employee_id }}">{{ row.holder.employee_name }}</a>
+                  <span class="sub">since {{ row.holder.assigned_on }}</span>
+                {% else %}<span class="muted">—</span>{% endif %}
+              </td>
+              <td data-label="Cost" class="num">{{ row.cost | money }}</td>
+              <td data-label="Status"><span class="chip {{ 'chip-ok' if row.status == 'assigned' else ('chip-warn' if row.status == 'repair' else 'chip-muted') }}">{{ row.status_label }}</span></td>
+              <td class="actions-cell">
+                {% if row.holder %}
+                  <form method="post" action="/assets/{{ row.id }}/return">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm" type="submit">Return</button>
+                  </form>
+                {% else %}
+                  <form method="post" action="/assets/{{ row.id }}/assign" class="inline-form">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <select name="employee_id" required style="min-width:9rem">
+                      {% for person in employees %}<option value="{{ person.id }}">{{ person.name }}</option>{% endfor %}
+                    </select>
+                    <button class="btn btn-sm btn-primary" type="submit">Assign</button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="6" class="empty-state"><span class="ico">💻</span>No assets yet — add the first one above.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Status</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">Assigned</span><span class="v">{{ stats.assigned }}</span></div>
+          <div><span class="k">In stock</span><span class="v">{{ stats.in_stock }}</span></div>
+          <div><span class="k">In repair</span><span class="v">{{ stats.repair }}</span></div>
+          <div><span class="k">Retired</span><span class="v">{{ stats.retired }}</span></div>
+          <div><span class="k">Book value</span><span class="v">{{ stats.value | money }}</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Why track this</h3></div>
+      <div class="card-body small muted">
+        When someone leaves you can see exactly which laptop, SIM and ID card they hold, and get a return date
+        on record. Every assignment keeps its history, so a disputed device has a paper trail.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import RedirectResponse
 
 from ..auth import (
+    ROLE_EMPLOYEE,
     ROLE_KIOSK,
     authenticate,
     clear_session_cookie,
@@ -27,7 +28,7 @@ def login_page(request: Request, next: str | None = None):
     storage = get_storage(request)
     session = get_session(request)
     if session is not None:
-        return RedirectResponse("/kiosk" if session.is_kiosk else "/dashboard", status_code=303)
+        return RedirectResponse(_home_for(session), status_code=303)
     return render(
         request,
         "login.html",
@@ -76,8 +77,12 @@ def login_submit(
 
     if next.startswith("/"):
         target = next
+    elif user["role"] == ROLE_KIOSK:
+        target = "/kiosk"
+    elif user["role"] == ROLE_EMPLOYEE:
+        target = "/me"
     else:
-        target = "/kiosk" if user["role"] == ROLE_KIOSK else "/dashboard"
+        target = "/dashboard"
 
     redirect_response = RedirectResponse(target, status_code=303)
     set_session_cookie(redirect_response, token, settings, max_age=lifetime)
@@ -97,12 +102,20 @@ def logout(request: Request, csrf: str = Form("", alias="_csrf")):
     return response
 
 
+def _home_for(session) -> str:
+    if session.is_kiosk:
+        return "/kiosk"
+    if session.is_employee:
+        return "/me"
+    return "/dashboard"
+
+
 @router.get("/")
 def root(request: Request):
     session = get_session(request)
     if session is None:
         return RedirectResponse("/login", status_code=303)
-    return RedirectResponse("/kiosk" if session.is_kiosk else "/dashboard", status_code=303)
+    return RedirectResponse(_home_for(session), status_code=303)
 
 
 @router.get("/offline")

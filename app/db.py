@@ -7,6 +7,7 @@ portable: copy one file and the whole HR system moved.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import threading
 from datetime import datetime
@@ -24,12 +25,13 @@ CREATE TABLE IF NOT EXISTS users (
     username      TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     salt          TEXT NOT NULL,
-    role          TEXT NOT NULL CHECK (role IN ('hr', 'kiosk')),
+    role          TEXT NOT NULL CHECK (role IN ('hr', 'kiosk', 'employee')),
     display_name  TEXT,
     device_label  TEXT,
     active        INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL,
-    last_login_at TEXT
+    last_login_at TEXT,
+    employee_id   INTEGER REFERENCES employees(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS employees (
@@ -163,6 +165,194 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 
+CREATE TABLE IF NOT EXISTS notifications (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    channel    TEXT NOT NULL,              -- email | whatsapp | sms
+    recipient  TEXT NOT NULL,              -- address / number
+    subject    TEXT,
+    body       TEXT NOT NULL,
+    category   TEXT NOT NULL DEFAULT 'system',
+    status     TEXT NOT NULL DEFAULT 'pending',   -- pending | sent | failed | skipped
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    sent_at    TEXT,
+    error      TEXT,
+    meta       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status, id);
+CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
+
+CREATE TABLE IF NOT EXISTS announcements (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    created_by TEXT,
+    title      TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    level      TEXT NOT NULL DEFAULT 'info',      -- info | success | warning | urgent
+    audience   TEXT NOT NULL DEFAULT 'all',       -- all | employees | hr
+    pinned     INTEGER NOT NULL DEFAULT 0,
+    active     INTEGER NOT NULL DEFAULT 1,
+    expires_on TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_announcements_active ON announcements(active, pinned);
+
+CREATE TABLE IF NOT EXISTS otp_codes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash  TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    used_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_otp_user ON otp_codes(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS profile_change_requests (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    field       TEXT NOT NULL,
+    old_value   TEXT,
+    new_value   TEXT,
+    status      TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected
+    requested_at TEXT NOT NULL,
+    requested_by INTEGER REFERENCES users(id),
+    decided_at  TEXT,
+    decided_by  TEXT,
+    note        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_profile_req_status ON profile_change_requests(status, id);
+
+CREATE TABLE IF NOT EXISTS documents (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    category    TEXT NOT NULL DEFAULT 'other',   -- aadhaar | pan | offer_letter | contract | resume | other
+    title       TEXT NOT NULL,
+    filename    TEXT NOT NULL,                   -- original name, shown to the user
+    stored_name TEXT NOT NULL,                   -- name on disk (random)
+    mime        TEXT NOT NULL,
+    size        INTEGER NOT NULL,
+    sha256      TEXT NOT NULL,
+    notes       TEXT,
+    uploaded_by TEXT,
+    uploaded_at TEXT NOT NULL,
+    verified    INTEGER NOT NULL DEFAULT 0,
+    verified_by TEXT,
+    verified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_documents_employee ON documents(employee_id, category);
+
+CREATE TABLE IF NOT EXISTS assets (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    tag           TEXT NOT NULL UNIQUE,
+    name          TEXT NOT NULL,
+    category      TEXT NOT NULL DEFAULT 'laptop', -- laptop | sim | id_card | phone | peripheral | other
+    serial        TEXT,
+    purchase_date TEXT,
+    cost          REAL NOT NULL DEFAULT 0,
+    status        TEXT NOT NULL DEFAULT 'in_stock', -- in_stock | assigned | repair | retired
+    notes         TEXT,
+    created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_assets_status ON assets(status);
+
+CREATE TABLE IF NOT EXISTS asset_assignments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id    INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    assigned_on TEXT NOT NULL,
+    returned_on TEXT,
+    condition_note TEXT,
+    assigned_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_asset_assign_active ON asset_assignments(asset_id, returned_on);
+
+CREATE TABLE IF NOT EXISTS expense_claims (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id   INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    category      TEXT NOT NULL DEFAULT 'travel',  -- travel | food | accommodation | internet | other
+    amount        REAL NOT NULL,
+    expense_date  TEXT NOT NULL,
+    description   TEXT,
+    receipt_name  TEXT,
+    receipt_mime  TEXT,
+    receipt_size  INTEGER,
+    status        TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected | paid
+    submitted_at  TEXT NOT NULL,
+    decided_at    TEXT,
+    decided_by    TEXT,
+    note          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_expenses_status ON expense_claims(status, id);
+CREATE INDEX IF NOT EXISTS idx_expenses_employee ON expense_claims(employee_id, expense_date);
+
+CREATE TABLE IF NOT EXISTS work_locations (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    address    TEXT,
+    lat        REAL NOT NULL,
+    lng        REAL NOT NULL,
+    radius_m   INTEGER NOT NULL DEFAULT 200,
+    active     INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS field_checks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    work_date   TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'check_in',   -- check_in | check_out
+    lat         REAL NOT NULL,
+    lng         REAL NOT NULL,
+    accuracy_m  REAL,
+    distance_m  REAL,
+    location_id INTEGER REFERENCES work_locations(id),
+    location_name TEXT,
+    inside      INTEGER NOT NULL DEFAULT 0,
+    selfie_name TEXT,
+    note        TEXT,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_checks ON field_checks(employee_id, work_date);
+
+CREATE TABLE IF NOT EXISTS tax_profiles (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id      INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    fiscal_year      TEXT NOT NULL,             -- '2025-26'
+    regime           TEXT NOT NULL DEFAULT 'new',  -- new | old
+    metro            INTEGER NOT NULL DEFAULT 0,
+    annual_rent      REAL NOT NULL DEFAULT 0,
+    basic_annual     REAL NOT NULL DEFAULT 0,
+    hra_annual       REAL NOT NULL DEFAULT 0,
+    -- confirmed by HR / the CA; Form 16 reports these, not our projection
+    confirmed_tds    REAL,
+    confirmed_taxable REAL,
+    monthly_tds      REAL NOT NULL DEFAULT 0,
+    note             TEXT,
+    confirmed_by     TEXT,
+    confirmed_at     TEXT,
+    updated_at       TEXT NOT NULL,
+    UNIQUE (employee_id, fiscal_year)
+);
+
+CREATE TABLE IF NOT EXISTS tax_declarations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    fiscal_year TEXT NOT NULL,
+    section     TEXT NOT NULL,                  -- 80C | 80CCD1B | 80D | 80TTA | 80E | 24B
+    description TEXT,
+    amount      REAL NOT NULL DEFAULT 0,
+    declared_by TEXT,
+    declared_at TEXT NOT NULL,
+    proof_name  TEXT,
+    proof_mime  TEXT,
+    proof_size  INTEGER,
+    status      TEXT NOT NULL DEFAULT 'declared',  -- declared | verified | rejected
+    verified_by TEXT,
+    verified_at TEXT,
+    note        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tax_decl ON tax_declarations(employee_id, fiscal_year);
+
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -187,7 +377,171 @@ class Storage:
         with self._lock:
             self._conn.executescript(SCHEMA)
             self._conn.commit()
+        self._migrate()
         self._seed_settings()
+
+    def _migrate(self) -> None:
+        """Bring an older database up to date, in place.
+
+        The ``users`` table was first created with
+        ``CHECK (role IN ('hr','kiosk'))``, and SQLite cannot alter a CHECK
+        constraint — so adding the ``employee`` role needs a table rebuild. Every
+        existing row is copied across; the whole method is idempotent.
+        """
+        with self._lock:
+            self._repair_dangling_user_refs()
+            self._rebuild_users_if_needed()
+            self._add_missing_columns()
+            # Must exist on both paths (fresh database and migrated one).
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_users_employee ON users(employee_id)"
+            )
+            self._conn.commit()
+
+    def _rebuild_users_if_needed(self) -> None:
+        """Recreate ``users`` with the ``employee`` role, without breaking FKs.
+
+        Two details matter here and both bit once already:
+
+        * ``ALTER TABLE users RENAME TO users_old`` rewrites the foreign keys of
+          *other* tables (``leave_requests.applied_by``) to point at ``users_old``,
+          which then dangles as soon as the old table is dropped. So we build a new
+          table, copy into it, drop the old one and rename the new one into place —
+          and we keep ``legacy_alter_table`` on so the final rename does not touch
+          anything else.
+        * ``CREATE INDEX ... ON users(employee_id)`` cannot live in the base schema:
+          on an un-migrated database that column does not exist yet.
+        """
+        row = self._conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()
+        if row is None:
+            return
+
+        create_sql = (row["sql"] or "").replace('"', "'")
+        columns = {c["name"] for c in self._conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "'employee'" in create_sql and "employee_id" in columns:
+            return  # nothing to do
+
+        self._conn.execute("PRAGMA foreign_keys=OFF")
+        self._conn.execute("PRAGMA legacy_alter_table=ON")
+        self._conn.executescript(
+            """
+            CREATE TABLE users__new (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                salt          TEXT NOT NULL,
+                role          TEXT NOT NULL CHECK (role IN ('hr', 'kiosk', 'employee')),
+                display_name  TEXT,
+                device_label  TEXT,
+                active        INTEGER NOT NULL DEFAULT 1,
+                created_at    TEXT NOT NULL,
+                last_login_at TEXT,
+                employee_id   INTEGER REFERENCES employees(id) ON DELETE CASCADE
+            );
+            """
+        )
+        employee_expr = "employee_id" if "employee_id" in columns else "NULL"
+        self._conn.execute(
+            f"""
+            INSERT INTO users__new (id, username, password_hash, salt, role, display_name,
+                                    device_label, active, created_at, last_login_at, employee_id)
+            SELECT id, username, password_hash, salt, role, display_name,
+                   device_label, active, created_at, last_login_at, {employee_expr}
+            FROM users
+            """
+        )
+        self._conn.execute("DROP TABLE users")
+        self._conn.execute("ALTER TABLE users__new RENAME TO users")
+        self._conn.execute("PRAGMA legacy_alter_table=OFF")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.commit()
+
+    def _repair_dangling_user_refs(self) -> None:
+        """Undo damage from the first (buggy) migration.
+
+        Databases migrated by the initial version of this code have other tables
+        pointing at a ``users_old`` table that no longer exists, which makes every
+        insert into them fail with ``no such table: main.users_old``. Rebuild each
+        affected table in the safe order. Idempotent: a healthy database has no
+        table whose definition mentions ``users_old``.
+        """
+        broken = self._conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type='table' AND sql LIKE '%users_old%'"
+        ).fetchall()
+        if not broken:
+            return
+
+        self._conn.execute("PRAGMA foreign_keys=OFF")
+        self._conn.execute("PRAGMA legacy_alter_table=ON")
+        for row in broken:
+            name, sql = row["name"], row["sql"]
+            fixed_sql = re.sub(
+                rf'CREATE\s+TABLE\s+"?{re.escape(name)}"?',
+                f'CREATE TABLE "{name}__new"',
+                sql.replace("users_old", "users"),
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            index_sql = [
+                r["sql"]
+                for r in self._conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL",
+                    (name,),
+                ).fetchall()
+            ]
+            columns = [c["name"] for c in self._conn.execute(f'PRAGMA table_info("{name}")').fetchall()]
+            column_list = ", ".join(f'"{c}"' for c in columns)
+
+            self._conn.execute(fixed_sql)
+            self._conn.execute(
+                f'INSERT INTO "{name}__new" ({column_list}) SELECT {column_list} FROM "{name}"'
+            )
+            self._conn.execute(f'DROP TABLE "{name}"')
+            self._conn.execute(f'ALTER TABLE "{name}__new" RENAME TO "{name}"')
+            for statement in index_sql:
+                self._conn.execute(statement)
+
+        self._conn.execute("PRAGMA legacy_alter_table=OFF")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.commit()
+
+    #: Columns added after the first release: table -> [(column, declaration)]
+    ADDITIVE_COLUMNS = {
+        "users": [
+            ("email", "TEXT"),
+            ("phone", "TEXT"),
+        ],
+        "payslips": [
+            ("tds", "REAL NOT NULL DEFAULT 0"),
+        ],
+        "employees": [
+            ("address", "TEXT"),
+            ("bank_name", "TEXT"),
+            ("account_number", "TEXT"),
+            ("ifsc", "TEXT"),
+            ("account_holder", "TEXT"),
+            ("pan", "TEXT"),
+            ("aadhaar_last4", "TEXT"),
+            ("emergency_contact", "TEXT"),
+        ],
+    }
+
+    def _add_missing_columns(self) -> None:
+        """``ALTER TABLE ... ADD COLUMN`` for anything added since the table was made.
+
+        Adding a column is safe and cheap in SQLite; it never rewrites FKs, so this
+        is the right tool for purely additive changes (bank details, user email).
+        """
+        for table, columns in self.ADDITIVE_COLUMNS.items():
+            existing = {c["name"] for c in self._conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            if not existing:
+                continue
+            for name, declaration in columns:
+                if name not in existing:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+            self._conn.commit()
 
     # ------------------------------------------------------------- plumbing
     def close(self) -> None:
