@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Attendance · {{ day_label }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Daily board</h1>
+    <div class="sub">{{ day_label }}
+      {% if kind == 'holiday' %}· Holiday{% elif kind == 'week_off' %}· Weekly off{% endif %}
+      · {{ counts.present }} present · {{ counts.absent }} absent · {{ counts.pending }} not marked</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/attendance?day={{ previous_day }}">← Previous</a>
+    <a class="btn" href="/attendance?day={{ next_day }}">Next →</a>
+    <a class="btn btn-primary" href="/attendance/register">Monthly register</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="filters" method="get" action="/attendance">
+      <div class="field">
+        <label for="day">Pick a date</label>
+        <input id="day" name="day" type="date" value="{{ day_iso }}">
+      </div>
+      <button class="btn btn-primary" type="submit">Show</button>
+      <a class="btn" href="/attendance">Today</a>
+      <a class="btn" href="/attendance/register.csv">⬇️ Export month (CSV)</a>
+    </form>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat ok"><div class="label">Present</div><div class="value">{{ counts.present }}</div><div class="foot">{{ counts.late }} arrived late</div></div>
+  <div class="stat"><div class="label">Half day</div><div class="value">{{ counts.half_day }}</div><div class="foot">worked less than the half-day threshold</div></div>
+  <div class="stat"><div class="label">On leave</div><div class="value">{{ counts.leave }}</div><div class="foot">approved leave</div></div>
+  <div class="stat {{ 'danger' if counts.absent else '' }}"><div class="label">Absent</div><div class="value">{{ counts.absent }}</div><div class="foot">{{ counts.pending }} still unmarked</div></div>
+</div>
+
+<details class="disclosure">
+  <summary>✏️ Manual attendance entry (corrections, forgot-to-scan, half day, leave)</summary>
+  <div class="card-body">
+    <form method="post" action="/attendance/mark">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="return_day" value="{{ day_iso }}">
+      <div class="form-row cols-2">
+        <div class="field">
+          <label for="employee_id">Employee</label>
+          <select id="employee_id" name="employee_id" required>
+            {% for row in rows %}
+              <option value="{{ row.employee_id }}">{{ row.name }} ({{ row.code }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="work_date">Date</label>
+          <input id="work_date" name="work_date" type="date" value="{{ day_iso }}" required>
+        </div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="field">
+          <label for="status">Status</label>
+          <select id="status" name="status" required>
+            {% for value in statuses %}
+              <option value="{{ value }}">{{ STATUS_LABELS.get(value, value) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field"><label for="check_in">Check in</label><input id="check_in" name="check_in" type="time"></div>
+        <div class="field"><label for="check_out">Check out</label><input id="check_out" name="check_out" type="time"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="field">
+          <label for="leave_type">Leave type (leave / half day only)</label>
+          <select id="leave_type" name="leave_type">
+            <option value="">—</option>
+            {% for value in leave_types %}<option value="{{ value }}">{{ leave_labels[value] }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field"><label for="note">Note</label><input id="note" name="note" type="text" placeholder="e.g. forgot to scan at the gate"></div>
+      </div>
+      <button class="btn btn-primary" type="submit">Save entry</button>
+      <span class="small muted">Tip: for a full day of leave use the Leave page — it charges the balance and handles weekly offs.</span>
+    </form>
+  </div>
+</details>
+
+<div class="card flush">
+  <div class="card-head"><h2>{{ day_label }}</h2><span class="spacer"></span>
+    <span class="small muted">{{ rows | length }} active employees</span></div>
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead>
+        <tr><th>Employee</th><th>Status</th><th>In</th><th>Out</th><th>Worked</th><th>Late</th><th>Source</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td data-label="Employee">
+            <strong>{{ row.name }}</strong>
+            <span class="sub">{{ row.code }}{% if row.department %} · {{ row.department }}{% endif %}</span>
+          </td>
+          <td data-label="Status">
+            <span class="{{ row.effective_status | chip }}">{{ row.status_label }}</span>
+            {% if row.leave_type %}<span class="sub muted">{{ leave_labels.get(row.leave_type, row.leave_type) }}</span>{% endif %}
+          </td>
+          <td data-label="In">{{ row.check_in_label }}</td>
+          <td data-label="Out">{{ row.check_out_label }}</td>
+          <td data-label="Worked">{{ row.worked_label }}</td>
+          <td data-label="Late">{% if row.late_minutes %}<span class="chip chip-warn">{{ row.late_minutes }}m</span>{% else %}—{% endif %}</td>
+          <td data-label="Source">
+            {% if row.source %}<span class="chip chip-muted">{{ row.source }}</span>{% if row.device_label %}<span class="sub muted">{{ row.device_label }}</span>{% endif %}{% else %}—{% endif %}
+            {% if row.note %}<span class="sub muted">{{ row.note }}</span>{% endif %}
+          </td>
+          <td class="actions-cell">
+            {% if row.attendance_id %}
+              <form method="post" action="/attendance/clear" data-confirm="Remove this attendance entry?">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                <input type="hidden" name="work_date" value="{{ day_iso }}">
+                <input type="hidden" name="return_day" value="{{ day_iso }}">
+                <button class="btn btn-sm" type="submit">Clear</button>
+              </form>
+            {% endif %}
+            <a class="btn btn-sm" href="/employees/{{ row.employee_id }}">Open</a>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="empty-state"><span class="ico">👥</span>No active employees yet.
+          <div class="mt-2"><a class="btn btn-primary" href="/employees/new">Add an employee</a></div></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

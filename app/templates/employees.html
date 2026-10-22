@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Employees · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Employees</h1>
+    <div class="sub">{{ stats.active }} active · {{ stats.face_enrolled }} with face enrolled · monthly payroll {{ stats.monthly_payroll | money }}</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/attendance/register">Monthly register</a>
+    <a class="btn btn-primary" href="/employees/new">➕ Add employee</a>
+  </div>
+</div>
+
+{% if stats.missing_face %}
+  <div class="alert alert-warn">
+    <span class="ico">📷</span>
+    <div>{{ stats.missing_face }} active employee{{ '' if stats.missing_face == 1 else 's' }} cannot mark attendance yet —
+      no face enrolled. Open the employee and capture a photo.</div>
+  </div>
+{% endif %}
+
+<div class="grid grid-4 mb-3">
+  <div class="stat"><div class="label">Active</div><div class="value">{{ stats.active }}</div><div class="foot">{{ stats.total }} total records</div></div>
+  <div class="stat ok"><div class="label">Face enrolled</div><div class="value">{{ stats.face_enrolled }}</div><div class="foot">can use the gate scanner</div></div>
+  <div class="stat warn"><div class="label">Missing face</div><div class="value">{{ stats.missing_face }}</div><div class="foot">needs enrolment</div></div>
+  <div class="stat"><div class="label">Monthly gross</div><div class="value">{{ stats.monthly_payroll | money }}</div><div class="foot">active employees</div></div>
+</div>
+
+<div class="card flush">
+  <div class="card-head">
+    <form class="filters" method="get" action="/employees">
+      <div class="field">
+        <label for="q">Search</label>
+        <input id="q" type="search" name="q" value="{{ filters.q }}" placeholder="name, code, phone…">
+      </div>
+      <div class="field">
+        <label for="department">Department</label>
+        <select id="department" name="department">
+          <option value="">All</option>
+          {% for item in departments %}
+            <option value="{{ item }}" {{ 'selected' if filters.department == item }}>{{ item }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          <option value="active" {{ 'selected' if filters.status == 'active' }}>Active</option>
+          <option value="inactive" {{ 'selected' if filters.status == 'inactive' }}>Inactive</option>
+          <option value="all" {{ 'selected' if filters.status == 'all' }}>All</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit">Filter</button>
+      <a class="btn" href="/employees">Reset</a>
+    </form>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead>
+        <tr>
+          <th>Employee</th><th>Department</th><th>Joined</th><th class="num">Monthly gross</th>
+          <th>Face</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for person in employees %}
+        <tr>
+          <td data-label="Employee">
+            <strong>{{ person.name }}</strong>
+            <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}</span>
+          </td>
+          <td data-label="Department">{{ person.department or '—' }}</td>
+          <td data-label="Joined">{{ person.joined_on | nice_date }}</td>
+          <td data-label="Monthly gross" class="num">{{ person.monthly_gross | money }}</td>
+          <td data-label="Face">
+            {% if person.face_id %}
+              <span class="chip chip-ok">enrolled</span>
+            {% else %}
+              <span class="chip chip-warn">pending</span>
+            {% endif %}
+          </td>
+          <td data-label="Status">
+            <span class="chip {{ 'chip-ok' if person.status == 'active' else 'chip-muted' }}">{{ person.status }}</span>
+          </td>
+          <td class="actions-cell">
+            <a class="btn btn-sm {{ 'btn-primary' if person.id in missing_face and person.status == 'active' }}" href="/employees/{{ person.id }}">
+              {{ 'Enrol face' if person.id in missing_face and person.status == 'active' else 'Open' }}
+            </a>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="empty-state">
+          <span class="ico">👥</span>
+          No employees match this filter.
+          <div class="mt-2"><a class="btn btn-primary" href="/employees/new">Add the first employee</a></div>
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,360 @@
+"""Authentication: HR and kiosk roles, password hashing, sessions and CSRF.
+
+Design notes
+------------
+* Passwords are hashed with **scrypt** (stdlib ``hashlib``), salted per user, so
+  there is no extra dependency and no plaintext anywhere on disk.
+* Sessions are **stateless signed cookies** (HMAC-SHA256 over a base64 payload).
+  The payload carries the user id, role and a CSRF token; it is signed, not
+  encrypted, so it deliberately holds no secrets.
+* Two roles exist:
+    ``hr``     — full access to people, attendance, leave and payroll.
+    ``kiosk``  — the gate device: it may only open the scanner and mark
+                 attendance. Every other page returns 403.
+* CSRF: every state-changing request must echo the session's CSRF token in the
+  ``_csrf`` form field or the ``X-CSRF-Token`` header.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import logging
+import secrets
+import time
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import HTTPException, Request, status
+from fastapi.responses import RedirectResponse
+
+from .config import Settings
+from .db import Storage, utcnow_iso
+
+logger = logging.getLogger("hrms.auth")
+
+SCRYPT_N = 2 ** 14
+SCRYPT_R = 8
+SCRYPT_P = 1
+DK_LEN = 32
+
+ROLE_HR = "hr"
+ROLE_KIOSK = "kiosk"
+
+
+# --------------------------------------------------------------------- hashing
+def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    """Return ``(hash_hex, salt_hex)``."""
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.scrypt(
+        password.encode("utf-8"), salt=bytes.fromhex(salt), n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=DK_LEN
+    )
+    return digest.hex(), salt
+
+
+def verify_password(password: str, password_hash: str, salt: str) -> bool:
+    try:
+        candidate, _ = hash_password(password, salt)
+    except (ValueError, TypeError):  # pragma: no cover - corrupt row
+        return False
+    return hmac.compare_digest(candidate, password_hash)
+
+
+def generate_password(length: int = 14) -> str:
+    """Readable but strong password (no ambiguous characters)."""
+    alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+# --------------------------------------------------------------------- session
+@dataclass(slots=True)
+class SessionUser:
+    id: int
+    username: str
+    role: str
+    display_name: str
+    csrf: str
+    device_label: str | None = None
+    exp: int = 0
+
+    @property
+    def is_hr(self) -> bool:
+        return self.role == ROLE_HR
+
+    @property
+    def is_kiosk(self) -> bool:
+        return self.role == ROLE_KIOSK
+
+    @property
+    def initials(self) -> str:
+        parts = [p for p in (self.display_name or self.username).split() if p]
+        return "".join(p[0].upper() for p in parts[:2]) or "U"
+
+
+def _b64encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def _sign(payload_b64: str, secret: str) -> str:
+    return _b64encode(hmac.new(secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).digest())
+
+
+def create_session_token(user: dict[str, Any], settings: Settings, *, lifetime_seconds: int) -> tuple[str, SessionUser]:
+    csrf = secrets.token_urlsafe(24)
+    payload = {
+        "uid": int(user["id"]),
+        "u": user["username"],
+        "r": user["role"],
+        "n": user.get("display_name") or user["username"],
+        "d": user.get("device_label"),
+        "csrf": csrf,
+        "exp": int(time.time()) + int(lifetime_seconds),
+    }
+    encoded = _b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    token = f"{encoded}.{_sign(encoded, settings.secret_key)}"
+    session = SessionUser(
+        id=payload["uid"],
+        username=payload["u"],
+        role=payload["r"],
+        display_name=payload["n"],
+        device_label=payload["d"],
+        csrf=csrf,
+        exp=payload["exp"],
+    )
+    return token, session
+
+
+def read_session_token(token: str | None, settings: Settings) -> SessionUser | None:
+    if not token or "." not in token:
+        return None
+    encoded, signature = token.rsplit(".", 1)
+    if not hmac.compare_digest(signature, _sign(encoded, settings.secret_key)):
+        return None
+    try:
+        payload = json.loads(_b64decode(encoded))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if int(payload.get("exp", 0)) < int(time.time()):
+        return None
+    return SessionUser(
+        id=int(payload["uid"]),
+        username=payload["u"],
+        role=payload["r"],
+        display_name=payload.get("n") or payload["u"],
+        device_label=payload.get("d"),
+        csrf=payload.get("csrf", ""),
+        exp=int(payload["exp"]),
+    )
+
+
+def set_session_cookie(response, token: str, settings: Settings, *, max_age: int) -> None:
+    response.set_cookie(
+        settings.session_cookie,
+        token,
+        max_age=max_age,
+        httponly=True,
+        samesite="lax",
+        secure=settings.secure_cookies,
+        path="/",
+    )
+
+
+def clear_session_cookie(response, settings: Settings) -> None:
+    response.delete_cookie(settings.session_cookie, path="/")
+
+
+# ------------------------------------------------------------------ FastAPI deps
+def _wants_html(request: Request) -> bool:
+    """Decide between an HTML redirect and a JSON 401/403.
+
+    ``/api/*`` is always JSON. For pages we assume HTML unless the caller
+    explicitly asked for JSON — that matches browsers (``Accept: text/html``),
+    bare curl (``*/*``) and fetch() alike.
+    """
+    if request.url.path.startswith("/api/"):
+        return False
+    return "application/json" not in request.headers.get("accept", "")
+
+
+def get_session(request: Request) -> SessionUser | None:
+    settings: Settings = request.app.state.settings
+    return read_session_token(request.cookies.get(settings.session_cookie), settings)
+
+
+def current_user(request: Request) -> SessionUser:
+    """Require *any* signed-in user (HR or kiosk)."""
+    session = get_session(request)
+    if session is None:
+        if _wants_html(request):
+            target = request.url.path
+            raise HTTPException(
+                status_code=status.HTTP_303_SEE_OTHER,
+                headers={"Location": f"/login?next={target}"},
+            )
+        raise HTTPException(status_code=401, detail="Not signed in")
+    request.state.user = session
+    return session
+
+
+def require_hr(request: Request) -> SessionUser:
+    session = current_user(request)
+    if not session.is_hr:
+        if _wants_html(request):
+            raise HTTPException(
+                status_code=status.HTTP_303_SEE_OTHER,
+                headers={"Location": "/kiosk?err=" + "Kiosk+login+can+only+mark+attendance"},
+            )
+        raise HTTPException(status_code=403, detail="HR access required")
+    return session
+
+
+def require_csrf(request: Request) -> None:
+    """Validate the CSRF token on state-changing requests."""
+    session = get_session(request)
+    if session is None:
+        raise HTTPException(status_code=401, detail="Not signed in")
+    provided = request.headers.get("x-csrf-token")
+    if not provided:
+        # Form posts put the token in the body; reading it here is safe because
+        # python-multipart caches the parsed form on the request.
+        content_type = request.headers.get("content-type", "")
+        if content_type.startswith(("application/x-www-form-urlencoded", "multipart/form-data")):
+            provided = None  # validated inside the route via form field helper
+    if provided and not hmac.compare_digest(provided, session.csrf):
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+
+
+def verify_form_csrf(session: SessionUser, provided: str | None) -> None:
+    """Route-level CSRF check for classic HTML form submissions."""
+    if not provided or not hmac.compare_digest(provided, session.csrf):
+        raise HTTPException(status_code=403, detail="Invalid or missing CSRF token")
+
+
+def redirect(url: str) -> RedirectResponse:
+    return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+# ------------------------------------------------------------------ user store
+def create_user(
+    storage: Storage,
+    *,
+    username: str,
+    password: str,
+    role: str,
+    display_name: str | None = None,
+    device_label: str | None = None,
+) -> dict[str, Any]:
+    password_hash, salt = hash_password(password)
+    storage.execute(
+        """
+        INSERT INTO users (username, password_hash, salt, role, display_name, device_label, active, created_at)
+        VALUES (?,?,?,?,?,?,1,?)
+        """,
+        (username.strip().lower(), password_hash, salt, role, display_name or username, device_label, utcnow_iso()),
+    )
+    user = get_user_by_username(storage, username)
+    assert user is not None
+    return user
+
+
+def get_user_by_username(storage: Storage, username: str) -> dict[str, Any] | None:
+    return storage.query_one("SELECT * FROM users WHERE username = ?", (username.strip().lower(),))
+
+
+def get_user(storage: Storage, user_id: int) -> dict[str, Any] | None:
+    return storage.query_one("SELECT * FROM users WHERE id = ?", (user_id,))
+
+
+def list_users(storage: Storage) -> list[dict[str, Any]]:
+    return storage.query(
+        "SELECT id, username, role, display_name, device_label, active, created_at, last_login_at "
+        "FROM users ORDER BY role, username"
+    )
+
+
+def authenticate(storage: Storage, username: str, password: str) -> dict[str, Any] | None:
+    user = get_user_by_username(storage, username)
+    if not user or not user["active"]:
+        return None
+    if not verify_password(password, user["password_hash"], user["salt"]):
+        return None
+    storage.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (utcnow_iso(), user["id"]))
+    return user
+
+
+def change_password(storage: Storage, user_id: int, new_password: str) -> None:
+    password_hash, salt = hash_password(new_password)
+    storage.execute(
+        "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?", (password_hash, salt, user_id)
+    )
+
+
+def set_user_active(storage: Storage, user_id: int, active: bool) -> None:
+    storage.execute("UPDATE users SET active = ? WHERE id = ?", (1 if active else 0, user_id))
+
+
+def delete_user(storage: Storage, user_id: int) -> None:
+    storage.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+CREDENTIALS_FILE = "initial_credentials.txt"
+
+
+def ensure_default_users(storage: Storage, settings: Settings) -> list[tuple[str, str, str]]:
+    """Create the first HR and kiosk logins if the users table is empty.
+
+    Returns ``[(role, username, password), ...]`` for anything newly created so
+    the caller can show the operator. Passwords are also written to
+    ``data/initial_credentials.txt`` (0600) because a printed log line is easy to
+    lose.
+    """
+    created: list[tuple[str, str, str]] = []
+
+    if get_user_by_username(storage, settings.default_hr_username) is None:
+        password = settings.default_hr_password or generate_password()
+        create_user(
+            storage,
+            username=settings.default_hr_username,
+            password=password,
+            role=ROLE_HR,
+            display_name="HR Admin",
+        )
+        storage.audit(actor="system", action="create_user", entity="user", entity_id=settings.default_hr_username,
+                      detail="initial HR account")
+        created.append((ROLE_HR, settings.default_hr_username, password))
+
+    if get_user_by_username(storage, settings.default_kiosk_username) is None:
+        password = settings.default_kiosk_password or generate_password()
+        create_user(
+            storage,
+            username=settings.default_kiosk_username,
+            password=password,
+            role=ROLE_KIOSK,
+            display_name="Gate Scanner",
+            device_label="Main Gate",
+        )
+        storage.audit(actor="system", action="create_user", entity="user", entity_id=settings.default_kiosk_username,
+                      detail="initial kiosk account")
+        created.append((ROLE_KIOSK, settings.default_kiosk_username, password))
+
+    if created:
+        lines = [
+            f"{settings.app_name} — initial credentials",
+            f"generated: {utcnow_iso()}",
+            "",
+            "Change these after the first login (Settings → Users).",
+            "",
+        ]
+        for role, username, password in created:
+            lines.append(f"role={role:5s}  username={username:12s}  password={password}")
+        path = settings.data_dir / CREDENTIALS_FILE
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        path.chmod(0o600)
+    return created

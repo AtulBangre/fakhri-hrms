@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block title %}{{ employee.name }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>{{ employee.name }}</h1>
+    <div class="sub">
+      <span class="mono">{{ employee.code }}</span>
+      · {{ employee.designation or 'No designation' }}
+      {% if employee.department %}· {{ employee.department }}{% endif %}
+      · joined {{ employee.joined_on | nice_date }}
+      <span class="chip {{ 'chip-ok' if employee.status == 'active' else 'chip-muted' }}" style="margin-left:.35rem">{{ employee.status }}</span>
+    </div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/attendance?day={{ today.isoformat() }}">Attendance board</a>
+    <a class="btn" href="/employees/{{ employee.id }}/payslips">Payslips</a>
+    <a class="btn" href="/employees/{{ employee.id }}/edit">✏️ Edit details</a>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="grid grid-4 mb-3">
+      <div class="stat accent">
+        <div class="label">Present this month</div>
+        <div class="value">{{ summary.present | number }}</div>
+        <div class="foot">{{ summary.half_days | number }} half day · {{ summary.late_marks }} late</div>
+      </div>
+      <div class="stat"><div class="label">Paid leave</div><div class="value">{{ summary.paid_leave | number }}</div><div class="foot">balance {{ balance.balance | number }} days</div></div>
+      <div class="stat {{ 'danger' if summary.absent else 'ok' }}"><div class="label">Absent (LOP)</div><div class="value">{{ (summary.absent + summary.unpaid_leave) | number }}</div><div class="foot">{{ summary.unpaid_leave | number }} unpaid leave</div></div>
+      <div class="stat"><div class="label">Worked hours</div><div class="value">{{ (summary.worked_minutes / 60) | round(0) | int }}h</div><div class="foot">{{ period_label }}</div></div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head">
+        <h2>Salary structure</h2>
+        <span class="spacer"></span>
+        <span class="chip chip-primary">current: {{ employee.monthly_gross | money }}/month</span>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/employees/{{ employee.id }}/salary">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="form-row cols-3">
+            <div class="field">
+              <label for="monthly_gross">Monthly gross</label>
+              <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="100" value="{{ employee.monthly_gross | round(0) | int }}" required>
+            </div>
+            <div class="field">
+              <label for="effective_from">Effective from</label>
+              <input id="effective_from" name="effective_from" type="date" value="{{ today.isoformat() }}">
+            </div>
+            <div class="field">
+              <label for="note">Reason</label>
+              <input id="note" name="note" type="text" placeholder="annual raise / correction">
+            </div>
+          </div>
+          <div class="form-row cols-3">
+            <div class="field"><label for="basic">Basic</label><input id="basic" name="basic" type="number" min="0" step="100" value="{{ salary_defaults.basic }}"></div>
+            <div class="field"><label for="hra">HRA</label><input id="hra" name="hra" type="number" min="0" step="100" value="{{ salary_defaults.hra }}"></div>
+            <div class="field"><label for="other_allowances">Other allowances</label><input id="other_allowances" name="other_allowances" type="number" min="0" step="100" value="{{ salary_defaults.other_allowances }}"></div>
+          </div>
+          <div class="form-row cols-3">
+            <div class="field"><label for="pf">PF</label><input id="pf" name="pf" type="number" min="0" step="10" value="{{ salary_defaults.pf }}"></div>
+            <div class="field"><label for="esi">ESI</label><input id="esi" name="esi" type="number" min="0" step="10" value="{{ salary_defaults.esi }}"></div>
+            <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="10" value="{{ salary_defaults.professional_tax }}"></div>
+          </div>
+          <button class="btn btn-primary" type="submit">Save new structure</button>
+          <span class="small muted">Old structures stay in history and are used for past payroll months.</span>
+        </form>
+      </div>
+    </div>
+
+    <div class="card flush mb-3">
+      <div class="card-head"><h2>Salary history</h2></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Effective from</th><th class="num">Gross</th><th class="num">Deductions</th><th>Note</th></tr></thead>
+          <tbody>
+          {% for item in salaries %}
+            <tr>
+              <td data-label="Effective from">{{ item.effective_from | nice_date }}</td>
+              <td data-label="Gross" class="num">{{ item.monthly_gross | money }}</td>
+              <td data-label="Deductions" class="num">{{ (item.pf + item.esi + item.professional_tax) | money }}</td>
+              <td data-label="Note">{{ item.note or '—' }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="empty-state">No salary recorded yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card flush mb-3">
+      <div class="card-head">
+        <h2>Leave</h2>
+        <span class="spacer"></span>
+        <span class="chip chip-info">balance {{ balance.balance | number }} / accrued {{ balance.accrued | number }}</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Dates</th><th>Type</th><th class="num">Days</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+          {% for item in leaves %}
+            <tr>
+              <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
+              <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
+              <td data-label="Days" class="num">{{ item.days | number }}</td>
+              <td data-label="Status">{{ item.status }}</td>
+              <td class="actions-cell">
+                {% if item.status == 'approved' %}
+                  <form method="post" action="/leave/{{ item.id }}/cancel" data-confirm="Cancel this leave and restore the attendance days?">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <input type="hidden" name="period" value="{{ period }}">
+                    <button class="btn btn-sm btn-danger" type="submit">Cancel</button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty-state">No leave taken.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Quick attendance entry</h2>
+        <span class="spacer"></span>
+        <span class="small muted">HR override — face scans always win for the same day</span>
+      </div>
+      <div class="card-body">
+        {% set row = today_row %}
+        <div class="alert alert-info">
+          <span class="ico">🗓️</span>
+          <div>Today ({{ today | nice_date }}):
+            {% if row %}
+              <strong>{{ STATUS_LABELS.get(row.status, row.status) }}</strong>
+              {% if row.check_in %}· in {{ row.check_in | clock }}{% endif %}
+              {% if row.check_out %}· out {{ row.check_out | clock }}{% endif %}
+            {% else %}not marked yet{% endif %}
+          </div>
+        </div>
+        <form method="post" action="/attendance/mark">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="employee_id" value="{{ employee.id }}">
+          <input type="hidden" name="work_date" value="{{ today.isoformat() }}">
+          <input type="hidden" name="return_day" value="{{ today.isoformat() }}">
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="status">Status</label>
+              <select id="status" name="status">
+                {% for value in all_statuses %}
+                  <option value="{{ value }}" {{ 'selected' if row and row.status == value }}>{{ STATUS_LABELS.get(value, value) }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="leave_type">Leave type (for leave / half day)</label>
+              <select id="leave_type" name="leave_type">
+                <option value="">—</option>
+                {% for value in leave_types %}<option value="{{ value }}">{{ leave_labels[value] }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="check_in">Check in</label><input id="check_in" name="check_in" type="time" value="{{ row.check_in[:5] if row and row.check_in else '09:30' }}"></div>
+            <div class="field"><label for="check_out">Check out</label><input id="check_out" name="check_out" type="time" value="{{ row.check_out[:5] if row and row.check_out else '18:30' }}"></div>
+          </div>
+          <div class="field">
+            <label for="note">Note</label>
+            <input id="note" name="note" type="text" placeholder="reason for the manual entry" value="{{ row.note if row and row.note else '' }}">
+          </div>
+          <button class="btn btn-primary" type="submit">Save attendance</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Face enrolment</h3></div>
+      <div class="card-body">
+        {% if employee.face_id %}
+          <div class="alert alert-ok" style="margin-bottom:.75rem">
+            <span class="ico">✅</span>
+            <div class="small">Enrolled {{ employee.face_enrolled_at | nice_date }}.<br>
+              <span class="mono">{{ employee.face_id }}</span></div>
+          </div>
+        {% else %}
+          <div class="alert alert-warn" style="margin-bottom:.75rem">
+            <span class="ico">📷</span>
+            <div class="small">No face enrolled — this person cannot use the gate scanner yet.</div>
+          </div>
+        {% endif %}
+
+        <div class="camera-box mb-2">
+          <video id="enrolVideo" playsinline muted autoplay class="hidden"></video>
+          <canvas id="enrolCanvas" class="hidden"></canvas>
+          <div id="enrolPlaceholder" class="empty-state" style="padding:1.4rem">
+            <span class="ico">📸</span>Camera is off
+          </div>
+        </div>
+
+        <div class="grid" style="gap:.5rem">
+          <button class="btn" type="button" id="enrolStart">Start camera</button>
+          <button class="btn btn-primary" type="button" id="enrolCapture" disabled>Capture &amp; enrol face</button>
+          <button class="btn" type="button" id="enrolStop" disabled>Stop camera</button>
+        </div>
+        <div id="enrolStatus" class="small muted mt-1"></div>
+
+        <form method="post" action="/employees/{{ employee.id }}/face" enctype="multipart/form-data" class="mt-2">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="field">
+            <label for="image">…or upload a photo</label>
+            <input id="image" name="image" type="file" accept="image/*" capture="user">
+            <div class="hint">One face, front facing, good light. Without a photo the scanner cannot recognise them.</div>
+          </div>
+          <button class="btn btn-block" type="submit">Enrol from file</button>
+        </form>
+
+        {% if employee.face_id %}
+          <form method="post" action="/employees/{{ employee.id }}/face/delete" class="mt-2"
+                data-confirm="Remove this face? They will not be able to scan attendance until you enrol again.">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn btn-danger btn-block" type="submit">Remove face enrolment</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>Contact</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">Code</span><span class="v mono">{{ employee.code }}</span></div>
+          <div><span class="k">Email</span><span class="v">{{ employee.email or '—' }}</span></div>
+          <div><span class="k">Phone</span><span class="v">{{ employee.phone or '—' }}</span></div>
+          <div><span class="k">Type</span><span class="v">{{ employee.employment_type.replace('_', ' ') }}</span></div>
+          <div><span class="k">Joined</span><span class="v">{{ employee.joined_on | nice_date }}</span></div>
+          <div><span class="k">Service</span><span class="v">{{ balance.months_of_service }} months</span></div>
+        </div>
+        {% if employee.notes %}<hr class="divider"><div class="small muted">{{ employee.notes }}</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Danger zone</h3></div>
+      <div class="card-body">
+        <form method="post" action="/employees/{{ employee.id }}/status" class="mb-2">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="status" value="{{ 'inactive' if employee.status == 'active' else 'active' }}">
+          <button class="btn btn-block" type="submit">
+            {{ 'Mark inactive (stops gate scans)' if employee.status == 'active' else 'Reactivate employee' }}
+          </button>
+        </form>
+        <form method="post" action="/employees/{{ employee.id }}/delete"
+              data-confirm="Delete {{ employee.name }} and ALL their attendance, leave and payslip records? This cannot be undone.">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <button class="btn btn-danger btn-block" type="submit">Delete employee permanently</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    FakhriHRMS.initFaceEnrolment({
+      endpoint: "/employees/{{ employee.id }}/face",
+      csrf: "{{ csrf_token }}"
+    });
+  });
+</script>
+{% endblock %}

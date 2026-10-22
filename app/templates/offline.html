@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Offline · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:640px;margin:2rem auto">
+  <div class="card-body">
+    <div class="empty-state">
+      <span class="ico">📴</span>
+      <h1 style="font-size:1.3rem">You are offline</h1>
+      <p class="muted">The app shell is cached, but attendance needs the server: face matching happens on the
+        HRMS backend and the Face API. Reconnect and try again.</p>
+      <p class="small muted">Nothing was lost — scans are only recorded when the server confirms them, so a
+        dropped connection never marks someone twice.</p>
+      <div class="mt-3"><button class="btn btn-primary" onclick="location.reload()">Retry</button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

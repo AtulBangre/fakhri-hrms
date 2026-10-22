@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Settings · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Settings</h1>
+    <div class="sub">Organisation rules, logins, holidays and the face-service connection.</div>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Attendance &amp; payroll rules</h2><span class="spacer"></span>
+        <span class="small muted">applies to new calculations immediately</span></div>
+      <div class="card-body">
+        <div class="grid grid-2">
+          {% for key, default, label, kind, help_text in defs %}
+            <form method="post" action="/settings/value" class="card" style="box-shadow:none;padding:.75rem">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input type="hidden" name="key" value="{{ key }}">
+              <div class="field" style="margin-bottom:.5rem">
+                <label for="s-{{ key }}">{{ label }}</label>
+                {% if kind.startswith('select:') %}
+                  {% set options = kind.split(':', 1)[1].split('|') %}
+                  <select id="s-{{ key }}" name="value">
+                    {% for option in options %}
+                      <option value="{{ option }}" {{ 'selected' if values.get(key) == option }}>{{ option }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif kind == 'time' %}
+                  <input id="s-{{ key }}" name="value" type="time" value="{{ values.get(key, default) }}">
+                {% elif kind == 'number' %}
+                  <input id="s-{{ key }}" name="value" type="number" step="0.5" min="0" value="{{ values.get(key, default) }}">
+                {% else %}
+                  <input id="s-{{ key }}" name="value" type="text" value="{{ values.get(key, default) }}">
+                {% endif %}
+                <div class="hint">{{ help_text }}</div>
+              </div>
+              <button class="btn btn-sm btn-primary" type="submit">Save</button>
+            </form>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card flush mb-3">
+      <div class="card-head"><h2>Logins</h2><span class="spacer"></span>
+        <span class="small muted">HR = everything · kiosk = scanner only</span></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Username</th><th>Role</th><th>Device</th><th>Status</th><th>Last login</th><th></th></tr></thead>
+          <tbody>
+          {% for item in users %}
+            <tr>
+              <td data-label="Username"><strong>{{ item.username }}</strong><span class="sub">{{ item.display_name or '' }}</span></td>
+              <td data-label="Role"><span class="chip {{ 'chip-primary' if item.role == 'hr' else 'chip-info' }}">{{ item.role }}</span></td>
+              <td data-label="Device">{{ item.device_label or '—' }}</td>
+              <td data-label="Status"><span class="chip {{ 'chip-ok' if item.active else 'chip-muted' }}">{{ 'active' if item.active else 'disabled' }}</span></td>
+              <td data-label="Last login">{{ item.last_login_at | nice_date('%d %b %Y') if item.last_login_at else 'never' }}</td>
+              <td class="actions-cell">
+                <details class="disclosure" style="margin:0">
+                  <summary class="btn btn-sm">Manage</summary>
+                  <div class="card-body">
+                    <form method="post" action="/settings/users/{{ item.id }}/password" class="mb-2">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <div class="field"><label for="pw{{ item.id }}">New password</label>
+                        <input id="pw{{ item.id }}" name="password" type="text" minlength="8" placeholder="min 8 characters"></div>
+                      <button class="btn btn-sm btn-primary" type="submit">Set password</button>
+                    </form>
+                    <form method="post" action="/settings/users/{{ item.id }}/status" class="mb-2">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <input type="hidden" name="active" value="{{ '0' if item.active else '1' }}">
+                      <button class="btn btn-sm" type="submit">{{ 'Disable' if item.active else 'Enable' }} login</button>
+                    </form>
+                    <form method="post" action="/settings/users/{{ item.id }}/delete"
+                          data-confirm="Delete the login '{{ item.username }}'?">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <button class="btn btn-sm btn-danger" type="submit">Delete login</button>
+                    </form>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Audit trail</h2><span class="spacer"></span><a class="btn btn-sm" href="/audit">Open full log</a></div>
+      <div class="card-body small muted">
+        Every login, employee change, salary revision, leave application, payroll action and kiosk scan is recorded
+        with the acting user and timestamp. Use it when a number is disputed.
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Add a login</h3></div>
+      <div class="card-body">
+        <form method="post" action="/settings/users">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="field"><label for="username">Username</label>
+            <input id="username" name="username" type="text" required placeholder="gate2 / hr2"></div>
+          <div class="field"><label for="password">Password</label>
+            <input id="password" name="password" type="text" required minlength="8" placeholder="min 8 characters"></div>
+          <div class="field"><label for="role">Role</label>
+            <select id="role" name="role">
+              <option value="kiosk">kiosk — scanner only</option>
+              <option value="hr">hr — full access</option>
+            </select></div>
+          <div class="field"><label for="display_name">Display name</label>
+            <input id="display_name" name="display_name" type="text" placeholder="Back gate scanner"></div>
+          <div class="field"><label for="device_label">Device label</label>
+            <input id="device_label" name="device_label" type="text" placeholder="Back Gate">
+            <div class="hint">Recorded on every scan so you know which gate marked it.</div></div>
+          <button class="btn btn-primary btn-block" type="submit">Create login</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>Face service</h3><span class="spacer"></span>
+        <span class="chip {{ 'chip-ok' if health.ok else 'chip-danger' }}">{{ 'connected' if health.ok else 'offline' }}</span></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">URL</span><span class="v mono">{{ faceapi_url }}</span></div>
+          <div><span class="k">Collection</span><span class="v mono">{{ collection_name }}</span></div>
+          {% if health.version %}<div><span class="k">Version</span><span class="v">{{ health.version }}</span></div>{% endif %}
+          {% if health.auth_mode %}<div><span class="k">Auth mode</span><span class="v">{{ health.auth_mode }}</span></div>{% endif %}
+          {% if collection and collection.face_count is defined %}
+            <div><span class="k">Faces in collection</span><span class="v">{{ collection.face_count }}</span></div>
+          {% endif %}
+          <div><span class="k">HRMS enrolled</span><span class="v">{{ employee_stats.face_enrolled }}</span></div>
+        </div>
+
+        {% if not health.ok %}
+          <div class="alert alert-err mt-2" style="margin-bottom:0">
+            <span class="ico">⚠️</span>
+            <div class="small">{{ health.detail }}<br>
+              Start the Face API (<span class="mono">cd faceapi &amp;&amp; ./venv/bin/python cli.py serve</span>) or fix
+              <span class="mono">HRMS_FACEAPI_URL</span>. Until then the gate scanner cannot identify anyone; HR can
+              still mark attendance manually.</div>
+          </div>
+        {% elif collection and collection.face_count is defined and collection.face_count != employee_stats.face_enrolled %}
+          <div class="alert alert-warn mt-2" style="margin-bottom:0">
+            <span class="ico">🔍</span>
+            <div class="small">The face collection has {{ collection.face_count }} templates but HRMS tracks
+              {{ employee_stats.face_enrolled }} enrolments. Someone was probably deleted from the Face API directly —
+              re-enrol the affected people to be safe.</div>
+          </div>
+        {% endif %}
+
+        {% if collection and collection.error %}
+          <div class="alert alert-warn mt-2" style="margin-bottom:0"><span class="ico">⚠️</span>
+            <div class="small">{{ collection.error }}</div></div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>Holidays</h3></div>
+      <div class="card-body">
+        <form method="post" action="/attendance/holidays" class="mb-2">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="return_to" value="/settings">
+          <div class="form-row cols-2">
+            <div class="field"><label for="hday">Date</label><input id="hday" name="day" type="date" required></div>
+            <div class="field"><label for="hname">Name</label><input id="hname" name="name" type="text" required placeholder="Republic Day"></div>
+          </div>
+          <button class="btn btn-block" type="submit">Add holiday</button>
+        </form>
+        <div class="kv">
+          {% for item in holidays %}
+            <div>
+              <span class="k">{{ item.day | nice_date }}</span>
+              <span class="v">{{ item.name }}
+                <form method="post" action="/attendance/holidays/delete" style="display:inline" data-confirm="Remove this holiday?">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="holiday_id" value="{{ item.id }}">
+                  <input type="hidden" name="return_to" value="/settings">
+                  <button class="btn btn-sm btn-ghost" type="submit">✕</button>
+                </form>
+              </span>
+            </div>
+          {% else %}
+            <div><span class="k">No holidays yet</span><span class="v">—</span></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Server notes</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1"><strong>Database:</strong> one SQLite file holds everything. Back it up by copying
+          <span class="mono">data/hrms.db</span> (and stop the service first, or use <span class="mono">sqlite3 .backup</span>).</p>
+        <p class="mb-1"><strong>First-run logins:</strong> <span class="mono">{{ credentials_file }}</span> —
+          delete that file once you have changed the passwords.</p>
+        <p class="mb-0"><strong>Sessions:</strong> HR sessions last a working day; kiosk sessions last
+          {{ settings.kiosk_session_days }} days so the gate phone does not need daily sign-in.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

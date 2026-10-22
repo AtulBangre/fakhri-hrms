@@ -1,0 +1,113 @@
+{# App shell: top bar, sidebar (desktop), drawer + bottom tabs (mobile). #}
+{% macro navlinks() -%}
+  <div class="nav-section">Attendance</div>
+  <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}"><span class="ico">📊</span> Dashboard</a>
+  <a href="/attendance" class="{{ 'active' if active == 'attendance' }}"><span class="ico">🗓️</span> Daily board</a>
+  <a href="/attendance/register" class="{{ 'active' if active == 'register' }}"><span class="ico">📋</span> Monthly register</a>
+  <a href="/leave" class="{{ 'active' if active == 'leave' }}"><span class="ico">🌴</span> Leave</a>
+  <div class="nav-section">People</div>
+  <a href="/employees" class="{{ 'active' if active == 'employees' }}"><span class="ico">👥</span> Employees</a>
+  <a href="/employees/new" class=""><span class="ico">➕</span> Add employee</a>
+  <div class="nav-section">Money</div>
+  <a href="/payroll" class="{{ 'active' if active == 'payroll' }}"><span class="ico">💰</span> Payroll</a>
+  <div class="nav-section">System</div>
+  <a href="/kiosk"><span class="ico">📷</span> Gate scanner</a>
+  <a href="/settings" class="{{ 'active' if active == 'settings' }}"><span class="ico">⚙️</span> Settings</a>
+  <a href="/audit" class="{{ 'active' if active == 'audit' }}"><span class="ico">🧾</span> Audit log</a>
+{%- endmacro %}
+
+{% macro flash() -%}
+  {% if ok_message %}<div class="alert alert-ok" role="status"><span class="ico">✅</span><div>{{ ok_message }}</div></div>{% endif %}
+  {% if err_message %}<div class="alert alert-err" role="alert"><span class="ico">⚠️</span><div>{{ err_message }}</div></div>{% endif %}
+  {% if error %}<div class="alert alert-err" role="alert"><span class="ico">⚠️</span><div>{{ error }}</div></div>{% endif %}
+{%- endmacro %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="{{ brand.primary }}">
+  <meta name="description" content="{{ org_name }} HRMS — attendance, people and payroll.">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{% block title %}{{ org_name }} HRMS{% endblock %}</title>
+
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/img/icon-192.png?v={{ asset_version }}">
+  <link rel="apple-touch-icon" href="/static/img/icon-192.png?v={{ asset_version }}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="HRMS">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/app.css?v={{ asset_version }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+<div class="app">
+  <header class="topbar no-print">
+    <button class="icon-btn" id="menuToggle" aria-label="Open menu">☰</button>
+    <a href="{{ '/kiosk' if user and user.is_kiosk else '/dashboard' }}" class="topbar-brand">
+      <span class="brand-mark">F</span>
+      <span class="brand-text">
+        <strong>{% block brandline %}{{ org_name }}{% endblock %}</strong>
+        <span>{% block brandsub %}HRMS{% endblock %}</span>
+      </span>
+    </a>
+    <div class="topbar-actions">
+      {% if user %}
+        <a class="icon-btn" href="/kiosk" title="Gate scanner">📷</a>
+        <form method="post" action="/logout" style="display:inline">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <button class="icon-btn" type="submit" title="Sign out">⏏</button>
+        </form>
+      {% endif %}
+    </div>
+  </header>
+
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="drawer no-print" id="drawer" aria-label="Navigation">
+    {% if user %}
+      <div class="sidebar-user">
+        <span class="avatar">{{ user | initials }}</span>
+        <div><strong>{{ user.display_name }}</strong><span>{{ user.role|upper }}{% if user.device_label %} · {{ user.device_label }}{% endif %}</span></div>
+      </div>
+    {% endif %}
+    <nav class="nav">{{ navlinks() }}</nav>
+  </aside>
+
+  <div class="body-wrap">
+    <aside class="sidebar no-print">
+      {% if user %}
+        <div class="sidebar-user">
+          <span class="avatar">{{ user | initials }}</span>
+          <div><strong>{{ user.display_name }}</strong><span>{{ user.role|upper }}{% if user.device_label %} · {{ user.device_label }}{% endif %}</span></div>
+        </div>
+      {% endif %}
+      <nav class="nav">{{ navlinks() }}</nav>
+    </aside>
+
+    <main class="content">
+      {{ flash() }}
+      {% block content %}{% endblock %}
+      <footer class="muted small mt-3 no-print" style="padding-bottom:.5rem">
+        {{ org_name }} HRMS v{{ app_version }} · face recognition by the in-house Face API
+      </footer>
+    </main>
+  </div>
+
+  <nav class="bottom-nav no-print">
+    <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}"><span class="ico">📊</span> Board</a>
+    <a href="/employees" class="{{ 'active' if active == 'employees' }}"><span class="ico">👥</span> People</a>
+    <a href="/kiosk"><span class="ico">📷</span> Scan</a>
+    <a href="/attendance" class="{{ 'active' if active == 'attendance' }}"><span class="ico">🗓️</span> Attendance</a>
+    <a href="/payroll" class="{{ 'active' if active == 'payroll' }}"><span class="ico">💰</span> Payroll</a>
+  </nav>
+</div>
+
+<script src="/static/js/pwa.js?v={{ asset_version }}" defer></script>
+<script src="/static/js/app.js?v={{ asset_version }}" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

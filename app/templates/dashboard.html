@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Good day, {{ user.display_name.split(' ')[0] }}</h1>
+    <div class="sub">{{ board.day_label }}
+      {% if board.kind == 'holiday' %}· Holiday{% elif board.kind == 'week_off' %}· Weekly off{% endif %}
+      · {{ payroll_overview.label }} payroll: {{ payroll_overview.run.status if payroll_overview.run else 'not generated' }}
+    </div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/attendance">Daily board</a>
+    <a class="btn" href="/kiosk">📷 Open scanner</a>
+    <a class="btn btn-primary" href="/employees/new">➕ Add employee</a>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat accent">
+    <div class="label">Present today</div>
+    <div class="value">{{ board.counts.present }}<span class="small" style="opacity:.75">/{{ board.counts.total }}</span></div>
+    <div class="foot">{{ board.counts.attendance_percent }}% attendance · {{ board.counts.late }} late</div>
+  </div>
+  <div class="stat {{ 'danger' if board.counts.absent else 'ok' }}">
+    <div class="label">Absent</div>
+    <div class="value">{{ board.counts.absent }}</div>
+    <div class="foot">{{ board.counts.not_marked }} not marked yet</div>
+  </div>
+  <div class="stat">
+    <div class="label">On leave</div>
+    <div class="value">{{ board.counts.leave }}</div>
+    <div class="foot">{{ board.counts.half_day }} half day</div>
+  </div>
+  <div class="stat">
+    <div class="label">Monthly payroll</div>
+    <div class="value">{{ payroll_overview.estimated_cost | money }}</div>
+    <div class="foot">
+      {% if payroll_overview.run %}
+        {{ payroll_overview.slips }} payslips · net {{ payroll_overview.run.total_net | money }}
+      {% else %}not generated for {{ payroll_overview.label }}{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head">
+        <h2>Last 7 days</h2>
+        <span class="spacer"></span>
+        <a class="btn btn-sm" href="/attendance/register">Monthly register →</a>
+      </div>
+      <div class="card-body">
+        <div class="trend">
+          {% for point in board.trend %}
+            <div class="bar-col" title="{{ point.day }}: {{ point.value }} present">
+              <span class="bar-value">{{ point.value or '' }}</span>
+              <span class="bar {{ 'off' if point.is_off }}" style="height: {{ point.percent }}%"></span>
+              <span class="bar-label">{{ point.label }}</span>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="small muted mt-2">Bars show people marked present or half day. Grey bars are weekly offs / holidays.</div>
+      </div>
+    </div>
+
+    <div class="card flush mb-3">
+      <div class="card-head">
+        <h2>Today's scans</h2>
+        <span class="spacer"></span>
+        <a class="btn btn-sm" href="/attendance">Open board</a>
+      </div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Employee</th><th>In</th><th>Out</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for row in board.recent %}
+            <tr>
+              <td data-label="Employee">
+                <strong>{{ row.name }}</strong>
+                <span class="sub">{{ row.code }}{% if row.device_label %} · {{ row.device_label }}{% endif %}</span>
+              </td>
+              <td data-label="In">{{ row.check_in_label }}</td>
+              <td data-label="Out">{{ row.check_out_label }}</td>
+              <td data-label="Status"><span class="{{ row.status | chip }}">{{ STATUS_LABELS.get(row.status, row.status) }}</span></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="empty-state"><span class="ico">📷</span>No scans yet today.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head"><h2>Recent leave</h2><span class="spacer"></span><a class="btn btn-sm" href="/leave">All leave</a></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th class="num">Days</th></tr></thead>
+          <tbody>
+          {% for item in recent_leave %}
+            <tr>
+              <td data-label="Employee"><strong>{{ item.employee_name }}</strong><span class="sub">{{ item.employee_code }}</span></td>
+              <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
+              <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
+              <td data-label="Days" class="num">{{ item.days | number }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="empty-state"><span class="ico">🌴</span>No leave recorded yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Headcount</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">Active employees</span><span class="v">{{ board.headcount.active }}</span></div>
+          <div><span class="k">Faces enrolled</span><span class="v">{{ board.headcount.face_enrolled }}</span></div>
+          <div><span class="k">Missing face</span><span class="v">{{ board.headcount.missing_face }}</span></div>
+          <div><span class="k">Inactive</span><span class="v">{{ board.headcount.inactive }}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head">
+        <h3>Face enrolment pending</h3>
+        {% if pending_face %}<span class="spacer"></span><span class="chip chip-warn">{{ board.headcount.missing_face }} left</span>{% endif %}
+      </div>
+      <div class="card-body">
+        {% if pending_face %}
+          <p class="small muted">These people cannot mark attendance at the gate until a face is enrolled.</p>
+          <div class="timeline">
+            {% for person in pending_face %}
+              <div class="timeline-item">
+                <span class="avatar">{{ person.name | initials }}</span>
+                <div style="flex:1;min-width:0">
+                  <strong>{{ person.name }}</strong>
+                  <span class="sub muted" style="display:block">{{ person.code }}{% if person.department %} · {{ person.department }}{% endif %}</span>
+                </div>
+                <a class="btn btn-sm btn-primary" href="/employees/{{ person.id }}">Enrol</a>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state" style="padding:1rem"><span class="ico">✅</span>Everyone has a face enrolled.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Quick actions</h3></div>
+      <div class="card-body">
+        <div class="grid" style="gap:.5rem">
+          <a class="btn btn-block" href="/attendance">✏️ Correct attendance</a>
+          <a class="btn btn-block" href="/leave">🌴 Apply leave / half day</a>
+          <a class="btn btn-block" href="/payroll">💰 Run payroll</a>
+          <a class="btn btn-block" href="/attendance/register.csv{{ '?period=' ~ payroll_overview.period }}">⬇️ Export attendance CSV</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

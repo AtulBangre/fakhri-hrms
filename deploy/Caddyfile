@@ -1,0 +1,46 @@
+# Automatic HTTPS for the HRMS.
+#
+# 1. Replace hrms.example.com with your domain (an A record must already point here).
+# 2. Replace you@example.com with your email.
+# 3. docker compose --profile tls up -d
+#
+# The kiosk needs HTTPS: browsers only expose the camera on a secure origin
+# (https:// or localhost). This file is what makes the gate phone's browser
+# cooperate.
+
+{
+	email you@example.com
+}
+
+hrms.example.com {
+	encode zstd gzip
+
+	# Face-capture frames are small, but leave room for photo uploads.
+	request_body {
+		max_size 20MB
+	}
+
+	reverse_proxy api:8100 {
+		header_up X-Real-IP {remote_host}
+		transport http {
+			read_timeout 120s
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "same-origin"
+		# The camera is the whole point of the kiosk page.
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 20mb
+			roll_keep 5
+		}
+	}
+}

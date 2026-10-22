@@ -1,0 +1,57 @@
+"""Dashboard: today at a glance for HR."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Request
+
+from ..auth import SessionUser, require_hr
+from ..deps import get_face, get_settings_dep, get_storage, render
+from ..services import attendance as attendance_service
+from ..services import employees as employees_service
+from ..services import leave as leave_service
+from ..services import orgtime, payroll
+
+router = APIRouter(tags=["dashboard"])
+
+
+@router.get("/dashboard")
+def dashboard(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    board = attendance_service.dashboard(storage, settings)
+    current_period = orgtime.period_of(orgtime.today(settings))
+    run = payroll.get_run(storage, current_period)
+
+    payroll_overview = {
+        "period": current_period,
+        "label": orgtime.month_label(current_period),
+        "run": run,
+        "slips": len(payroll.list_slips(storage, current_period)) if run else 0,
+        "estimated_cost": employees_service.stats(storage)["monthly_payroll"],
+    }
+
+    return render(
+        request,
+        "dashboard.html",
+        active="dashboard",
+        user=user,
+        board=board,
+        payroll_overview=payroll_overview,
+        pending_face=employees_service.employees_missing_face(storage)[:5],
+        leave_today=leave_service.list_leave(storage, period=current_period, limit=5),
+        recent_leave=leave_service.list_leave(storage, limit=5),
+    )
+
+
+@router.get("/audit")
+def audit_log(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    limit: int = 200,
+):
+    rows = storage.query("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (min(limit, 500),))
+    return render(request, "audit.html", active="audit", user=user, rows=rows)

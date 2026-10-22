@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Audit log · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Audit log</h1>
+    <div class="sub">Who did what, and when. {{ rows | length }} most recent entries.</div>
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th><th>IP</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td data-label="When" class="nowrap">{{ row.at[:19].replace('T', ' ') }}</td>
+          <td data-label="Actor">{{ row.actor or 'system' }}</td>
+          <td data-label="Action"><span class="chip chip-muted">{{ row.action }}</span></td>
+          <td data-label="Target">{{ row.entity or '—' }}{% if row.entity_id %} #{{ row.entity_id }}{% endif %}</td>
+          <td data-label="Detail" class="small">{{ row.detail or '—' }}</td>
+          <td data-label="IP" class="small muted">{{ row.ip or '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty-state"><span class="ico">🧾</span>Nothing logged yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

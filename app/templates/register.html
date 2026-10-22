@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Register · {{ register.label }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Monthly register</h1>
+    <div class="sub">{{ register.label }} · {{ register.rows | length }} employees · P present · ½ half day · L leave · A absent · W week off · H holiday</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/attendance/register.csv?period={{ register.period }}{{ '&department=' ~ department if department }}">⬇️ Full CSV</a>
+    <a class="btn" href="/attendance/summary.csv?period={{ register.period }}{{ '&department=' ~ department if department }}">⬇️ Summary CSV</a>
+    <a class="btn" href="/payroll?period={{ register.period }}">💰 Payroll</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="filters" method="get" action="/attendance/register">
+      <div class="field">
+        <label for="period">Month</label>
+        <input id="period" name="period" type="month" value="{{ register.period }}">
+      </div>
+      <div class="field">
+        <label for="department">Department</label>
+        <select id="department" name="department">
+          <option value="">All departments</option>
+          {% for item in register.departments %}
+            <option value="{{ item }}" {{ 'selected' if department == item }}>{{ item }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit">Show</button>
+      <a class="btn" href="/attendance/register">This month</a>
+    </form>
+  </div>
+</div>
+
+<div class="register-wrap">
+  <table class="register">
+    <thead>
+      <tr>
+        <th class="sticky-col">Employee</th>
+        {% for day in register.days %}
+          <th class="{{ 'weekend' if day.is_week_off or day.is_holiday }}"
+              title="{{ day.iso }}{% if day.holiday_name %} · {{ day.holiday_name }}{% endif %}">
+            {{ day.day }}<br><span class="muted" style="font-weight:400">{{ day.weekday_short }}</span>
+          </th>
+        {% endfor %}
+        <th title="Present + ½ half days + paid leave">Payable</th>
+        <th title="Absent + unpaid leave">LOP</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in register.rows %}
+        <tr>
+          <td class="sticky-col">
+            <a href="/employees/{{ row.employee.id }}"><strong>{{ row.employee.name }}</strong></a>
+            <span class="sub muted" style="display:block">{{ row.employee.code }}{% if row.employee.department %} · {{ row.employee.department }}{% endif %}</span>
+          </td>
+          {% for day, cell in row.cells | zip(register.days) %}
+            <td class="cell {{ cell.code }} {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
+                title="{{ day.iso }} — {{ cell.title }}">
+              {{ cell.code }}
+            </td>
+          {% endfor %}
+          <td class="num"><strong>{{ row.totals.payable_days | number }}</strong></td>
+          <td class="num">{{ row.totals.lop_days | number }}</td>
+        </tr>
+      {% else %}
+        <tr><td class="sticky-col empty-state">No employees to show.</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td class="sticky-col">Present on this day</td>
+        {% for total in register.day_totals %}
+          <td title="{{ total.present }} present · {{ total.half_day }} half day · {{ total.leave }} leave"
+              class="{{ 'weekend' if register.days[loop.index0].is_week_off or register.days[loop.index0].is_holiday }}">
+            {{ total.present or '' }}
+          </td>
+        {% endfor %}
+        <td colspan="2"></td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+<div class="grid grid-2 mt-3">
+  <div class="card">
+    <div class="card-head"><h3>Legend</h3></div>
+    <div class="card-body pill-row">
+      <span class="chip chip-ok">P · present</span>
+      <span class="chip chip-warn">½ · half day</span>
+      <span class="chip chip-info">L · leave</span>
+      <span class="chip chip-danger">A · absent</span>
+      <span class="chip chip-muted">W · week off</span>
+      <span class="chip chip-muted">H · holiday</span>
+      <span class="chip chip-ghost">· · not marked yet</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h3>How payable days are counted</h3></div>
+    <div class="card-body small muted">
+      <p class="mb-1">Payable = present + (half days × 0.5) + paid leave days. Unpaid leave and unmarked
+        working days in the past count as loss of pay (LOP) and reduce the month's salary in payroll.</p>
+      <p class="mb-0">Weekly offs and holidays never count against anyone. If someone works on a weekly off,
+        the scan is still recorded so you can give a comp-off.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Payslip · {{ slip.name }} · {{ label }}{% endblock %}
+
+{% block content %}
+<div class="page-head no-print">
+  <div class="titles">
+    <h1>Payslip</h1>
+    <div class="sub">{{ slip.name }} · {{ label }}{% if run %} · run status <strong>{{ run.status }}</strong>{% endif %}</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/payroll?period={{ slip.period }}">← Back to payroll</a>
+    <button class="btn btn-primary" onclick="window.print()">🖨️ Print / save PDF</button>
+  </div>
+</div>
+
+<div class="card payslip-print" style="max-width:820px">
+  <div class="card-body">
+    <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;border-bottom:2px solid var(--primary);padding-bottom:.75rem;margin-bottom:1rem">
+      <div>
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <span class="brand-mark">F</span>
+          <div>
+            <h2 style="margin:0">{{ org_name }}</h2>
+            <div class="small muted">Salary slip · {{ label }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="right small">
+        <div><strong>Payslip #</strong> {{ slip.id }}</div>
+        <div><strong>Generated</strong> {{ slip.updated_at | nice_date }}</div>
+        <div><strong>Basis</strong> {{ slip.basis_days }} days</div>
+      </div>
+    </div>
+
+    <div class="grid grid-2 mb-3">
+      <div class="kv">
+        <div><span class="k">Employee</span><span class="v">{{ slip.name }}</span></div>
+        <div><span class="k">Employee code</span><span class="v mono">{{ slip.code }}</span></div>
+        <div><span class="k">Department</span><span class="v">{{ slip.department or '—' }}</span></div>
+        <div><span class="k">Designation</span><span class="v">{{ slip.designation or '—' }}</span></div>
+      </div>
+      <div class="kv">
+        <div><span class="k">Date of joining</span><span class="v">{{ slip.joined_on | nice_date }}</span></div>
+        <div><span class="k">Payable days</span><span class="v">{{ slip.present_days | number }} present + {{ slip.paid_leave_days | number }} paid leave</span></div>
+        <div><span class="k">Loss of pay days</span><span class="v">{{ slip.lop_days | number }}</span></div>
+        <div><span class="k">Per day rate</span><span class="v">{{ slip.per_day_rate | money }}</span></div>
+      </div>
+    </div>
+
+    <div class="grid grid-2">
+      <div>
+        <div class="section-title">Earnings</div>
+        <table class="data">
+          <tbody>
+            <tr><td>Monthly gross</td><td class="num">{{ slip.monthly_gross | money }}</td></tr>
+            <tr><td>Loss of pay ({{ slip.lop_days | number }} days)</td><td class="num">− {{ ((slip.monthly_gross - slip.earned_gross) if slip.monthly_gross > slip.earned_gross else 0) | money }}</td></tr>
+            <tr class="total-row"><td>Earned gross</td><td class="num">{{ slip.earned_gross | money }}</td></tr>
+            <tr><td>Bonus / incentive</td><td class="num">{{ slip.bonus | money }}</td></tr>
+            <tr class="total-row"><td>Total earnings</td><td class="num">{{ (slip.earned_gross + slip.bonus) | money }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="section-title">Deductions</div>
+        <table class="data">
+          <tbody>
+            <tr><td>Provident fund (PF)</td><td class="num">{{ slip.pf | money }}</td></tr>
+            <tr><td>ESI</td><td class="num">{{ slip.esi | money }}</td></tr>
+            <tr><td>Professional tax</td><td class="num">{{ slip.professional_tax | money }}</td></tr>
+            <tr><td>Salary advance recovered</td><td class="num">{{ slip.advance | money }}</td></tr>
+            <tr><td>Other deductions</td><td class="num">{{ slip.other_deduction | money }}</td></tr>
+            <tr class="total-row"><td>Total deductions</td><td class="num">{{ slip.total_deductions | money }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt-3" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;background:var(--primary-soft);border:1px solid var(--primary-soft-border);border-radius:var(--radius);padding:.9rem 1rem">
+      <div>
+        <div class="small muted">Net pay for {{ label }}</div>
+        <div style="font-family:var(--font-heading);font-size:1.7rem;font-weight:600">{{ slip.net_pay | money }}</div>
+      </div>
+      <div class="small muted" style="max-width:340px">
+        {% if slip.note %}<div><strong>Note:</strong> {{ slip.note }}</div>{% endif %}
+        <div>Net pay = earned gross + bonus − total deductions.</div>
+      </div>
+    </div>
+
+    {% if slip.worked_minutes %}
+      <div class="small muted mt-2">Recorded working time this month: {{ slip.worked_minutes | duration }}.</div>
+    {% endif %}
+
+    <div class="grid grid-2 mt-3" style="margin-top:2.5rem">
+      <div style="border-top:1px dashed var(--border-strong);padding-top:.4rem" class="small muted">Employee signature</div>
+      <div style="border-top:1px dashed var(--border-strong);padding-top:.4rem" class="small muted right">For {{ org_name }}</div>
+    </div>
+
+    <div class="small muted mt-2">This is a computer-generated payslip from {{ org_name }} HRMS. Errors and omissions excepted.</div>
+  </div>
+</div>
+{% endblock %}

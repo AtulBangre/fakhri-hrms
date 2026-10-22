@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local state — NEVER commit: contains staff records, salaries and face links
+*.db
+*.db-wal
+*.db-shm
+secret_key.txt
+initial_credentials.txt
+.env
+
+# Generated icons can be rebuilt with `python cli.py make-icons`
+# (kept in git on purpose so the PWA works after a clone without running it)
+
+# Scratch
+*.log
+.DS_Store

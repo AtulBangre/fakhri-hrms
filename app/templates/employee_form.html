@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if employee else 'Add' }} employee · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>{{ 'Edit employee' if employee else 'Add employee' }}</h1>
+    <div class="sub">Step 1: basic details and salary · Step 2: capture the face for gate attendance</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{{ '/employees/' ~ employee.id if employee else '/employees' }}">Cancel</a>
+  </div>
+</div>
+
+{% set f = form or {} %}
+<form method="post" action="{{ '/employees/' ~ employee.id if employee else '/employees' }}">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+
+  <div class="grid grid-sidebar">
+    <div>
+      <div class="card mb-3">
+        <div class="card-head"><h2>Basic details</h2></div>
+        <div class="card-body">
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="name">Full name *</label>
+              <input id="name" name="name" type="text" required value="{{ f.get('name') or (employee.name if employee else '') }}" placeholder="Aarav Sharma">
+            </div>
+            <div class="field">
+              <label for="code">Employee code</label>
+              <input id="code" name="code" type="text" value="{{ f.get('code') or (employee.code if employee else suggested_code) }}">
+              <div class="hint">Used as the identity in the face collection — keep it stable.</div>
+            </div>
+          </div>
+
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="department">Department</label>
+              <input id="department" name="department" type="text" list="dept-list"
+                     value="{{ f.get('department') or (employee.department if employee else '') }}" placeholder="Engineering">
+              <datalist id="dept-list">
+                {% for item in departments %}<option value="{{ item }}">{% endfor %}
+              </datalist>
+            </div>
+            <div class="field">
+              <label for="designation">Designation</label>
+              <input id="designation" name="designation" type="text"
+                     value="{{ f.get('designation') or (employee.designation if employee else '') }}" placeholder="Backend Developer">
+            </div>
+          </div>
+
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" value="{{ f.get('email') or (employee.email if employee else '') }}" placeholder="name@fakhriitservices.com">
+            </div>
+            <div class="field">
+              <label for="phone">Phone</label>
+              <input id="phone" name="phone" type="tel" value="{{ f.get('phone') or (employee.phone if employee else '') }}" placeholder="+91 90000 00000">
+            </div>
+          </div>
+
+          <div class="form-row cols-3">
+            <div class="field">
+              <label for="joined_on">Date of joining</label>
+              <input id="joined_on" name="joined_on" type="date"
+                     value="{{ f.get('joined_on') or (employee.joined_on if employee else today.isoformat()) }}">
+            </div>
+            <div class="field">
+              <label for="employment_type">Employment type</label>
+              <select id="employment_type" name="employment_type">
+                {% for value in employment_types %}
+                  <option value="{{ value }}"
+                    {{ 'selected' if (f.get('employment_type') or (employee.employment_type if employee else 'full_time')) == value }}>
+                    {{ employment_labels[value] }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            {% if employee %}
+              <div class="field">
+                <label for="status">Status</label>
+                <select id="status" name="status">
+                  <option value="active" {{ 'selected' if employee.status == 'active' }}>Active</option>
+                  <option value="inactive" {{ 'selected' if employee.status == 'inactive' }}>Inactive</option>
+                </select>
+              </div>
+            {% endif %}
+          </div>
+
+          <div class="field">
+            <label for="notes">Notes</label>
+            <textarea id="notes" name="notes" placeholder="Anything HR should remember about this person">{{ f.get('notes') or (employee.notes if employee else '') }}</textarea>
+          </div>
+        </div>
+      </div>
+
+      {% if not employee %}
+        <div class="card mb-3">
+          <div class="card-head">
+            <h2>Salary structure</h2>
+            <span class="spacer"></span>
+            <span class="chip chip-primary">monthly, in ₹</span>
+          </div>
+          <div class="card-body">
+            <div class="form-row cols-2">
+              <div class="field">
+                <label for="monthly_gross">Monthly gross (CTC) *</label>
+                <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="100" value="{{ f.get('monthly_gross') or '' }}" placeholder="45000">
+                <div class="hint">This is what payroll pays before deductions and LOP.</div>
+              </div>
+              <div class="field">
+                <label for="basic">Basic</label>
+                <input id="basic" name="basic" type="number" min="0" step="100" value="{{ f.get('basic') or '' }}">
+              </div>
+            </div>
+            <div class="form-row cols-3">
+              <div class="field"><label for="hra">HRA</label>
+                <input id="hra" name="hra" type="number" min="0" step="100" value="{{ f.get('hra') or '' }}"></div>
+              <div class="field"><label for="other_allowances">Other allowances</label>
+                <input id="other_allowances" name="other_allowances" type="number" min="0" step="100" value="{{ f.get('other_allowances') or '' }}"></div>
+              <div class="field"><label for="pf">PF (monthly)</label>
+                <input id="pf" name="pf" type="number" min="0" step="10" value="{{ f.get('pf') or '' }}"></div>
+            </div>
+            <div class="form-row cols-3">
+              <div class="field"><label for="esi">ESI (monthly)</label>
+                <input id="esi" name="esi" type="number" min="0" step="10" value="{{ f.get('esi') or '' }}"></div>
+              <div class="field"><label for="professional_tax">Professional tax</label>
+                <input id="professional_tax" name="professional_tax" type="number" min="0" step="10" value="{{ f.get('professional_tax') or '200' }}"></div>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      <div class="card">
+        <div class="card-body">
+          <button class="btn btn-primary btn-lg btn-block" type="submit">
+            {{ 'Save changes' if employee else 'Save & continue to face capture' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-head"><h3>How this works</h3></div>
+        <div class="card-body small muted">
+          <p><strong>1. Save the employee.</strong> A code like <span class="mono">FITS004</span> is assigned and a
+            salary revision is recorded.</p>
+          <p><strong>2. Capture their face.</strong> On the employee page, start the camera and take one clear,
+            well-lit photo — front facing, no cap or mask. This is stored in the Face API as a 128-number
+            template, not as a photo gallery.</p>
+          <p><strong>3. They can scan at the gate.</strong> First scan of the day is check-in, the next one is
+            check-out. HR only needs to intervene for exceptions.</p>
+          <p class="mb-0"><strong>Privacy:</strong> ask the person before enrolling, tell them what it is used for and
+            delete the enrolment when they leave.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Leave · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Leave</h1>
+    <div class="sub">Paid, sick, casual and unpaid leave — including half days. Weekly offs and holidays are never charged.</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/attendance?day={{ today.isoformat() }}">Daily board</a>
+    <a class="btn" href="/payroll">Payroll</a>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Apply leave for an employee</h2></div>
+      <div class="card-body">
+        <form method="post" action="/leave/apply">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="period" value="{{ period }}">
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="employee_id">Employee</label>
+              <select id="employee_id" name="employee_id" required>
+                {% for person in employees %}
+                  <option value="{{ person.id }}">{{ person.name }} ({{ person.code }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="leave_type">Leave type</label>
+              <select id="leave_type" name="leave_type" required>
+                {% for value in leave_types %}
+                  <option value="{{ value }}">{{ leave_labels[value] }}{% if value == 'unpaid' %} — reduces salary{% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="form-row cols-3">
+            <div class="field"><label for="from_date">From</label><input id="from_date" name="from_date" type="date" value="{{ today.isoformat() }}" required></div>
+            <div class="field"><label for="to_date">To</label><input id="to_date" name="to_date" type="date" value="{{ today.isoformat() }}"></div>
+            <div class="field">
+              <label>Half day</label>
+              <div class="checkline" style="padding-top:.5rem">
+                <input id="half_day" name="half_day" type="checkbox" value="1">
+                <label for="half_day" style="margin:0">Only half of the first day</label>
+              </div>
+            </div>
+          </div>
+          <div class="field"><label for="reason">Reason</label><input id="reason" name="reason" type="text" placeholder="family function, medical, …"></div>
+          <button class="btn btn-primary" type="submit">Apply leave</button>
+          <span class="small muted">Leave is applied immediately (HR acts as approver) and appears in attendance.</span>
+        </form>
+      </div>
+    </div>
+
+    <div class="card flush mb-3">
+      <div class="card-head">
+        <h2>Leave records</h2>
+        <span class="spacer"></span>
+        <form class="filters" method="get" action="/leave">
+          <div class="field"><input type="month" name="period" value="{{ period }}"></div>
+          <div class="field">
+            <select name="leave_type">
+              <option value="all">All types</option>
+              {% for value in leave_types %}<option value="{{ value }}" {{ 'selected' if filters.leave_type == value }}>{{ leave_labels[value] }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <select name="status">
+              <option value="all" {{ 'selected' if filters.status == 'all' }}>All statuses</option>
+              <option value="approved" {{ 'selected' if filters.status == 'approved' }}>Approved</option>
+              <option value="cancelled" {{ 'selected' if filters.status == 'cancelled' }}>Cancelled</option>
+            </select>
+          </div>
+          <button class="btn" type="submit">Filter</button>
+        </form>
+      </div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead>
+            <tr><th>Employee</th><th>Type</th><th>Dates</th><th class="num">Days</th><th>Status</th><th>Reason</th><th></th></tr>
+          </thead>
+          <tbody>
+          {% for item in leaves %}
+            <tr>
+              <td data-label="Employee"><a href="/employees/{{ item.employee_id }}"><strong>{{ item.employee_name }}</strong></a>
+                <span class="sub">{{ item.employee_code }}{% if item.department %} · {{ item.department }}{% endif %}</span></td>
+              <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
+              <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
+              <td data-label="Days" class="num">{{ item.days | number }}</td>
+              <td data-label="Status">
+                <span class="chip {{ 'chip-ok' if item.status == 'approved' else 'chip-muted' }}">{{ item.status }}</span>
+              </td>
+              <td data-label="Reason">{{ item.reason or '—' }}</td>
+              <td class="actions-cell">
+                {% if item.status == 'approved' %}
+                  <form method="post" action="/leave/{{ item.id }}/cancel"
+                        data-confirm="Cancel this leave and restore the attendance days?">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <input type="hidden" name="period" value="{{ period }}">
+                    <button class="btn btn-sm btn-danger" type="submit">Cancel</button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="empty-state"><span class="ico">🌴</span>No leave records for {{ period_label }}.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head"><h2>Leave balance</h2><span class="spacer"></span>
+        <span class="small muted">accrued from joining date, {{ balances[0].accrual_per_month if balances else 1.5 }}/month</span></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Employee</th><th class="num">Months</th><th class="num">Accrued</th><th class="num">Paid taken</th><th class="num">Unpaid taken</th><th class="num">Balance</th></tr></thead>
+          <tbody>
+          {% for item in balances %}
+            <tr>
+              <td data-label="Employee"><a href="/employees/{{ item.employee.id }}">{{ item.employee.name }}</a>
+                <span class="sub">{{ item.employee.code }}</span></td>
+              <td data-label="Months" class="num">{{ item.months_of_service }}</td>
+              <td data-label="Accrued" class="num">{{ item.accrued | number }}</td>
+              <td data-label="Paid taken" class="num">{{ item.used_paid | number }}</td>
+              <td data-label="Unpaid taken" class="num">{{ item.used_unpaid | number }}</td>
+              <td data-label="Balance" class="num">
+                <span class="chip {{ 'chip-ok' if item.balance >= 0 else 'chip-danger' }}">{{ item.balance | number }}</span>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="6" class="empty-state">No employees yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Leave taken · {{ period_label }}</h3></div>
+      <div class="card-body">
+        {% if by_type %}
+          <div class="kv">
+            {% for row in by_type %}
+              <div>
+                <span class="k">{{ row.name }}</span>
+                <span class="v">
+                  {% if row.paid %}<span class="chip chip-info">PL {{ row.paid | number }}</span>{% endif %}
+                  {% if row.sick %}<span class="chip chip-info">SL {{ row.sick | number }}</span>{% endif %}
+                  {% if row.casual %}<span class="chip chip-info">CL {{ row.casual | number }}</span>{% endif %}
+                  {% if row.unpaid %}<span class="chip chip-warn">LOP {{ row.unpaid | number }}</span>{% endif %}
+                </span>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state" style="padding:1rem"><span class="ico">✅</span>No leave taken this month.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>Holidays</h3></div>
+      <div class="card-body">
+        <form method="post" action="/attendance/holidays" class="mb-2">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="return_to" value="/leave">
+          <div class="form-row cols-2">
+            <div class="field"><label for="day">Date</label><input id="day" name="day" type="date" required></div>
+            <div class="field"><label for="name">Name</label><input id="name" name="name" type="text" placeholder="Diwali" required></div>
+          </div>
+          <button class="btn btn-block" type="submit">Add holiday</button>
+        </form>
+        <div class="kv">
+          {% for item in holidays %}
+            <div>
+              <span class="k">{{ item.day | nice_date }}</span>
+              <span class="v">{{ item.name }}
+                <form method="post" action="/attendance/holidays/delete" style="display:inline"
+                      data-confirm="Remove this holiday?">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="holiday_id" value="{{ item.id }}">
+                  <input type="hidden" name="return_to" value="/leave">
+                  <button class="btn btn-sm btn-ghost" type="submit">✕</button>
+                </form>
+              </span>
+            </div>
+          {% else %}
+            <div><span class="k">No holidays added</span><span class="v">—</span></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Rules in force</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1"><strong>Paid / sick / casual</strong> — count against the leave balance and are paid in full.</p>
+        <p class="mb-1"><strong>Unpaid</strong> — no balance impact, but the day becomes loss of pay in payroll.</p>
+        <p class="mb-1"><strong>Half day</strong> — a single date only, worth 0.5 day.</p>
+        <p class="mb-0"><strong>Weekly offs &amp; holidays</strong> inside a range are skipped, never charged.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Payroll · {{ period_label }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Payroll · {{ period_label }}</h1>
+    <div class="sub">
+      {% if run %}
+        Run is <strong>{{ run.status }}</strong> · {{ slips | length }} payslips · basis {{ basis_days }} days
+      {% else %}
+        No run generated for this month yet
+      {% endif %}
+      · {{ employees_count }} employees on the books
+    </div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/payroll?period={{ previous_period }}">← {{ previous_period }}</a>
+    <a class="btn" href="/payroll?period={{ next_period }}">{{ next_period }} →</a>
+    <a class="btn" href="/attendance/register?period={{ period }}">Attendance register</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="filters" method="get" action="/payroll">
+      <div class="field"><label for="period">Month</label><input id="period" name="period" type="month" value="{{ period }}"></div>
+      <button class="btn btn-primary" type="submit">Show</button>
+      <a class="btn" href="/payroll">This month</a>
+    </form>
+
+    <hr class="divider">
+
+    <div class="inline-form">
+      <form method="post" action="/payroll/generate">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="period" value="{{ period }}">
+        {% if run and run.status == 'draft' %}
+          <input type="hidden" name="include_inactive" value="">
+        {% endif %}
+        <button class="btn btn-primary" type="submit">
+          {{ 'Recalculate draft' if run and run.status == 'draft' else 'Generate payroll' }}
+        </button>
+      </form>
+
+      {% if run %}
+        <a class="btn" href="/payroll/export.csv?period={{ period }}">⬇️ Bank CSV</a>
+        {% if run.status == 'draft' %}
+          <form method="post" action="/payroll/status" data-confirm="Finalise {{ period_label }}? Payslips become read-only.">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="period" value="{{ period }}">
+            <input type="hidden" name="status" value="finalized">
+            <button class="btn btn-dark" type="submit">Finalise</button>
+          </form>
+        {% elif run.status == 'finalized' %}
+          <form method="post" action="/payroll/status" data-confirm="Mark {{ period_label }} as paid? This locks the run for good.">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="period" value="{{ period }}">
+            <input type="hidden" name="status" value="paid">
+            <button class="btn btn-primary" type="submit">Mark as paid</button>
+          </form>
+          <form method="post" action="/payroll/status" data-confirm="Reopen the run for editing?">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="period" value="{{ period }}">
+            <input type="hidden" name="status" value="draft">
+            <button class="btn" type="submit">Reopen</button>
+          </form>
+        {% endif %}
+        {% if run.status != 'paid' %}
+          <form method="post" action="/payroll/delete" data-confirm="Delete the {{ period_label }} run and all its payslips?">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="period" value="{{ period }}">
+            <button class="btn btn-danger" type="submit">Delete run</button>
+          </form>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if run %}
+  <div class="grid grid-4 mb-3">
+    <div class="stat accent"><div class="label">Net payable</div><div class="value">{{ totals.net | money }}</div>
+      <div class="foot">{{ totals.employees }} employees</div></div>
+    <div class="stat"><div class="label">Earned gross</div><div class="value">{{ totals.gross | money }}</div>
+      <div class="foot">bonus {{ totals.bonus | money }}</div></div>
+    <div class="stat"><div class="label">Deductions</div><div class="value">{{ totals.deductions | money }}</div>
+      <div class="foot">PF + ESI + PT + advance</div></div>
+    <div class="stat {{ 'warn' if totals.lop_days else 'ok' }}"><div class="label">Loss of pay days</div><div class="value">{{ totals.lop_days | number }}</div>
+      <div class="foot">basis {{ basis_days }} days · {{ totals.present_days | number }} present</div></div>
+  </div>
+
+  <div class="card flush">
+    <div class="card-head">
+      <h2>Payslips</h2>
+      <span class="spacer"></span>
+      <span class="chip {{ 'chip-primary' if run.status == 'draft' else 'chip-ok' }}">{{ run.status }}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data stack">
+        <thead>
+          <tr>
+            <th>Employee</th><th class="num">Gross</th><th class="num">Present</th><th class="num">PL</th>
+            <th class="num">LOP</th><th class="num">Earned</th><th class="num">Bonus</th><th class="num">Deductions</th>
+            <th class="num">Net pay</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for slip in slips %}
+          <tr>
+            <td data-label="Employee">
+              <a href="/employees/{{ slip.employee_id }}"><strong>{{ slip.name }}</strong></a>
+              <span class="sub">{{ slip.code }}{% if slip.department %} · {{ slip.department }}{% endif %}</span>
+            </td>
+            <td data-label="Gross" class="num">{{ slip.monthly_gross | money }}</td>
+            <td data-label="Present" class="num">{{ slip.present_days | number }}</td>
+            <td data-label="PL" class="num">{{ slip.paid_leave_days | number }}</td>
+            <td data-label="LOP" class="num">
+              {% if slip.lop_days %}<span class="chip chip-danger">{{ slip.lop_days | number }}</span>{% else %}0{% endif %}
+            </td>
+            <td data-label="Earned" class="num">{{ slip.earned_gross | money }}</td>
+            <td data-label="Bonus" class="num">{{ slip.bonus | money if slip.bonus else '—' }}</td>
+            <td data-label="Deductions" class="num">{{ slip.total_deductions | money }}</td>
+            <td data-label="Net pay" class="num"><strong>{{ slip.net_pay | money }}</strong></td>
+            <td class="actions-cell">
+              <a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}">Payslip</a>
+            </td>
+          </tr>
+          {% if run.status == 'draft' %}
+            <tr>
+              <td colspan="10" style="background:#fcfbfb">
+                <details class="disclosure" style="margin:0">
+                  <summary>✏️ Adjust {{ slip.name }} — bonus, advance, other deduction</summary>
+                  <div class="card-body">
+                    <form method="post" action="/payroll/slip/{{ slip.id }}">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <input type="hidden" name="period" value="{{ period }}">
+                      <div class="form-row cols-3">
+                        <div class="field"><label for="bonus{{ slip.id }}">Bonus / incentive</label>
+                          <input id="bonus{{ slip.id }}" name="bonus" type="number" min="0" step="100" value="{{ slip.bonus | round(0) | int }}"></div>
+                        <div class="field"><label for="advance{{ slip.id }}">Salary advance recovered</label>
+                          <input id="advance{{ slip.id }}" name="advance" type="number" min="0" step="100" value="{{ slip.advance | round(0) | int }}"></div>
+                        <div class="field"><label for="other{{ slip.id }}">Other deduction</label>
+                          <input id="other{{ slip.id }}" name="other_deduction" type="number" min="0" step="100" value="{{ slip.other_deduction | round(0) | int }}"></div>
+                      </div>
+                      <div class="field"><label for="note{{ slip.id }}">Note on the payslip</label>
+                        <input id="note{{ slip.id }}" name="note" type="text" value="{{ slip.note or '' }}"></div>
+                      <button class="btn btn-primary" type="submit">Save adjustment</button>
+                    </form>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          {% endif %}
+        {% else %}
+          <tr><td colspan="10" class="empty-state"><span class="ico">💰</span>No payslips in this run.</td></tr>
+        {% endfor %}
+        </tbody>
+        {% if slips %}
+        <tfoot>
+          <tr class="total-row">
+            <td>Total</td>
+            <td class="num">{{ totals.employees }} employees</td>
+            <td class="num">{{ totals.present_days | number }}</td>
+            <td class="num">{{ totals.paid_leave_days | number }}</td>
+            <td class="num">{{ totals.lop_days | number }}</td>
+            <td class="num">{{ totals.gross | money }}</td>
+            <td class="num">{{ totals.bonus | money }}</td>
+            <td class="num">{{ totals.deductions | money }}</td>
+            <td class="num">{{ totals.net | money }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+
+  <div class="grid grid-2 mt-3">
+    <div class="card">
+      <div class="card-head"><h3>How this month was calculated</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1"><strong>Per day rate</strong> = monthly gross ÷ {{ basis_days }} {{ 'calendar days' if basis_days > 26 else 'fixed days' }}.</p>
+        <p class="mb-1"><strong>LOP days</strong> = absent days + unpaid leave + half-day penalties for repeat late marks.</p>
+        <p class="mb-1"><strong>Earned gross</strong> = monthly gross − (LOP days × per day rate).</p>
+        <p class="mb-0"><strong>Net pay</strong> = earned gross + bonus − PF − ESI − professional tax − advance − other deductions.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Past runs</h3></div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Month</th><th>Status</th><th class="num">Payslips</th><th class="num">Net</th><th></th></tr></thead>
+          <tbody>
+          {% for item in runs %}
+            <tr>
+              <td>{{ item.label }}</td>
+              <td><span class="chip {{ 'chip-ok' if item.status != 'draft' else 'chip-warn' }}">{{ item.status }}</span></td>
+              <td class="num">{{ item.slip_count }}</td>
+              <td class="num">{{ item.total_net | money }}</td>
+              <td><a class="btn btn-sm" href="/payroll?period={{ item.period }}">Open</a></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty-state">No payroll runs yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body">
+      <div class="empty-state">
+        <span class="ico">💰</span>
+        <h3>No payroll for {{ period_label }} yet</h3>
+        <p class="muted">Generating reads attendance for the month — every unmarked working day in the past counts as
+          absent, so close the month's exceptions first.</p>
+        <div class="grid grid-2 mt-2" style="max-width:520px;margin:0 auto">
+          <a class="btn" href="/attendance?day={{ period }}-01">Check attendance</a>
+          <form method="post" action="/payroll/generate">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="period" value="{{ period }}">
+            <button class="btn btn-primary btn-block" type="submit">Generate now</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

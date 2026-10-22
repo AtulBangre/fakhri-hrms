@@ -1,0 +1,91 @@
+# Fakhri HRMS + Face API — the whole stack in one command.
+#
+#   cp .env.example .env            # then set HRMS_SECRET_KEY and HRMS_DEFAULT_HR_PASSWORD
+#   docker compose up -d --build
+#   docker compose logs api | grep -i login     # first-run credentials
+#
+# The HRMS talks to the Face API over the internal network. The Face API is NOT
+# published to the host here: only the HRMS needs it, and keeping it private means
+# no API key handling inside the compose network.
+
+services:
+  faceapi:
+    build:
+      context: ../faceapi
+      args:
+        DOWNLOAD_MODELS: "true"
+    image: faceapi:latest
+    restart: unless-stopped
+    environment:
+      # Internal-only service: no key needed, and it is not exposed to the host.
+      FACEAPI_AUTH_ENABLED: "false"
+      FACEAPI_LOG_LEVEL: INFO
+      FACEAPI_DATA_DIR: /app/data
+    volumes:
+      - faceapi-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5).status==200 else 1)"
+      interval: 30s
+      timeout: 6s
+      retries: 5
+      start_period: 25s
+
+  api:
+    build:
+      context: .
+    image: fakhri-hrms:latest
+    restart: unless-stopped
+    depends_on:
+      faceapi:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      HRMS_FACEAPI_URL: "http://faceapi:8000"
+      HRMS_DATA_DIR: /app/data
+      PORT: "8100"
+      WORKERS: "1"
+    ports:
+      - "${HOST_PORT:-8100}:8100"
+    volumes:
+      - hrms-data:/app/data
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 700M
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=4).status==200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Optional HTTPS reverse proxy: `docker compose --profile tls up -d`
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  hrms-data:
+  faceapi-data:
+  caddy-data:
+  caddy-config:

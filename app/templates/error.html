@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:640px;margin:2rem auto">
+  <div class="card-body">
+    <div class="empty-state">
+      <span class="ico">🧭</span>
+      <h1 style="font-size:1.3rem">{{ code }} — {{ title }}</h1>
+      <p class="muted">{{ detail }}</p>
+      <div class="grid grid-2 mt-3" style="max-width:420px;margin:0 auto">
+        <a class="btn btn-primary" href="{{ '/kiosk' if user and user.is_kiosk else '/dashboard' }}">Back to safety</a>
+        <a class="btn" href="/attendance">Attendance board</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

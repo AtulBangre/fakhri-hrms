@@ -1,0 +1,44 @@
+[Unit]
+Description=Fakhri HRMS (attendance, people and payroll)
+After=network-online.target faceapi.service
+Wants=network-online.target faceapi.service
+
+[Service]
+Type=exec
+User=hrms
+Group=hrms
+WorkingDirectory=/opt/hrms
+
+# Secrets in /etc/hrms/hrms.env (chmod 600, owned by root):
+#   HRMS_SECRET_KEY=...
+#   HRMS_DEFAULT_HR_PASSWORD=...
+#   HRMS_FACEAPI_URL=http://127.0.0.1:8000
+#   HRMS_DATA_DIR=/var/lib/hrms
+#   HRMS_SECURE_COOKIES=true
+EnvironmentFile=/etc/hrms/hrms.env
+
+ExecStart=/opt/hrms/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8100 \
+    --workers 1 \
+    --proxy-headers --forwarded-allow-ips='127.0.0.1'
+
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hrms
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Payslips · {{ employee.name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Payslips · {{ employee.name }}</h1>
+    <div class="sub">{{ employee.code }} · {{ employee.department or 'No department' }} · current gross {{ employee.monthly_gross | money }}/month</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/employees/{{ employee.id }}">← Employee profile</a>
+    <a class="btn" href="/payroll">Payroll runs</a>
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead>
+        <tr><th>Month</th><th class="num">Gross</th><th class="num">Present</th><th class="num">LOP</th>
+          <th class="num">Bonus</th><th class="num">Deductions</th><th class="num">Net pay</th><th>Run</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for slip in slips %}
+        <tr>
+          <td data-label="Month"><strong>{{ slip.period }}</strong></td>
+          <td data-label="Gross" class="num">{{ slip.monthly_gross | money }}</td>
+          <td data-label="Present" class="num">{{ slip.present_days | number }}</td>
+          <td data-label="LOP" class="num">{{ slip.lop_days | number }}</td>
+          <td data-label="Bonus" class="num">{{ slip.bonus | money }}</td>
+          <td data-label="Deductions" class="num">{{ slip.total_deductions | money }}</td>
+          <td data-label="Net pay" class="num"><strong>{{ slip.net_pay | money }}</strong></td>
+          <td data-label="Run"><span class="chip {{ 'chip-ok' if slip.run_status != 'draft' else 'chip-warn' }}">{{ slip.run_status }}</span></td>
+          <td class="actions-cell"><a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}">Open</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9" class="empty-state"><span class="ico">📄</span>No payslips yet — generate a payroll run first.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
