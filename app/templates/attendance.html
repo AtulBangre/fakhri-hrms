@@ -25,7 +25,7 @@
       </div>
       <button class="btn btn-primary" type="submit">Show</button>
       <a class="btn" href="/attendance">Today</a>
-      <a class="btn" href="/attendance/register.csv">⬇️ Export month (CSV)</a>
+      <a class="btn" href="/attendance/register.csv">Export month (CSV)</a>
     </form>
   </div>
 </div>
@@ -38,7 +38,7 @@
 </div>
 
 <details class="disclosure">
-  <summary>✏️ Manual attendance entry (corrections, forgot-to-scan, half day, leave)</summary>
+  <summary>Manual attendance entry (corrections, forgot-to-scan, half day, leave)</summary>
   <div class="card-body">
     <form method="post" action="/attendance/mark">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -126,7 +126,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="8" class="empty-state"><span class="ico">👥</span>No active employees yet.
+        <tr><td colspan="8" class="empty-state">No active employees yet.
           <div class="mt-2"><a class="btn btn-primary" href="/employees/new">Add an employee</a></div></td></tr>
       {% endfor %}
       </tbody>

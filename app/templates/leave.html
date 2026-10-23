@@ -16,7 +16,7 @@
 {% if pending %}
 <div class="card mb-3" style="border-color:var(--warning);background:var(--warning-soft)">
   <div class="card-head" style="border-bottom-color:#f4e0bd">
-    <h2>⏳ Waiting for your approval ({{ pending | length }})</h2>
+    <h2>Waiting for your approval ({{ pending | length }})</h2>
     <span class="spacer"></span>
     <span class="small">Employees requested these from their own login</span>
   </div>
@@ -155,7 +155,7 @@
               </td>
             </tr>
           {% else %}
-            <tr><td colspan="7" class="empty-state"><span class="ico">🌴</span>No leave records for {{ period_label }}.</td></tr>
+            <tr><td colspan="7" class="empty-state">No leave records for {{ period_label }}.</td></tr>
           {% endfor %}
           </tbody>
         </table>
@@ -209,7 +209,7 @@
             {% endfor %}
           </div>
         {% else %}
-          <div class="empty-state" style="padding:1rem"><span class="ico">✅</span>No leave taken this month.</div>
+          <div class="empty-state" style="padding:1rem">No leave taken this month.</div>
         {% endif %}
       </div>
     </div>

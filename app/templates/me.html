@@ -11,53 +11,53 @@
       {% if kind == 'holiday' %}· Holiday{% elif kind == 'week_off' %}· Weekly off{% endif %}</div>
   </div>
   <div class="page-actions">
-    <a class="btn" href="/me/profile">👤 My profile</a>
-    <a class="btn" href="/me/leave">🌴 Apply for leave</a>
-    <a class="btn btn-primary" href="/me/payslips">📄 My payslips</a>
+    <a class="btn" href="/me/profile">My profile</a>
+    <a class="btn" href="/me/leave">Apply for leave</a>
+    <a class="btn btn-primary" href="/me/payslips">My payslips</a>
   </div>
 </div>
 
 {# ---- today, as a big status card ---- #}
 {% include "_announcements.html" %}
 
-<div class="card mb-3" style="background:linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);border-color:var(--primary-dark);color:#fff">
+<div class="card mb-3" style="background:var(--primary-soft);border-color:var(--primary-soft-border);border-left:3px solid var(--primary)">
   <div class="card-body">
     <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-      <span class="avatar" style="width:56px;height:56px;font-size:1.05rem;background:rgba(255,255,255,.2)">{{ employee.name | initials }}</span>
+      <span class="avatar" style="width:44px;height:44px;font-size:.9rem">{{ employee.name | initials }}</span>
       <div style="flex:1;min-width:180px">
-        <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;opacity:.8">Today</div>
+        <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:var(--primary);font-weight:600">Today</div>
         {% if today_row and today_row.status == 'present' and today_row.check_in and not today_row.check_out %}
-          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">
+          <div style="font-size:1.2rem;font-weight:650;color:var(--ink)">
             Checked in at {{ today_row.check_in | clock }}
           </div>
-          <div style="font-size:.86rem;opacity:.85">You are still inside — scan at the gate again when you leave.</div>
+          <div style="font-size:.82rem;color:var(--muted)">You are still inside — scan at the gate again when you leave.</div>
         {% elif today_row and today_row.check_out %}
-          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">
+          <div style="font-size:1.2rem;font-weight:650;color:var(--ink)">
             Checked out at {{ today_row.check_out | clock }}
           </div>
-          <div style="font-size:.86rem;opacity:.85">
+          <div style="font-size:.82rem;color:var(--muted)">
             Worked {{ today_row.worked_minutes | duration }}{% if today_row.status == 'half_day' %} · marked as a half day{% endif %}
             {% if today_row.check_in %} · in at {{ today_row.check_in | clock }}{% endif %}
           </div>
         {% elif today_row and today_row.status == 'leave' %}
-          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">On leave today</div>
-          <div style="font-size:.86rem;opacity:.85">{{ LEAVE_LABELS.get(today_row.leave_type, 'Approved leave') }}</div>
+          <div style="font-size:1.2rem;font-weight:650;color:var(--ink)">On leave today</div>
+          <div style="font-size:.82rem;color:var(--muted)">{{ LEAVE_LABELS.get(today_row.leave_type, 'Approved leave') }}</div>
         {% elif today_row and today_row.status == 'half_day' %}
-          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">Half day</div>
-          <div style="font-size:.86rem;opacity:.85">{{ LEAVE_LABELS.get(today_row.leave_type, 'Half day') }}</div>
+          <div style="font-size:1.2rem;font-weight:650;color:var(--ink)">Half day</div>
+          <div style="font-size:.82rem;color:var(--muted)">{{ LEAVE_LABELS.get(today_row.leave_type, 'Half day') }}</div>
         {% elif kind == 'week_off' %}
-          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">Weekly off</div>
-          <div style="font-size:.86rem;opacity:.85">No need to scan today.</div>
+          <div style="font-size:1.2rem;font-weight:650;color:var(--ink)">Weekly off</div>
+          <div style="font-size:.82rem;color:var(--muted)">No need to scan today.</div>
         {% elif kind == 'holiday' %}
-          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">Holiday</div>
-          <div style="font-size:.86rem;opacity:.85">Enjoy the day off.</div>
+          <div style="font-size:1.2rem;font-weight:650;color:var(--ink)">Holiday</div>
+          <div style="font-size:.82rem;color:var(--muted)">Enjoy the day off.</div>
         {% else %}
-          <div style="font-family:var(--font-heading);font-size:1.5rem;font-weight:600">Not marked yet</div>
-          <div style="font-size:.86rem;opacity:.85">Scan at the gate when you arrive.</div>
+          <div style="font-size:1.2rem;font-weight:650;color:var(--ink)">Not marked yet</div>
+          <div style="font-size:.82rem;color:var(--muted)">Scan at the gate when you arrive.</div>
         {% endif %}
       </div>
       {% if today_row and today_row.late_minutes %}
-        <span class="chip" style="background:rgba(255,255,255,.2);color:#fff">{{ today_row.late_minutes }} min late</span>
+        <span class="chip chip-warn">{{ today_row.late_minutes }} min late</span>
       {% endif %}
     </div>
   </div>
@@ -116,7 +116,7 @@
               </td>
             </tr>
           {% else %}
-            <tr><td colspan="4" class="empty-state"><span class="ico">🌴</span>No leave taken yet.</td></tr>
+            <tr><td colspan="4" class="empty-state">No leave taken yet.</td></tr>
           {% endfor %}
           </tbody>
         </table>
@@ -133,7 +133,7 @@
     <div class="card mb-3">
       <div class="card-head"><h3>Leave balance</h3></div>
       <div class="card-body">
-        <div style="font-family:var(--font-heading);font-size:2rem;font-weight:600;line-height:1">{{ balance.balance | number }}<span class="small muted"> days</span></div>
+        <div style="font-family:var(--font-heading);font-size:2rem;font-weight:600;line-height:1">{{ balance.balance | number }}<span class="small muted">days</span></div>
         <div class="progress mt-2" style="margin:.6rem 0 .4rem">
           <span style="width: {{ [[(balance.used_paid / balance.accrued * 100) if balance.accrued else 0, 100] | min, 0] | max }}%"></span>
         </div>
@@ -158,7 +158,7 @@
             <a class="btn btn-block btn-ghost mt-1" href="/me/payslips">All {{ slips | length }} payslips</a>
           {% endif %}
         {% else %}
-          <div class="empty-state" style="padding:1rem"><span class="ico">📄</span>No payslip yet — your first one appears when HR runs payroll.</div>
+          <div class="empty-state" style="padding:1rem">No payslip yet — your first one appears when HR runs payroll.</div>
         {% endif %}
       </div>
     </div>
@@ -173,7 +173,6 @@
           <div><span class="k">Joined</span><span class="v">{{ employee.joined_on | nice_date }}</span></div>
         </div>
         <div class="alert alert-info small mt-2" style="margin-bottom:0">
-          <span class="ico">🕐</span>
           <div>Attendance comes from the face scanner at the gate. If a scan was missed, ask HR to correct it — you will see the correction here.</div>
         </div>
       </div>

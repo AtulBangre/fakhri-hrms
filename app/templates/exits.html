@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Exits & F&F · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Exits &amp; full and final</h1>
+    <div class="sub">Resignations, clearance and settlement. Settling an exit marks the employee inactive and closes their portal login.</div>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat {{ 'warn' if counts.requested else '' }}"><div class="label">Awaiting approval</div><div class="value">{{ counts.requested }}</div><div class="foot">resignations submitted</div></div>
+  <div class="stat accent"><div class="label">Serving notice</div><div class="value">{{ counts.approved }}</div><div class="foot">clearance in progress</div></div>
+  <div class="stat ok"><div class="label">Settled</div><div class="value">{{ counts.settled }}</div><div class="foot">F&amp;F paid</div></div>
+  <div class="stat"><div class="label">Withdrawn / rejected</div><div class="value">{{ counts.withdrawn + counts.rejected }}</div><div class="foot">stayed on</div></div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div class="card flush">
+    <div class="card-head">
+      <div class="btn-group">
+        {% for key, label in (('open', 'In progress'), ('settled', 'Settled'), ('withdrawn', 'Withdrawn'), ('rejected', 'Rejected'), ('all', 'All')) %}
+          <a class="btn btn-sm {{ 'btn-dark' if status == key }}" href="/exits?status={{ key }}">{{ label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="data stack">
+        <thead><tr><th>Employee</th><th>Type</th><th>Notice from</th><th>Last day</th><th>Status</th><th class="num">F&amp;F net</th><th></th></tr></thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td data-label="Employee"><a href="/exits/{{ row.id }}"><strong>{{ row.name }}</strong></a>
+              <span class="sub">{{ row.code }}{% if row.department %} · {{ row.department }}{% endif %}</span></td>
+            <td data-label="Type">{{ row.type_label }}<span class="sub">by {{ row.initiated_by }}</span></td>
+            <td data-label="Notice from" class="nowrap">{{ row.resignation_date | nice_date }}</td>
+            <td data-label="Last day" class="nowrap"><strong>{{ row.last_working_day | nice_date }}</strong></td>
+            <td data-label="Status"><span class="chip {{ {'requested':'chip-warn','approved':'chip-info','settled':'chip-ok'}.get(row.status, 'chip-muted') }}">{{ row.status }}</span></td>
+            <td data-label="F&amp;F net" class="num">{{ row.fnf_net | money if row.fnf_net is not none else '—' }}</td>
+            <td class="actions-cell"><a class="btn btn-sm" href="/exits/{{ row.id }}">Open</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="empty-state">No exits in this view.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head"><h3>Record an exit</h3></div>
+      <div class="card-body">
+        <form method="post" action="/exits">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="field"><label for="employee_id">Employee</label>
+            <select id="employee_id" name="employee_id" required>
+              <option value="">Select…</option>
+              {% for person in employees %}<option value="{{ person.id }}" {{ 'selected' if preselect == person.id }}>{{ person.name }} · {{ person.code }}</option>{% endfor %}
+            </select></div>
+          <div class="field"><label for="exit_type">Type</label>
+            <select id="exit_type" name="exit_type">{% for key, label in exit_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="resignation_date">Notice date</label><input id="resignation_date" name="resignation_date" type="date" required value="{{ today.isoformat() }}"></div>
+            <div class="field"><label for="last_working_day">Last working day</label><input id="last_working_day" name="last_working_day" type="date" required></div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="notice_days">Notice (days)</label><input id="notice_days" name="notice_days" type="number" min="0" value="{{ notice_days }}"></div>
+            <div class="field"><label>&nbsp;</label><label class="checkline"><input type="checkbox" name="notice_waived" value="1"> Waive shortfall</label></div>
+          </div>
+          <div class="field"><label for="reason">Reason / remarks</label><textarea id="reason" name="reason" rows="2"></textarea></div>
+          <button class="btn btn-primary btn-block" type="submit">Record exit</button>
+          <div class="hint mt-1">Employees can also resign themselves from their portal; those arrive here as <em>awaiting approval</em>.</div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

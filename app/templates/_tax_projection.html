@@ -1,0 +1,30 @@
+{# Old vs new regime side by side. Needs: comparison, profile. #}
+<div class="card mb-3">
+  <div class="card-head"><h2>Old vs new regime</h2><span class="spacer"></span>
+    <span class="chip chip-ok">{{ comparison.better }} regime saves {{ comparison.saving | money }}</span></div>
+  <div class="card-body">
+    <div class="grid grid-2">
+      {% for key in ('new', 'old') %}
+        {% set p = comparison[key] %}
+        <div>
+          <div class="section-title">{{ key | title }} regime
+            {% if (profile.regime or 'new') == key %}<span class="chip chip-primary">chosen</span>{% endif %}</div>
+          <table class="data">
+            <tbody>
+            {% for step in p.steps %}
+              <tr class="{{ 'total-row' if step.label.startswith('Taxable') or step.label.startswith('Total') }}">
+                <td>{{ step.label }}{% if step.note %}<span class="sub muted">{{ step.note }}</span>{% endif %}</td>
+                <td class="num">{{ step.amount | money }}</td>
+              </tr>
+            {% endfor %}
+            <tr><td>Per month (÷ 12)</td><td class="num">{{ p.monthly_tds | money }}</td></tr>
+            </tbody>
+          </table>
+          {% for warning in p.warnings %}<div class="hint mt-1"> {{ warning }}</div>{% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+    <div class="small muted mt-2">Estimate only. Gross is this FY's earned salary so far (or 12 × the current salary before
+      any payroll has run). Confirm the final figure with your CA.</div>
+  </div>
+</div>

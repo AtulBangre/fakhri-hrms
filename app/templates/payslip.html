@@ -9,8 +9,8 @@
   </div>
   <div class="page-actions">
     <a class="btn" href="{{ back_url or ('/payroll?period=' ~ slip.period) }}">← Back</a>
-    <a class="btn" href="{{ pdf_url or ('/payroll/slip/' ~ slip.id ~ '.pdf') }}">⬇️ Download PDF</a>
-    <button class="btn btn-primary" onclick="window.print()">🖨️ Print</button>
+    <a class="btn" href="{{ pdf_url or ('/payroll/slip/' ~ slip.id ~ '.pdf') }}">Download PDF</a>
+    <button class="btn btn-primary" onclick="window.print()">Print</button>
   </div>
 </div>
 
@@ -54,7 +54,7 @@
         <table class="data">
           <tbody>
             <tr><td>Monthly gross</td><td class="num">{{ slip.monthly_gross | money }}</td></tr>
-            <tr><td>Loss of pay ({{ slip.lop_days | number }} days)</td><td class="num">− {{ ((slip.monthly_gross - slip.earned_gross) if slip.monthly_gross > slip.earned_gross else 0) | money }}</td></tr>
+            <tr><td>Loss of pay ({{ slip.lop_days | number }} days)</td><td class="num">− {{ ((slip.monthly_gross - slip.earned_gross) if slip.monthly_gross >slip.earned_gross else 0) | money }}</td></tr>
             <tr class="total-row"><td>Earned gross</td><td class="num">{{ slip.earned_gross | money }}</td></tr>
             <tr><td>Bonus / incentive</td><td class="num">{{ slip.bonus | money }}</td></tr>
             <tr class="total-row"><td>Total earnings</td><td class="num">{{ (slip.earned_gross + slip.bonus) | money }}</td></tr>
@@ -68,6 +68,7 @@
             <tr><td>Provident fund (PF)</td><td class="num">{{ slip.pf | money }}</td></tr>
             <tr><td>ESI</td><td class="num">{{ slip.esi | money }}</td></tr>
             <tr><td>Professional tax</td><td class="num">{{ slip.professional_tax | money }}</td></tr>
+            {% if slip.tds %}<tr><td>Income tax (TDS)</td><td class="num">{{ slip.tds | money }}</td></tr>{% endif %}
             <tr><td>Salary advance recovered</td><td class="num">{{ slip.advance | money }}</td></tr>
             <tr><td>Other deductions</td><td class="num">{{ slip.other_deduction | money }}</td></tr>
             <tr class="total-row"><td>Total deductions</td><td class="num">{{ slip.total_deductions | money }}</td></tr>

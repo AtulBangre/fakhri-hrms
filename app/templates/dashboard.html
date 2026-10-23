@@ -9,11 +9,20 @@
       {% if board.kind == 'holiday' %}· Holiday{% elif board.kind == 'week_off' %}· Weekly off{% endif %}
       · {{ payroll_overview.label }} payroll: {{ payroll_overview.run.status if payroll_overview.run else 'not generated' }}
     </div>
+    <div class="sub mt-1">
+      <span title="Face recognition service"><span class="live-dot {{ 'on' if face_ok else 'off' }}"></span> Face service {{ 'online' if face_ok else 'offline' }}</span>
+      {% for k in kiosks %}
+        · <span title="Last check-in {{ k.seen_at[:19].replace('T', ' ') }} UTC"><span class="live-dot {{ 'on' if k.online else 'off' }}"></span>{{ k.device }}
+          {{ 'online' if k.online else ('offline · last seen ' ~ ((k.age_seconds // 60) ~ ' min' if k.age_seconds < 3600 else (k.age_seconds // 3600) ~ ' h') ~ ' ago') }}</span>
+      {% else %}
+        · <span class="muted">no gate kiosk has signed in yet</span>
+      {% endfor %}
+    </div>
   </div>
   <div class="page-actions">
     <a class="btn" href="/attendance">Daily board</a>
-    <a class="btn" href="/kiosk">📷 Open scanner</a>
-    <a class="btn btn-primary" href="/employees/new">➕ Add employee</a>
+    <a class="btn" href="/kiosk">Open scanner</a>
+    <a class="btn btn-primary" href="/employees/new">Add employee</a>
   </div>
 </div>
 
@@ -52,19 +61,19 @@
       <div class="card-head">
         <h2>Last 7 days</h2>
         <span class="spacer"></span>
-        <a class="btn btn-sm" href="/attendance/register">Monthly register →</a>
+        <a class="btn btn-sm" href="/attendance/register">Monthly register</a>
       </div>
       <div class="card-body">
         <div class="trend">
           {% for point in board.trend %}
             <div class="bar-col" title="{{ point.day }}: {{ point.value }} present">
               <span class="bar-value">{{ point.value or '' }}</span>
-              <span class="bar {{ 'off' if point.is_off }}" style="height: {{ point.percent }}%"></span>
+              <span class="bar-track"><span class="bar {{ 'off' if point.is_off }}" style="height: {{ point.percent }}%"></span></span>
               <span class="bar-label">{{ point.label }}</span>
             </div>
           {% endfor %}
         </div>
-        <div class="small muted mt-2">Bars show people marked present or half day. Grey bars are weekly offs / holidays.</div>
+        <div class="small muted mt-1">People present or on half day. Grey = weekly off / holiday.</div>
       </div>
     </div>
 
@@ -89,7 +98,7 @@
               <td data-label="Status"><span class="{{ row.status | chip }}">{{ STATUS_LABELS.get(row.status, row.status) }}</span></td>
             </tr>
           {% else %}
-            <tr><td colspan="4" class="empty-state"><span class="ico">📷</span>No scans yet today.</td></tr>
+            <tr><td colspan="4" class="empty-state">No scans yet today.</td></tr>
           {% endfor %}
           </tbody>
         </table>
@@ -110,7 +119,7 @@
               <td data-label="Days" class="num">{{ item.days | number }}</td>
             </tr>
           {% else %}
-            <tr><td colspan="4" class="empty-state"><span class="ico">🌴</span>No leave recorded yet.</td></tr>
+            <tr><td colspan="4" class="empty-state">No leave recorded yet.</td></tr>
           {% endfor %}
           </tbody>
         </table>
@@ -119,8 +128,32 @@
   </div>
 
   <div>
+    {% set np = nav_pending or {} %}
+    {% set queue = [
+      ('Leave requests', '/leave', np.get('leave', 0)),
+      ('Attendance corrections', '/attendance/regularizations', np.get('regularizations', 0)),
+      ('Expense claims', '/expenses', np.get('expenses', 0)),
+      ('Profile changes', '/profile-requests', np.get('profile', 0)),
+      ('Resignations', '/exits', np.get('exits', 0)),
+      ('Appraisals to review', '/appraisals', np.get('appraisals', 0)),
+      ('Documents to verify', '/documents', np.get('documents', 0)),
+    ] %}
+    {% set waiting = queue | selectattr(2) | list %}
     <div class="card mb-3">
-      <div class="card-head"><h3>Headcount</h3></div>
+      <div class="card-head"><h3>Needs your attention</h3><span class="spacer"></span>
+        {% if waiting %}<span class="chip chip-primary">{{ waiting | sum(attribute=2) }}</span>{% endif %}</div>
+      <div class="list">
+        {% for label, href, n in waiting %}
+          <a class="list-row" href="{{ href }}" style="color:inherit;text-decoration:none">
+            <div class="grow"><strong>{{ label }}</strong></div><span class="badge-count">{{ n }}</span>{{ icon('chevron-right') }}</a>
+        {% else %}
+          <div class="list-row small muted">{{ icon('check-circle') }} Nothing waiting for approval.</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>Headcount</h3><span class="spacer"></span><a class="btn btn-sm" href="/employees">Employees</a></div>
       <div class="card-body">
         <div class="kv">
           <div><span class="k">Active employees</span><span class="v">{{ board.headcount.active }}</span></div>
@@ -131,42 +164,23 @@
       </div>
     </div>
 
-    <div class="card mb-3">
+    <div class="card">
       <div class="card-head">
         <h3>Face enrolment pending</h3>
         {% if pending_face %}<span class="spacer"></span><span class="chip chip-warn">{{ board.headcount.missing_face }} left</span>{% endif %}
       </div>
-      <div class="card-body">
-        {% if pending_face %}
-          <p class="small muted">These people cannot mark attendance at the gate until a face is enrolled.</p>
-          <div class="timeline">
-            {% for person in pending_face %}
-              <div class="timeline-item">
-                <span class="avatar">{{ person.name | initials }}</span>
-                <div style="flex:1;min-width:0">
-                  <strong>{{ person.name }}</strong>
-                  <span class="sub muted" style="display:block">{{ person.code }}{% if person.department %} · {{ person.department }}{% endif %}</span>
-                </div>
-                <a class="btn btn-sm btn-primary" href="/employees/{{ person.id }}">Enrol</a>
-              </div>
-            {% endfor %}
+      <div class="list">
+        {% for person in pending_face %}
+          <div class="list-row">
+            <span class="avatar">{{ person.name | initials }}</span>
+            <div class="grow"><strong>{{ person.name }}</strong><span>{{ person.code }}{% if person.department %} · {{ person.department }}{% endif %}</span></div>
+            <a class="btn btn-sm" href="/employees/{{ person.id }}">Enrol</a>
           </div>
         {% else %}
-          <div class="empty-state" style="padding:1rem"><span class="ico">✅</span>Everyone has a face enrolled.</div>
-        {% endif %}
+          <div class="list-row small muted">Everyone can use the gate scanner.</div>
+        {% endfor %}
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Quick actions</h3></div>
-      <div class="card-body">
-        <div class="grid" style="gap:.5rem">
-          <a class="btn btn-block" href="/attendance">✏️ Correct attendance</a>
-          <a class="btn btn-block" href="/leave">🌴 Apply leave / half day</a>
-          <a class="btn btn-block" href="/payroll">💰 Run payroll</a>
-          <a class="btn btn-block" href="/attendance/register.csv{{ '?period=' ~ payroll_overview.period }}">⬇️ Export attendance CSV</a>
-        </div>
-      </div>
+      {% if pending_face %}<div class="card-foot small muted">Without a face, the gate scanner cannot mark these people.</div>{% endif %}
     </div>
   </div>
 </div>

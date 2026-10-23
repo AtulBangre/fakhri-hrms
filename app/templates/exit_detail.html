@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Exit · {{ row.name }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+{% set stage = {'requested': 1, 'approved': 2, 'settled': 4}.get(row.status, 0) %}
+{% set clearance_done = checklist and (checklist | selectattr('done') | list | length) == (checklist | length) %}
+<div class="page-head">
+  <div class="titles">
+    <h1>{{ row.name }} · {{ row.type_label }}</h1>
+    <div class="sub">{{ row.code }}{% if row.designation %} · {{ row.designation }}{% endif %}{% if row.department %} · {{ row.department }}{% endif %}
+      · joined {{ row.joined_on | nice_date }}</div>
+    {% if row.status in ('requested', 'approved', 'settled') %}
+    <ol class="steps mt-1">
+      <li class="{{ 'done' if stage > 1 else 'current' }}">Resignation</li>
+      <li class="{{ 'done' if stage > 1 else '' }}{{ ' current' if stage == 1 }}">HR approval</li>
+      <li class="{{ 'done' if stage > 2 or (stage == 2 and clearance_done) else ('current' if stage == 2 else '') }}">Clearance</li>
+      <li class="{{ 'done' if stage == 4 else ('current' if stage == 2 and clearance_done else '') }}">F&amp;F settled</li>
+    </ol>
+    {% endif %}
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/exits">{{ icon('chevron-left') }} All exits</a>
+    <a class="btn" href="/employees/{{ row.employee_id }}">Employee</a>
+    {% if fnf %}<a class="btn" href="/exits/{{ row.id }}/statement">{{ icon('printer') }} Statement</a>{% endif %}
+  </div>
+</div>
+
+{% if row.status in ('withdrawn', 'rejected') %}
+  <div class="alert alert-info">{{ icon('info') }}<div>This exit was <strong>{{ row.status }}</strong>. {{ row.name }} remains an active employee.</div></div>
+{% endif %}
+
+<div class="grid grid-sidebar">
+  <div>
+    {% if row.status == 'requested' %}
+    <div class="card mb-3">
+      <div class="card-head"><h2>Approve resignation</h2><span class="spacer"></span><span class="chip chip-warn">awaiting HR</span></div>
+      <div class="card-body">
+        {% if row.reason %}<p class="small"><span class="muted">Reason given:</span> {{ row.reason }}</p>{% endif %}
+        <form method="post" action="/exits/{{ row.id }}/approve">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="form-row cols-3">
+            <div class="field"><label>Last working day</label><input name="last_working_day" type="date" required value="{{ row.last_working_day }}"></div>
+            <div class="field"><label>Notice period (days)</label><input name="notice_days" type="number" min="0" value="{{ row.notice_days }}"></div>
+            <div class="field"><label>&nbsp;</label><label class="checkline"><input type="checkbox" name="notice_waived" value="1" {{ 'checked' if row.notice_waived }}> Waive notice shortfall</label></div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">{{ icon('check') }} Accept resignation</button>
+          </div>
+        </form>
+        <form method="post" action="/exits/{{ row.id }}/reject" class="mt-1" data-confirm="Reject this resignation? The employee stays on.">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <button class="btn btn-danger btn-sm" type="submit">Reject resignation</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if fnf %}
+    <div class="card flush mb-3">
+      <div class="card-head"><h2>Full &amp; final statement</h2><span class="spacer"></span>
+        {% if row.status == 'settled' %}<span class="chip chip-ok">settled {{ row.settled_at | nice_date }}</span>{% else %}<span class="chip chip-info">live preview</span>{% endif %}</div>
+      <div class="grid grid-2 table-wrap" style="gap:0">
+        <div style="border-right:1px solid var(--border)">
+          <table class="data statement">
+            <thead><tr><th>Earnings</th><th class="num">Amount</th></tr></thead>
+            <tbody>
+            {% for line in fnf.earnings %}
+              <tr><td>{{ line.label }}{% if line.note %}<span class="sub">{{ line.note }}</span>{% endif %}</td><td class="num">{{ line.amount | money }}</td></tr>
+            {% else %}<tr><td colspan="2" class="muted small">No earnings due.</td></tr>{% endfor %}
+            </tbody>
+            <tfoot><tr class="total-row"><td>Total earnings</td><td class="num">{{ fnf.total_earnings | money }}</td></tr></tfoot>
+          </table>
+        </div>
+        <div>
+          <table class="data statement">
+            <thead><tr><th>Deductions</th><th class="num">Amount</th></tr></thead>
+            <tbody>
+            {% for line in fnf.deductions %}
+              <tr><td>{{ line.label }}{% if line.note %}<span class="sub">{{ line.note }}</span>{% endif %}</td><td class="num">{{ line.amount | money }}</td></tr>
+            {% else %}<tr><td colspan="2" class="muted small">No deductions.</td></tr>{% endfor %}
+            </tbody>
+            <tfoot><tr class="total-row"><td>Total deductions</td><td class="num">{{ fnf.total_deductions | money }}</td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="card-foot" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">
+        <div class="small muted">{% for note in fnf.notes %}<div>{{ note }}</div>{% endfor %}</div>
+        <div class="right"><div class="small muted">{{ 'Net payable' if fnf.net >= 0 else 'Net recoverable from employee' }}</div>
+          <div class="rating-big" style="font-size:1.35rem">{{ fnf.net | abs | money }}</div></div>
+      </div>
+    </div>
+
+    {% if row.status == 'approved' %}
+    <div class="card mb-3">
+      <div class="card-head"><h2>Adjust settlement</h2></div>
+      <div class="card-body">
+        <form method="post" action="/exits/{{ row.id }}/settlement">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="form-row cols-3">
+            <div class="field"><label>Other earnings (bonus, arrears)</label><input name="extra_earnings" type="number" min="0" step="1" value="{{ row.extra_earnings | round(0) | int }}"></div>
+            <div class="field"><label>Other deductions (advance, loan)</label><input name="extra_deductions" type="number" min="0" step="1" value="{{ row.extra_deductions | round(0) | int }}"></div>
+            <div class="field"><label>&nbsp;</label><label class="checkline"><input type="checkbox" name="recover_assets" value="1" {{ 'checked' if row.recover_assets }}> Recover cost of unreturned assets</label></div>
+          </div>
+          <div class="field"><label>Note on the statement</label><input name="note" type="text" value="{{ row.fnf_note or '' }}"></div>
+          <button class="btn" type="submit">Update statement</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Exit details</h3><span class="spacer"></span>
+        <span class="chip {{ {'requested':'chip-warn','approved':'chip-info','settled':'chip-ok'}.get(row.status, 'chip-muted') }}">{{ row.status }}</span></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">Initiated by</span><span class="v">{{ row.initiated_by }}</span></div>
+          <div><span class="k">Notice date</span><span class="v">{{ row.resignation_date | nice_date }}</span></div>
+          <div><span class="k">Last working day</span><span class="v">{{ row.last_working_day | nice_date }}</span></div>
+          <div><span class="k">Notice period</span><span class="v">{{ row.notice_days }} days{% if row.notice_waived %} · waived{% endif %}</span></div>
+          {% if fnf %}<div><span class="k">Notice served</span><span class="v">{{ fnf.notice_served }} days{% if fnf.notice_shortfall %} · short {{ fnf.notice_shortfall }}{% endif %}</span></div>
+          <div><span class="k">Service</span><span class="v">{{ fnf.service_years }} years</span></div>
+          <div><span class="k">Leave balance</span><span class="v">{{ fnf.leave_balance | number }} days</span></div>{% endif %}
+          {% if row.reason %}<div><span class="k">Reason</span><span class="v small">{{ row.reason }}</span></div>{% endif %}
+        </div>
+        {% if row.status in ('requested', 'approved') %}
+        <form method="post" action="/exits/{{ row.id }}/withdraw" class="mt-2" data-confirm="Withdraw this exit? The employee stays active.">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-ghost" type="submit">Withdraw exit</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if checklist %}
+    <div class="card mb-3">
+      <div class="card-head"><h3>Clearance checklist</h3><span class="spacer"></span>
+        <span class="small muted">{{ checklist | selectattr('done') | list | length }}/{{ checklist | length }}</span></div>
+      <div class="list">
+        {% for item in checklist %}
+          <form class="list-row" method="post" action="/exit-checklist/{{ item.id }}">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="done" value="{{ '' if item.done else '1' }}">
+            <button type="submit" class="icon-btn" style="width:24px;height:24px;{{ 'background:var(--success);border-color:var(--success);color:#fff' if item.done }}"
+                    {{ 'disabled' if row.status == 'settled' }} aria-label="{{ 'Undo' if item.done else 'Mark done' }}">{% if item.done %}{{ icon('check') }}{% endif %}</button>
+            <div class="grow"><strong style="{{ 'color:var(--muted)' if item.done }}">{{ item.item }}</strong>
+              {% if item.done %}<span>{{ item.done_by }} · {{ item.done_at | nice_date }}</span>{% endif %}</div>
+          </form>
+        {% endfor %}
+      </div>
+      {% if row.status == 'approved' %}
+      <div class="card-foot">
+        <form method="post" action="/exits/{{ row.id }}/settle" data-confirm="Settle the F&F for {{ row.name }}? The employee becomes inactive and the figures are frozen.">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <button class="btn btn-primary btn-block" type="submit" {{ 'disabled' if not clearance_done }}>Settle F&amp;F{% if fnf %} · {{ fnf.net | money }}{% endif %}</button>
+        </form>
+        {% if not clearance_done %}<div class="hint mt-1">Tick every clearance item to enable settlement.</div>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-head"><h3>Assets with employee</h3><span class="spacer"></span><a class="btn btn-sm" href="/assets">Assets</a></div>
+      <div class="list">
+        {% for asset in assets %}
+          <div class="list-row"><div class="grow"><strong>{{ asset.name }}</strong><span>{{ asset.tag }} · {{ asset.category_label }} · {{ asset.cost | money }}</span></div>
+            <a class="btn btn-sm" href="/assets/{{ asset.id }}">Return</a></div>
+        {% else %}
+          <div class="list-row muted small">Nothing outstanding.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

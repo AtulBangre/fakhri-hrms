@@ -1,0 +1,64 @@
+From: Fakhri IT Services <hrms@fakhriitservices.local>
+To: kuldeepmaurya4296@gmail.com
+Subject: Your leave was approved
+Message-ID: <179275122453.49437.11405419050484517094@hrms.local>
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="===============5584090850284421432=="
+
+--===============5584090850284421432==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Fakhri IT Services
+          HRMS · Your leave was approved
+        
+        
+          Hi Kuldeep,
+
+Your leave request (2026-10-23 → 2026-10-25, 2.0 day(s)) was approved.
+
+See my leave
+
+        
+        
+          This is an automated message from your HRMS.
+
+--===============5584090850284421432==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+<!doctype html>
+<html><body style=3D"margin:0;padding:0;background:#f6f4f4;font-family:Segoe =
+UI,Helvetica,Arial,sans-serif">
+  <table role=3D"presentation" width=3D"100%" cellpadding=3D"0" cellspacing=
+=3D"0" style=3D"padding:24px 12px">
+    <tr><td align=3D"center">
+      <table role=3D"presentation" width=3D"100%" cellpadding=3D"0" cellspaci=
+ng=3D"0"
+             style=3D"max-width:560px;background:#ffffff;border:1px solid #e8=
+e5e3;border-radius:14px;overflow:hidden">
+        <tr><td style=3D"background:#870808;color:#ffffff;padding:18px 22px">
+          <div style=3D"font-size:18px;font-weight:600">Fakhri IT Services</d=
+iv>
+          <div style=3D"font-size:12px;opacity:.85">HRMS =C2=B7 Your leave wa=
+s approved</div>
+        </td></tr>
+        <tr><td style=3D"padding:22px;color:#141414;font-size:14px;line-heigh=
+t:1.55">
+          <p>Hi Kuldeep,</p><p>Your leave request (2026-10-23 =E2=86=92 2026-=
+10-25, 2.0 day(s)) was <b style=3D'color:#0f7b52'>approved</b>.</p><p><a href=
+=3D'http://127.0.0.1:8100/me/leave'>See my leave</a></p>
+        </td></tr>
+        <tr><td style=3D"padding:14px 22px;background:#fcfbfb;border-top:1px =
+solid #e8e5e3;
+                       font-size:11px;color:#737373">
+          This is an automated message from your HRMS.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+
+--===============5584090850284421432==--

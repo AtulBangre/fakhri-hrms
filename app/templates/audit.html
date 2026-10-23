@@ -1,15 +1,24 @@
 {% extends "base.html" %}
+{% from "_pager.html" import pager_bar %}
 {% block title %}Audit log · {{ org_name }} HRMS{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div class="titles">
     <h1>Audit log</h1>
-    <div class="sub">Who did what, and when. {{ rows | length }} most recent entries.</div>
+    <div class="sub">Who did what, and when. {{ pager.total }} entries, newest first.</div>
   </div>
 </div>
 
 <div class="card flush">
+  <div class="card-head">
+    <form class="filters" method="get" action="/audit">
+      <div class="field"><label for="q">Search</label>
+        <input id="q" type="search" name="q" value="{{ q }}" placeholder="actor, action, detail…"></div>
+      <button class="btn btn-primary" type="submit">Filter</button>
+      <a class="btn" href="/audit">Reset</a>
+    </form>
+  </div>
   <div class="table-wrap">
     <table class="data stack">
       <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th><th>IP</th></tr></thead>
@@ -24,10 +33,11 @@
           <td data-label="IP" class="small muted">{{ row.ip or '—' }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="6" class="empty-state"><span class="ico">🧾</span>Nothing logged yet.</td></tr>
+        <tr><td colspan="6" class="empty-state">Nothing logged yet.</td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
+  {{ pager_bar(pager, '/audit', {'q': q}) }}
 </div>
 {% endblock %}

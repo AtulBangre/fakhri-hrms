@@ -18,8 +18,9 @@ The rules implemented here (and asserted in the test suite):
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from ..config import Settings
 from ..db import Storage, utcnow_iso
@@ -144,9 +145,15 @@ def month_rows(storage: Storage, period: str, *, department: str | None = None) 
 def employee_month_summary(storage: Storage, settings: Settings, employee_id: int, period: str) -> dict:
     """Present / half / leave / absent / late tallies for one employee-month."""
     start, end = orgtime.month_bounds(period)
-    limit = min(end, orgtime.today(settings))
+    summary = employee_range_summary(storage, employee_id, start, min(end, orgtime.today(settings)))
+    summary["period"] = period
+    return summary
+
+
+def employee_range_summary(storage: Storage, employee_id: int, start: date, limit: date) -> dict:
+    """The same tallies for any date range (used by the F&F settlement)."""
     summary = {
-        "period": period,
+        "period": orgtime.period_of(start),
         "present": 0.0,
         "half_days": 0.0,
         "paid_leave": 0.0,
@@ -203,6 +210,73 @@ def employee_month_summary(storage: Storage, settings: Settings, employee_id: in
             else:
                 summary["absent"] += 1
     return summary
+
+
+#: The gate screen polls its status every 20 s; three missed polls means offline.
+KIOSK_ONLINE_SECONDS = 75
+
+
+def record_kiosk_heartbeat(storage: Storage, device: str) -> None:
+    """Remember when a gate device last checked in (shown live on the HR dashboard)."""
+    try:
+        beats = json.loads(storage.get_setting("kiosk_heartbeat", "{}") or "{}")
+    except ValueError:
+        beats = {}
+    beats[device[:60]] = utcnow_iso()
+    storage.set_setting("kiosk_heartbeat", json.dumps(beats))
+
+
+def kiosk_devices(storage: Storage) -> list[dict]:
+    """Every gate device seen so far, with an online flag and seconds since last poll."""
+    try:
+        beats = json.loads(storage.get_setting("kiosk_heartbeat", "{}") or "{}")
+    except ValueError:
+        return []
+    now = datetime.now(timezone.utc)
+    devices = []
+    for device, seen in sorted(beats.items()):
+        try:
+            age = (now - datetime.fromisoformat(seen.replace("Z", "+00:00"))).total_seconds()
+        except ValueError:
+            continue
+        devices.append({"device": device, "seen_at": seen, "age_seconds": int(age),
+                        "online": age <= KIOSK_ONLINE_SECONDS})
+    return devices
+
+
+def unmarked_working_days(storage: Storage, settings: Settings, period: str) -> list[dict]:
+    """Active employees with past working days that have no attendance at all.
+
+    Payroll charges these as absent (LOP), so HR should see them before running a
+    month. Days before an employee joined are left out — that LOP is deliberate
+    pro-rating, not a forgotten mark.
+    """
+    start, end = orgtime.month_bounds(period)
+    limit = min(end, orgtime.today(settings) - timedelta(days=1))
+    if limit < start:
+        return []
+    working = [day for day in orgtime.each_day(start, limit) if orgtime.day_kind(storage, day) == "working"]
+    if not working:
+        return []
+    marked: dict[int, set[str]] = {}
+    for row in storage.query(
+        "SELECT employee_id, work_date FROM attendance WHERE work_date BETWEEN ? AND ?",
+        (start.isoformat(), limit.isoformat()),
+    ):
+        marked.setdefault(row["employee_id"], set()).add(row["work_date"])
+
+    result = []
+    for employee in storage.query(
+        "SELECT id, code, name, joined_on FROM employees WHERE status = 'active' ORDER BY name COLLATE NOCASE"
+    ):
+        joined = employee.get("joined_on") or ""
+        days = [
+            day for day in working
+            if day.isoformat() >= joined[:10] and day.isoformat() not in marked.get(employee["id"], set())
+        ]
+        if days:
+            result.append({**employee, "days": days})
+    return result
 
 
 def recent_scans(storage: Storage, *, limit: int = 12, day: date | None = None) -> list[dict]:

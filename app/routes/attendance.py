@@ -122,7 +122,7 @@ def register(
         period = orgtime.period_of(orgtime.today(settings))
         data = attendance_service.monthly_register(storage, settings, period)
     return render(
-        request, "register.html", active="attendance", user=user, register=data,
+        request, "register.html", active="register", user=user, register=data,
         period=period, department=department or "",
     )
 

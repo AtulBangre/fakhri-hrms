@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 
 from ..auth import SessionUser, require_hr
-from ..deps import get_face, get_settings_dep, get_storage, render
+from ..deps import get_face, get_settings_dep, get_storage, paginate, render
 from ..services import announcements as announcement_service
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
@@ -21,6 +21,7 @@ def dashboard(
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
     settings=Depends(get_settings_dep),
+    face=Depends(get_face),
 ):
     board = attendance_service.dashboard(storage, settings)
     current_period = orgtime.period_of(orgtime.today(settings))
@@ -46,6 +47,8 @@ def dashboard(
         recent_leave=leave_service.list_leave(storage, limit=5),
         announcements=announcement_service.visible_for(storage, "hr"),
         company_notice_footer=storage.get_setting("company_notice_footer", ""),
+        kiosks=attendance_service.kiosk_devices(storage),
+        face_ok=bool(face.health().get("ok")),
     )
 
 
@@ -54,7 +57,16 @@ def audit_log(
     request: Request,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
-    limit: int = 200,
+    page: int = 1,
+    q: str | None = None,
 ):
-    rows = storage.query("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (min(limit, 500),))
-    return render(request, "audit.html", active="audit", user=user, rows=rows)
+    where, params = "", []
+    if q:
+        where = "WHERE actor LIKE ? OR action LIKE ? OR entity LIKE ? OR detail LIKE ?"
+        params = [f"%{q}%"] * 4
+    pager = paginate(storage.scalar(f"SELECT COUNT(*) AS n FROM audit_log {where}", params), page, 100)
+    rows = storage.query(
+        f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+        (*params, pager["per_page"], pager["offset"]),
+    )
+    return render(request, "audit.html", active="audit", user=user, rows=rows, pager=pager, q=q or "")

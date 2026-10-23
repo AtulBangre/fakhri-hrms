@@ -36,12 +36,11 @@
         </div>
 
         <div class="alert alert-info small" id="geoInfo">
-          <span class="ico">📍</span>
           <div>Allow location access when the browser asks. Nothing is marked until your position is confirmed
             inside one of the allowed places.</div>
         </div>
 
-        <button class="btn btn-primary btn-block btn-lg" id="markBtn" disabled>📍 Mark attendance</button>
+        <button class="btn btn-primary btn-block btn-lg" id="markBtn" disabled>Mark attendance</button>
         <div id="result" class="small mt-2"></div>
       </div>
     </div>
@@ -112,13 +111,13 @@
     badge.textContent = 'locating…';
     navigator.geolocation.watchPosition(function (pos) {
       position = pos;
-      badge.textContent = '📍 ±' + Math.round(pos.coords.accuracy) + ' m';
+      badge.textContent = ' ±' + Math.round(pos.coords.accuracy) + ' m';
       badge.className = 'chip chip-ok';
       btn.disabled = false;
     }, function (err) {
       badge.textContent = 'blocked';
       badge.className = 'chip chip-danger';
-      info.innerHTML = '<span class="ico">⚠️</span><div>Location was blocked (' + err.message +
+      info.innerHTML = '<div>Location was blocked (' + err.message +
         '). Allow location for this site in your browser settings, then reload.</div>';
       info.className = 'alert alert-err small';
     }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
@@ -143,19 +142,19 @@
         .then(function (r) { return r.json(); })
         .then(function (body) {
           if (body.ok) {
-            setResult('✅ ' + body.message, '');
+            setResult(' ' + body.message, '');
             result.style.color = 'var(--success)';
           } else if (body.inside) {
-            setResult('⚠️ ' + body.message, '');
+            setResult(' ' + body.message, '');
             result.style.color = 'var(--warning)';
           } else {
-            setResult('❌ ' + body.message, '');
+            setResult(' ' + body.message, '');
             result.style.color = 'var(--danger)';
           }
           setTimeout(function () { location.reload(); }, 2600);
         })
         .catch(function () {
-          setResult('❌ Could not reach the server. Try again.', '');
+          setResult(' Could not reach the server. Try again.', '');
           btn.disabled = false;
         });
     });

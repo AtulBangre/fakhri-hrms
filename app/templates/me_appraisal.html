@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}My appraisal · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>My appraisal</h1>
+    <div class="sub">Rate yourself on each goal, add a short note, and submit. HR reviews and shares the final rating here.</div>
+  </div>
+</div>
+
+{% for item in items %}
+  {% set editable = item.cycle_status == 'open' and item.status == 'self_review' %}
+  <div class="card flush mb-3">
+    <div class="card-head">
+      <h2>{{ item.cycle_name }}</h2>
+      <span class="small muted">{{ item.period_start | nice_date('%b %Y') }} – {{ item.period_end | nice_date('%b %Y') }}{% if item.self_due and editable %} · due {{ item.self_due | nice_date }}{% endif %}</span>
+      <span class="spacer"></span>
+      <span class="chip {{ {'self_review':'chip-warn','manager_review':'chip-info','completed':'chip-ok'}.get(item.status) }}">
+        {{ {'self_review': 'your turn', 'manager_review': 'with HR', 'completed': 'completed'}.get(item.status) }}</span>
+    </div>
+
+    {% if item.status == 'completed' %}
+      <div class="card-body" style="display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+        <div><div class="small muted">Final rating</div><div class="rating-big">{{ item.final_rating }}</div><div class="small">{{ rating_label(item.final_rating) }}</div></div>
+        {% if item.manager_comment %}<div style="flex:1;min-width:220px" class="small"><div class="muted">Feedback</div>{{ item.manager_comment }}</div>{% endif %}
+      </div>
+    {% endif %}
+
+    <form method="post" action="/me/appraisal/{{ item.id }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Goal</th><th class="num">Weight</th><th>My score</th><th>My note</th>{% if item.status == 'completed' %}<th>HR score</th>{% endif %}</tr></thead>
+          <tbody>
+          {% for goal in item.goals %}
+            <tr>
+              <td data-label="Goal"><strong>{{ goal.title }}</strong>{% if goal.target %}<span class="sub">Target: {{ goal.target }}</span>{% endif %}</td>
+              <td data-label="Weight" class="num">{{ goal.weight | number }}</td>
+              <td data-label="My score">
+                {% if editable %}
+                  <span class="score">{% for n in range(1, 6) %}
+                    <input type="radio" id="m{{ goal.id }}-{{ n }}" name="score_{{ goal.id }}" value="{{ n }}" {{ 'checked' if goal.self_score and goal.self_score | round(0) | int == n }}><label for="m{{ goal.id }}-{{ n }}" title="{{ labels[n] }}">{{ n }}</label>
+                  {% endfor %}</span>
+                {% else %}<strong>{{ goal.self_score if goal.self_score is not none else '—' }}</strong>{% endif %}
+              </td>
+              <td data-label="My note">{% if editable %}<input type="text" name="note_{{ goal.id }}" value="{{ goal.self_note or '' }}" placeholder="What you achieved">{% else %}<span class="small">{{ goal.self_note or '—' }}</span>{% endif %}</td>
+              {% if item.status == 'completed' %}<td data-label="HR score"><strong>{{ goal.manager_score if goal.manager_score is not none else '—' }}</strong>{% if goal.manager_note %}<span class="sub">{{ goal.manager_note }}</span>{% endif %}</td>{% endif %}
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-body" style="border-top:1px solid var(--border)">
+        <div class="field"><label>Summary of your year</label>
+          <textarea name="comment" rows="3" {{ 'readonly' if not editable }} placeholder="Key achievements, challenges, what you want to learn next">{{ item.self_comment or '' }}</textarea></div>
+        {% if editable %}
+          <div class="form-actions">
+            <button class="btn" type="submit" name="submit" value="0">Save draft</button>
+            <button class="btn btn-primary" type="submit" name="submit" value="1">Submit to HR</button>
+            <span class="small muted">You can't edit after submitting.</span>
+          </div>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+{% else %}
+  <div class="card"><div class="empty-state">No appraisal is open for you right now. HR will let you know when a review cycle starts.</div></div>
+{% endfor %}
+{% endblock %}

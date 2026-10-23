@@ -29,7 +29,7 @@ from .face import FaceService
 from .notify import NotificationWorker
 from .routes import (
     account, admin, attendance, auth_routes, dashboard, employees,
-    engagement, field, kiosk, leave, me, meta, payroll, records,
+    appraisals, engagement, exits, field, kiosk, leave, me, meta, payroll, records, regularizations, tax,
 )
 
 logger = logging.getLogger("hrms")
@@ -160,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(meta.router)
     app.include_router(dashboard.router)
     app.include_router(employees.router)
+    app.include_router(regularizations.router)
     app.include_router(attendance.router)
     app.include_router(leave.router)
     app.include_router(payroll.router)
@@ -167,6 +168,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(account.router)
     app.include_router(engagement.router)
     app.include_router(records.router)
+    app.include_router(tax.router)
+    app.include_router(exits.router)
+    app.include_router(appraisals.router)
     app.include_router(field.router)
     app.include_router(admin.router)
     app.include_router(kiosk.router)

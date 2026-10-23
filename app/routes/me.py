@@ -14,6 +14,8 @@ is no employee-id parameter anywhere in these routes for someone to tamper with.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, Form, Request
 
 from ..auth import SessionUser, require_employee, verify_form_csrf
@@ -25,7 +27,7 @@ from ..services import announcements as announcement_service
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
 from ..services import leave as leave_service
-from ..services import orgtime, payroll
+from ..services import orgtime, payroll, regularization
 
 router = APIRouter(prefix="/me", tags=["self-service"])
 
@@ -144,7 +146,58 @@ def my_attendance(
         period_label=orgtime.month_label(period),
         days=days,
         summary=attendance_service.employee_month_summary(storage, settings, employee["id"], period),
+        requests=regularization.list_requests(storage, status="all", employee_id=employee["id"], limit=30),
+        pending_dates={
+            row["work_date"] for row in regularization.list_requests(
+                storage, status="pending", employee_id=employee["id"])
+        },
+        shift_start=storage.get_setting("shift_start", "09:30"),
+        shift_end=storage.get_setting("shift_end", "18:30"),
+        oldest_fixable=(orgtime.today(settings) - timedelta(days=regularization.MAX_AGE_DAYS)).isoformat(),
     )
+
+
+@router.post("/attendance/regularize")
+def request_regularization(
+    request: Request,
+    user: SessionUser = Depends(require_employee),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+    work_date: str = Form(...),
+    requested_status: str = Form("present"),
+    check_in: str = Form(""),
+    check_out: str = Form(""),
+    reason: str = Form(""),
+):
+    verify_form_csrf(user, csrf)
+    period = work_date[:7] if len(work_date) >= 7 else None
+    try:
+        regularization.submit(
+            storage, settings, employee_id=int(user.employee_id or 0), work_date=work_date,
+            check_in=check_in, check_out=check_out, reason=reason, requested_status=requested_status,
+            actor=user.username,
+        )
+    except employees_service.ValidationError as exc:
+        return redirect("/me/attendance", err=str(exc), period=period)
+    return redirect("/me/attendance", period=period,
+                    ok=f"Correction for {orgtime.human_date(work_date)} sent to HR.")
+
+
+@router.post("/attendance/regularize/{request_id}/withdraw")
+def withdraw_regularization(
+    request: Request,
+    request_id: int,
+    user: SessionUser = Depends(require_employee),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+):
+    verify_form_csrf(user, csrf)
+    try:
+        regularization.withdraw(storage, request_id, employee_id=int(user.employee_id or 0), actor=user.username)
+    except employees_service.ValidationError as exc:
+        return redirect("/me/attendance", err=str(exc))
+    return redirect("/me/attendance", ok="Request withdrawn.")
 
 
 @router.get("/payslips")
@@ -214,6 +267,7 @@ def my_payslip(
         org_name=storage.get_setting("org_name", settings.org_name),
         currency=storage.get_setting("currency_symbol", "₹"),
         back_url="/me/payslips",
+        pdf_url=f"/me/payslips/{slip_id}.pdf",
     )
 
 

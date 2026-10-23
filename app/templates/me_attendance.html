@@ -9,19 +9,11 @@
     <div class="sub">{{ period_label }} · {{ employee.name }} ({{ employee.code }})</div>
   </div>
   <div class="page-actions">
-    <a class="btn" href="/me">← My day</a>
-    <a class="btn" href="/me/leave">🌴 Apply for leave</a>
-  </div>
-</div>
-
-<div class="card mb-3">
-  <div class="card-body">
-    <form class="filters" method="get" action="/me/attendance">
-      <div class="field"><label for="period">Month</label>
-        <input id="period" name="period" type="month" value="{{ period }}"></div>
-      <button class="btn btn-primary" type="submit">Show</button>
-      <a class="btn" href="/me/attendance">This month</a>
+    <form class="inline-form" method="get" action="/me/attendance">
+      <input name="period" type="month" value="{{ period }}" aria-label="Month" onchange="this.form.submit()" style="width:auto">
     </form>
+    <a class="btn" href="/me/attendance">This month</a>
+    <a class="btn btn-primary" href="/me/leave">{{ icon('plus') }} Apply leave</a>
   </div>
 </div>
 
@@ -36,42 +28,104 @@
     <div class="foot">{{ summary.late_marks }} late mark{{ '' if summary.late_marks == 1 else 's' }}</div></div>
 </div>
 
-<div class="card flush">
+<div class="card flush mb-3">
   <div class="card-head"><h2>{{ period_label }}</h2><span class="spacer"></span>
-    <span class="small muted">P present · ½ half day · L leave · A absent · W off · H holiday</span></div>
+    <span class="small muted">Missed a punch? Use <strong>Fix</strong> on that day to ask HR for a correction.</span></div>
   <div class="table-wrap">
     <table class="data stack">
       <thead>
-        <tr><th>Date</th><th>Status</th><th>In</th><th>Out</th><th>Worked</th><th>Note</th></tr>
+        <tr><th>Date</th><th>Status</th><th>In</th><th>Out</th><th>Worked</th><th>Note</th><th></th></tr>
       </thead>
       <tbody>
       {% for day in days %}
-        {% if not day.is_future or day.status not in ('pending',) %}
-        <tr {% if day.is_today %}style="background:var(--primary-soft)"{% endif %}>
-          <td data-label="Date">
-            <strong>{{ day.day | string }}</strong>
-            <span class="sub">{{ day.weekday }}{% if day.is_today %} · today{% endif %}</span>
-          </td>
+        {% if not day.is_future %}
+        {% set fixable = day.status in ('absent', 'half_day', 'present', 'pending') and day.iso >= oldest_fixable %}
+        <tr {% if day.is_today %}class="is-selected"{% endif %}>
+          <td data-label="Date" class="nowrap"><strong>{{ day.day.strftime('%d %b') }}</strong>
+            <span class="sub">{{ day.weekday }}{% if day.is_today %} · today{% endif %}</span></td>
           <td data-label="Status">
             <span class="{{ day.status | chip }}">{{ day.status_label }}</span>
-            {% if day.leave_type %}<span class="sub muted">{{ day.leave_type }}</span>{% endif %}
+            {% if day.leave_type %}<span class="sub">{{ day.leave_type }}</span>{% endif %}
           </td>
-          <td data-label="In">{{ day.check_in }}</td>
-          <td data-label="Out">{{ day.check_out }}</td>
-          <td data-label="Worked">
-            {{ day.worked }}
-            {% if day.late_minutes %}<span class="chip chip-warn" style="margin-left:.3rem">{{ day.late_minutes }}m late</span>{% endif %}
-          </td>
+          <td data-label="In" class="num-cell">{{ day.check_in }}</td>
+          <td data-label="Out" class="num-cell">{{ day.check_out }}</td>
+          <td data-label="Worked" class="nowrap">{{ day.worked }}
+            {% if day.late_minutes %}<span class="chip chip-warn">{{ day.late_minutes }}m late</span>{% endif %}</td>
           <td data-label="Note" class="small muted">{{ day.note or '—' }}</td>
+          <td class="actions-cell">
+            {% if day.iso in pending_dates %}
+              <span class="chip chip-warn">correction pending</span>
+            {% elif fixable %}
+              <button class="btn btn-sm {{ 'btn-ghost' if day.status == 'present' and day.check_out != '—' and not day.late_minutes }}" type="button" data-toggle-row="fix-{{ day.iso }}">{{ icon('edit') }} Fix</button>
+            {% endif %}
+          </td>
         </tr>
+        {% if fixable and day.iso not in pending_dates %}
+        <tr class="detail-row hidden" id="fix-{{ day.iso }}">
+          <td colspan="7">
+            <form method="post" action="/me/attendance/regularize">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input type="hidden" name="work_date" value="{{ day.iso }}">
+              <div class="form-row cols-4">
+                <div class="field"><label>Request</label>
+                  <select name="requested_status">
+                    <option value="present">Full day present</option>
+                    <option value="half_day">Half day</option>
+                  </select></div>
+                <div class="field"><label>Actual in</label>
+                  <input name="check_in" type="time" required value="{{ day.check_in if day.check_in != '—' else shift_start }}"></div>
+                <div class="field"><label>Actual out</label>
+                  <input name="check_out" type="time" value="{{ day.check_out if day.check_out != '—' else shift_end }}"></div>
+                <div class="field"><label>Reason</label>
+                  <input name="reason" type="text" required minlength="5" placeholder="Scanner did not detect me / client visit…"></div>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-primary btn-sm" type="submit">Send to HR</button>
+                <button class="btn btn-ghost btn-sm" type="button" data-toggle-row="fix-{{ day.iso }}">Cancel</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+        {% endif %}
         {% endif %}
       {% endfor %}
       </tbody>
     </table>
   </div>
   <div class="card-foot small muted">
-    Weekly offs and holidays are paid and never count against you. A working day with no scan and no approved
-    leave shows as <strong>absent</strong> — ask HR to correct it if that is wrong.
+    Weekly offs and holidays are paid. A working day with no scan and no approved leave counts as <strong>absent</strong>.
+    Corrections can be requested for the last 60 days, until that month's payroll is finalised.
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="card-head"><h2>My correction requests</h2><span class="spacer"></span>
+    <span class="small muted">{{ requests | length }} recent</span></div>
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead><tr><th>Date</th><th>Requested</th><th>In / out</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for row in requests %}
+        <tr>
+          <td data-label="Date" class="nowrap">{{ row.work_date | nice_date }}</td>
+          <td data-label="Requested">{{ STATUS_LABELS.get(row.requested_status, row.requested_status) }}</td>
+          <td data-label="In / out" class="num-cell nowrap">{{ row.check_in | clock }} – {{ row.check_out | clock }}</td>
+          <td data-label="Reason" class="small">{{ row.reason }}{% if row.decision_note %}<span class="sub">HR: {{ row.decision_note }}</span>{% endif %}</td>
+          <td data-label="Status"><span class="chip {{ {'pending':'chip-warn','approved':'chip-ok','rejected':'chip-danger'}.get(row.status, 'chip-muted') }}">{{ row.status }}</span></td>
+          <td class="actions-cell">
+            {% if row.status == 'pending' %}
+              <form method="post" action="/me/attendance/regularize/{{ row.id }}/withdraw" data-confirm="Withdraw this request?">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <button class="btn btn-sm btn-ghost" type="submit">Withdraw</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty-state">No correction requests yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 {% endblock %}

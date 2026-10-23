@@ -18,6 +18,7 @@ from .auth import SessionUser, current_user, get_session
 from .config import BRAND, Settings
 from .db import Storage
 from .face import FaceService
+from .icons import icon
 from .services import orgtime
 
 logger = logging.getLogger("hrms.web")
@@ -59,7 +60,18 @@ def number(value: Any, decimals: int = 0) -> str:
         return "0"
     if decimals:
         return f"{amount:,.{decimals}f}"
-    return f"{amount:,.0f}".rstrip("0").rstrip(".") if amount % 1 else f"{amount:,.0f}"
+    if amount % 1:  # 0.5 days, 2.25 hours … — keep the fraction, drop trailing zeros
+        return f"{amount:,.2f}".rstrip("0").rstrip(".")
+    return f"{amount:,.0f}"
+
+
+def plain(value: Any) -> str:
+    """A number for an ``<input>``: no thousands separators, no trailing ``.0``."""
+    try:
+        amount = float(value or 0)
+    except (TypeError, ValueError):
+        return ""
+    return f"{amount:.2f}".rstrip("0").rstrip(".") if amount % 1 else f"{amount:.0f}"
 
 
 def nice_date(value: Any, fmt: str = "%d %b %Y") -> str:
@@ -109,6 +121,7 @@ templates.env.filters.update(
     {
         "money": money,
         "number": number,
+        "plain": plain,
         "nice_date": nice_date,
         "initials": initials,
         "chip": status_chip,
@@ -146,7 +159,20 @@ templates.env.globals.update(
     STATUS_LABELS=orgtime.STATUS_LABELS,
     LEAVE_LABELS=orgtime.LEAVE_LABELS,
     today_iso=lambda: date.today().isoformat(),
+    icon=icon,
 )
+
+
+# ------------------------------------------------------------------ paging
+def paginate(total: int, page: int | None, per_page: int) -> dict[str, int]:
+    """Clamp ``page`` into range and return what a list query and the pager need."""
+    pages = max(1, -(-int(total) // per_page))
+    page = min(max(1, int(page or 1)), pages)
+    offset = (page - 1) * per_page
+    return {
+        "page": page, "pages": pages, "total": int(total), "per_page": per_page, "offset": offset,
+        "first": offset + 1 if total else 0, "last": min(offset + per_page, int(total)),
+    }
 
 
 # ------------------------------------------------------------------ rendering
@@ -161,6 +187,24 @@ def flash_url(path: str, *, ok: str | None = None, err: str | None = None, **par
 
 def redirect(path: str, **kwargs: Any) -> RedirectResponse:
     return RedirectResponse(flash_url(path, **kwargs), status_code=303)
+
+
+def _pending_counts(storage: Storage) -> dict[str, int]:
+    """Work waiting for HR, shown as badges in the sidebar (one query)."""
+    row = storage.query_one(
+        """
+        SELECT
+          (SELECT COUNT(*) FROM leave_requests WHERE status = 'pending') AS leave,
+          (SELECT COUNT(*) FROM attendance_regularizations WHERE status = 'pending') AS regularizations,
+          (SELECT COUNT(*) FROM profile_change_requests WHERE status = 'pending') AS profile,
+          (SELECT COUNT(*) FROM expense_claims WHERE status = 'pending') AS expenses,
+          (SELECT COUNT(*) FROM documents WHERE verified = 0) AS documents,
+          (SELECT COUNT(*) FROM employee_exits WHERE status = 'requested') AS exits,
+          (SELECT COUNT(*) FROM appraisals a JOIN appraisal_cycles c ON c.id = a.cycle_id
+             WHERE c.status = 'open' AND a.status = 'manager_review') AS appraisals
+        """
+    )
+    return {key: int(value or 0) for key, value in (row or {}).items()}
 
 
 def page_context(request: Request, *, active: str, user: SessionUser | None, **extra: Any) -> dict[str, Any]:
@@ -178,6 +222,7 @@ def page_context(request: Request, *, active: str, user: SessionUser | None, **e
         "today": orgtime.today(settings),
         "csrf_token": user.csrf if user else "",
         "nav_items": [],
+        "nav_pending": _pending_counts(storage) if user and user.is_hr else {},
     }
     context.update(extra)
     return context
@@ -219,6 +264,7 @@ __all__ = [
     "get_settings_dep",
     "get_storage",
     "page_context",
+    "paginate",
     "redirect",
     "render",
     "templates",

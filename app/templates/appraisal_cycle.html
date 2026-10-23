@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ cycle.name }} · Appraisals{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>{{ cycle.name }}</h1>
+    <div class="sub">{{ cycle.period_start | nice_date }} – {{ cycle.period_end | nice_date }}
+      {% if cycle.self_due %}· self review due {{ cycle.self_due | nice_date }}{% endif %}
+      · <span class="chip {{ {'draft':'chip-muted','open':'chip-info','closed':'chip-ok'}.get(cycle.status) }}">{{ cycle.status }}</span></div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/appraisals">{{ icon('chevron-left') }} All cycles</a>
+    {% if cycle.status == 'draft' %}
+      <form method="post" action="/appraisals/cycles/{{ cycle.id }}/delete" data-confirm="Delete this draft cycle?">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-danger" type="submit">Delete</button></form>
+      <form method="post" action="/appraisals/cycles/{{ cycle.id }}/launch" data-confirm="Launch for every active employee? They will see it in their portal.">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-primary" type="submit">Launch cycle</button></form>
+    {% elif cycle.status == 'open' %}
+      <form method="post" action="/appraisals/cycles/{{ cycle.id }}/close" data-confirm="Close the cycle? Ratings become final.">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-dark" type="submit" {{ 'disabled' if progress.completed < progress.total }}>Close cycle</button></form>
+    {% endif %}
+  </div>
+</div>
+
+{% if cycle.status == 'draft' %}
+  <div class="card flush">
+    <div class="card-head"><h2>Goals in this cycle</h2><span class="spacer"></span><span class="small muted">launch to create one review per active employee</span></div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Goal</th><th class="num">Weight</th></tr></thead>
+        <tbody>{% for title, weight in cycle.goals %}<tr><td>{{ title }}</td><td class="num">{{ weight | number }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+{% else %}
+  <div class="grid grid-4 mb-3">
+    <div class="stat"><div class="label">Employees</div><div class="value">{{ progress.total }}</div><div class="foot">in this cycle</div></div>
+    <div class="stat"><div class="label">Self reviews in</div><div class="value">{{ progress.self_done }}</div><div class="foot">{{ progress.total - progress.self_done }} pending</div></div>
+    <div class="stat accent"><div class="label">Completed</div><div class="value">{{ progress.completed }}</div><div class="foot">{{ progress.total - progress.completed }} to review</div></div>
+    <div class="stat"><div class="label">Rating spread</div>
+      <div class="value" style="font-size:1rem;display:flex;gap:.55rem">{% for score, n in distribution.items() %}<span title="{{ labels[score] }}"><span class="muted small">{{ score }}★</span> {{ n }}</span>{% endfor %}</div>
+      <div class="foot">final ratings</div></div>
+  </div>
+
+  <div class="card flush">
+    <div class="card-head"><h2>Reviews</h2></div>
+    <div class="table-wrap">
+      <table class="data stack">
+        <thead><tr><th>Employee</th><th>Status</th><th class="num">Self</th><th class="num">HR score</th><th class="num">Final</th><th class="num">Increment</th><th></th></tr></thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td data-label="Employee"><a href="/appraisals/{{ row.id }}"><strong>{{ row.name }}</strong></a><span class="sub">{{ row.code }}{% if row.designation %} · {{ row.designation }}{% endif %}</span></td>
+            <td data-label="Status"><span class="chip {{ {'self_review':'chip-muted','manager_review':'chip-warn','completed':'chip-ok'}.get(row.status) }}">{{ row.status_label }}</span></td>
+            <td data-label="Self" class="num">{{ row.self_score if row.self_score is not none else '—' }}</td>
+            <td data-label="HR score" class="num">{{ row.manager_score if row.manager_score is not none else '—' }}</td>
+            <td data-label="Final" class="num"><strong>{{ row.final_rating if row.final_rating is not none else '—' }}</strong></td>
+            <td data-label="Increment" class="num">{{ (row.increment_pct | number) ~ '%' if row.increment_pct is not none else '—' }}</td>
+            <td class="actions-cell"><a class="btn btn-sm {{ 'btn-primary' if row.status == 'manager_review' }}" href="/appraisals/{{ row.id }}">{{ 'Review' if row.status != 'completed' else 'View' }}</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="empty-state">No employees in this cycle.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

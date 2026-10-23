@@ -111,14 +111,16 @@ class FaceService:
     # ---------------------------------------------------------------- health
     def health(self) -> dict:
         """Return ``{"ok": bool, "detail": str, ...}`` — never raises."""
+        # Short timeout: this backs status badges, which must not stall a page.
+        quick = min(5.0, float(self.timeout))
         try:
             with self._client() as client:
-                root = client.get("/")
+                root = client.get("/", timeout=quick)
                 if root.status_code >= 400:
                     error = self._error_from_response(root)
                     return {"ok": False, "detail": error.message, "status_code": root.status_code}
                 info = root.json()
-                ready = client.get("/readyz")
+                ready = client.get("/readyz", timeout=quick)
                 return {
                     "ok": ready.status_code == 200,
                     "detail": "connected",

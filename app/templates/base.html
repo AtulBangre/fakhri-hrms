@@ -1,48 +1,59 @@
 {# App shell: top bar, sidebar (desktop), drawer + bottom tabs (mobile). #}
+{% set _pending = nav_pending or {} %}
+{% macro navlink(href, key, ico, label, badge=0) -%}
+  <a href="{{ href }}" class="{{ 'active' if active == key }}">{{ icon(ico) }}<span>{{ label }}</span>{% if badge %}<em class="badge-count">{{ badge }}</em>{% endif %}</a>
+{%- endmacro %}
 {% macro navlinks() -%}
   {% if user and user.is_employee %}
     <div class="nav-section">My space</div>
-    <a href="/me" class="{{ 'active' if active == 'me' }}"><span class="ico">🏠</span> My day</a>
-    <a href="/me/attendance" class="{{ 'active' if active == 'me-attendance' }}"><span class="ico">🗓️</span> My attendance</a>
-    <a href="/me/leave" class="{{ 'active' if active == 'me-leave' }}"><span class="ico">🌴</span> My leave</a>
-    <a href="/me/payslips" class="{{ 'active' if active == 'me-payslips' }}"><span class="ico">📄</span> My payslips</a>
-    <a href="/me/profile" class="{{ 'active' if active == 'me-profile' }}"><span class="ico">👤</span> My profile</a>
+    {{ navlink('/me', 'me', 'home', 'My day') }}
+    {{ navlink('/me/attendance', 'me-attendance', 'calendar', 'Attendance') }}
+    {{ navlink('/me/leave', 'me-leave', 'leave', 'Leave') }}
+    {{ navlink('/me/payslips', 'me-payslips', 'file', 'Payslips') }}
+    {{ navlink('/me/tax', 'me-tax', 'calculator', 'Income tax') }}
+    {{ navlink('/me/appraisal', 'me-appraisal', 'star', 'Appraisal') }}
+    {{ navlink('/me/profile', 'me-profile', 'user', 'Profile') }}
     <div class="nav-section">Work</div>
-    <a href="/me/field" class="{{ 'active' if active == 'me-field' }}"><span class="ico">📍</span> Field attendance</a>
-    <a href="/me/documents" class="{{ 'active' if active == 'me-documents' }}"><span class="ico">📁</span> My documents</a>
-    <a href="/me/assets" class="{{ 'active' if active == 'me-assets' }}"><span class="ico">💻</span> My assets</a>
-    <a href="/me/expenses" class="{{ 'active' if active == 'me-expenses' }}"><span class="ico">🧾</span> My expenses</a>
+    {{ navlink('/me/field', 'me-field', 'pin', 'Field attendance') }}
+    {{ navlink('/me/documents', 'me-documents', 'folder', 'Documents') }}
+    {{ navlink('/me/assets', 'me-assets', 'laptop', 'Assets') }}
+    {{ navlink('/me/expenses', 'me-expenses', 'receipt', 'Expenses') }}
+    {{ navlink('/me/exit', 'me-exit', 'user-x', 'Resignation') }}
   {% else %}
+    <div class="nav-section">Overview</div>
+    {{ navlink('/dashboard', 'dashboard', 'dashboard', 'Dashboard') }}
     <div class="nav-section">Attendance</div>
-    <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}"><span class="ico">📊</span> Dashboard</a>
-    <a href="/attendance" class="{{ 'active' if active == 'attendance' }}"><span class="ico">🗓️</span> Daily board</a>
-    <a href="/attendance/register" class="{{ 'active' if active == 'register' }}"><span class="ico">📋</span> Monthly register</a>
-    <a href="/leave" class="{{ 'active' if active == 'leave' }}"><span class="ico">🌴</span> Leave</a>
+    {{ navlink('/attendance', 'attendance', 'calendar', 'Daily board') }}
+    {{ navlink('/attendance/register', 'register', 'grid', 'Monthly register') }}
+    {{ navlink('/attendance/regularizations', 'regularizations', 'clock-edit', 'Regularizations', _pending.get('regularizations')) }}
+    {{ navlink('/leave', 'leave', 'leave', 'Leave', _pending.get('leave')) }}
     <div class="nav-section">People</div>
-    <a href="/employees" class="{{ 'active' if active == 'employees' }}"><span class="ico">👥</span> Employees</a>
-    <a href="/employees/new" class=""><span class="ico">➕</span> Add employee</a>
-    <div class="nav-section">Money</div>
-    <a href="/payroll" class="{{ 'active' if active == 'payroll' }}"><span class="ico">💰</span> Payroll</a>
-    <a href="/profile-requests" class="{{ 'active' if active == 'profile-requests' }}"><span class="ico">🧾</span> Profile changes</a>
+    {{ navlink('/employees', 'employees', 'users', 'Employees') }}
+    {{ navlink('/appraisals', 'appraisals', 'star', 'Appraisals', _pending.get('appraisals')) }}
+    {{ navlink('/exits', 'exits', 'user-x', 'Exits & F&F', _pending.get('exits')) }}
+    {{ navlink('/profile-requests', 'profile-requests', 'file-edit', 'Profile changes', _pending.get('profile')) }}
+    <div class="nav-section">Payroll</div>
+    {{ navlink('/payroll', 'payroll', 'wallet', 'Payroll') }}
+    {{ navlink('/tax', 'tax', 'calculator', 'Income tax / TDS') }}
+    {{ navlink('/expenses', 'expenses', 'receipt', 'Expense claims', _pending.get('expenses')) }}
     <div class="nav-section">Records</div>
-    <a href="/documents" class="{{ 'active' if active == 'documents' }}"><span class="ico">📁</span> Documents</a>
-    <a href="/assets" class="{{ 'active' if active == 'assets' }}"><span class="ico">💻</span> Assets</a>
-    <a href="/expenses" class="{{ 'active' if active == 'expenses' }}"><span class="ico">🧾</span> Expense claims</a>
-    <a href="/locations" class="{{ 'active' if active == 'locations' }}"><span class="ico">📍</span> Field locations</a>
+    {{ navlink('/documents', 'documents', 'folder', 'Documents') }}
+    {{ navlink('/assets', 'assets', 'laptop', 'Assets') }}
+    {{ navlink('/locations', 'locations', 'pin', 'Field locations') }}
     <div class="nav-section">Communicate</div>
-    <a href="/announcements" class="{{ 'active' if active == 'announcements' }}"><span class="ico">📣</span> Noticeboard</a>
-    <a href="/notifications"><span class="ico">📨</span> Notifications</a>
+    {{ navlink('/announcements', 'announcements', 'megaphone', 'Noticeboard') }}
+    {{ navlink('/notifications', 'notifications', 'mail', 'Notifications') }}
     <div class="nav-section">System</div>
-    <a href="/kiosk"><span class="ico">📷</span> Gate scanner</a>
-    <a href="/settings" class="{{ 'active' if active == 'settings' }}"><span class="ico">⚙️</span> Settings</a>
-    <a href="/audit" class="{{ 'active' if active == 'audit' }}"><span class="ico">🧾</span> Audit log</a>
+    {{ navlink('/kiosk', 'kiosk', 'scan', 'Gate scanner') }}
+    {{ navlink('/settings', 'settings', 'settings', 'Settings') }}
+    {{ navlink('/audit', 'audit', 'history', 'Audit log') }}
   {% endif %}
 {%- endmacro %}
 
 {% macro flash() -%}
-  {% if ok_message %}<div class="alert alert-ok" role="status"><span class="ico">✅</span><div>{{ ok_message }}</div></div>{% endif %}
-  {% if err_message %}<div class="alert alert-err" role="alert"><span class="ico">⚠️</span><div>{{ err_message }}</div></div>{% endif %}
-  {% if error %}<div class="alert alert-err" role="alert"><span class="ico">⚠️</span><div>{{ error }}</div></div>{% endif %}
+  {% if ok_message %}<div class="alert alert-ok" role="status">{{ icon('check-circle') }}<div>{{ ok_message }}</div></div>{% endif %}
+  {% if err_message %}<div class="alert alert-err" role="alert">{{ icon('alert') }}<div>{{ err_message }}</div></div>{% endif %}
+  {% if error %}<div class="alert alert-err" role="alert">{{ icon('alert') }}<div>{{ error }}</div></div>{% endif %}
 {%- endmacro %}
 <!doctype html>
 <html lang="en">
@@ -63,14 +74,14 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/app.css?v={{ asset_version }}">
   {% block head %}{% endblock %}
 </head>
 <body>
 <div class="app">
   <header class="topbar no-print">
-    <button class="icon-btn" id="menuToggle" aria-label="Open menu">☰</button>
+    <button class="icon-btn" id="menuToggle" aria-label="Open menu">{{ icon('menu') }}</button>
     <a href="{{ '/me' if user and user.is_employee else ('/kiosk' if user and user.is_kiosk else '/dashboard') }}" class="topbar-brand">
       <span class="brand-mark">F</span>
       <span class="brand-text">
@@ -80,10 +91,14 @@
     </a>
     <div class="topbar-actions">
       {% if user %}
-        {% if not user.is_employee %}<a class="icon-btn" href="/kiosk" title="Gate scanner">📷</a>{% endif %}
+        {% if not user.is_employee %}<a class="icon-btn" href="/kiosk" title="Gate scanner">{{ icon('scan') }}</a>{% endif %}
+        <span class="topbar-user">
+          <span class="avatar">{{ user | initials }}</span>
+          <span class="who"><strong>{{ user.display_name }}</strong><small>{{ user.role | upper }}{% if user.device_label %} · {{ user.device_label }}{% endif %}</small></span>
+        </span>
         <form method="post" action="/logout" style="display:inline">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-          <button class="icon-btn" type="submit" title="Sign out">⏏</button>
+          <button class="icon-btn" type="submit" title="Sign out">{{ icon('logout') }}</button>
         </form>
       {% endif %}
     </div>
@@ -102,43 +117,29 @@
 
   <div class="body-wrap">
     <aside class="sidebar no-print">
-      {% if user %}
-        <div class="sidebar-user">
-          <span class="avatar">{{ user | initials }}</span>
-          <div><strong>{{ user.display_name }}</strong><span>{{ user.role|upper }}{% if user.device_label %} · {{ user.device_label }}{% endif %}</span></div>
-        </div>
-      {% endif %}
       <nav class="nav">{{ navlinks() }}</nav>
+      <div class="sidebar-foot">v{{ app_version }}</div>
     </aside>
 
     <main class="content">
       {{ flash() }}
       {% block content %}{% endblock %}
-      <footer class="muted small mt-3 no-print" style="padding-bottom:.5rem">
-        {{ org_name }} HRMS v{{ app_version }} · face recognition by the in-house Face API
-      </footer>
     </main>
   </div>
 
   <nav class="bottom-nav no-print">
     {% if user and user.is_employee %}
-      <a href="/me" class="{{ 'active' if active == 'me' }}"><span class="ico">🏠</span> My day</a>
-      <a href="/me/attendance" class="{{ 'active' if active == 'me-attendance' }}"><span class="ico">🗓️</span> Attendance</a>
-      <a href="/me/leave" class="{{ 'active' if active == 'me-leave' }}"><span class="ico">🌴</span> Leave</a>
-      <a href="/me/payslips" class="{{ 'active' if active == 'me-payslips' }}"><span class="ico">📄</span> Payslips</a>
-      <form method="post" action="/logout" style="display:contents">
-        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-        <button type="submit" style="all:unset;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--muted);font-size:.66rem;cursor:pointer">
-          <span class="ico" style="font-size:1.15rem">⏏</span> Sign out
-        </button>
-      </form>
+      <a href="/me" class="{{ 'active' if active == 'me' }}">{{ icon('home') }}<span>Home</span></a>
+      <a href="/me/attendance" class="{{ 'active' if active == 'me-attendance' }}">{{ icon('calendar') }}<span>Attendance</span></a>
+      <a href="/me/leave" class="{{ 'active' if active == 'me-leave' }}">{{ icon('leave') }}<span>Leave</span></a>
+      <a href="/me/payslips" class="{{ 'active' if active == 'me-payslips' }}">{{ icon('file') }}<span>Payslips</span></a>
     {% else %}
-      <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}"><span class="ico">📊</span> Board</a>
-      <a href="/employees" class="{{ 'active' if active == 'employees' }}"><span class="ico">👥</span> People</a>
-      <a href="/kiosk"><span class="ico">📷</span> Scan</a>
-      <a href="/attendance" class="{{ 'active' if active == 'attendance' }}"><span class="ico">🗓️</span> Attendance</a>
-      <a href="/payroll" class="{{ 'active' if active == 'payroll' }}"><span class="ico">💰</span> Payroll</a>
+      <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}">{{ icon('dashboard') }}<span>Board</span></a>
+      <a href="/employees" class="{{ 'active' if active == 'employees' }}">{{ icon('users') }}<span>People</span></a>
+      <a href="/attendance" class="{{ 'active' if active == 'attendance' }}">{{ icon('calendar') }}<span>Attendance</span></a>
+      <a href="/payroll" class="{{ 'active' if active == 'payroll' }}">{{ icon('wallet') }}<span>Payroll</span></a>
     {% endif %}
+    <a href="#menu" data-open-drawer>{{ icon('menu') }}<span>More</span></a>
   </nav>
 </div>
 

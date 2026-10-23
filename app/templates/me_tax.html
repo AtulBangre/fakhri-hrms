@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}My tax · FY {{ fy }} · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>My tax · FY {{ fy }}</h1>
+    <div class="sub">Choose your regime and declare investments. HR verifies the proofs and confirms the TDS taken from your salary.</div>
+  </div>
+  <div class="page-actions">
+    <form class="inline-form" method="get" action="/me/tax">
+      <select name="fy" aria-label="Financial year" onchange="this.form.submit()">
+        {% for item in fys %}<option value="{{ item }}" {{ 'selected' if item == fy }}>FY {{ item }}</option>{% endfor %}
+      </select>
+    </form>
+    {% if profile.confirmed_tds is not none %}<a class="btn btn-primary" href="/me/tax/form16?fy={{ fy }}">Form 16</a>{% endif %}
+  </div>
+</div>
+
+<div class="grid grid-3 mb-3">
+  <div class="stat accent"><div class="label">TDS confirmed by HR</div>
+    <div class="value">{{ profile.confirmed_tds | money if profile.confirmed_tds is not none else '—' }}</div>
+    <div class="foot">{{ 'for the whole year' if profile.confirmed_tds is not none else 'not confirmed yet' }}</div></div>
+  <div class="stat"><div class="label">Deducted so far</div><div class="value">{{ current.tds_deducted | money }}</div>
+    <div class="foot">from your payslips</div></div>
+  <div class="stat"><div class="label">Estimated tax ({{ current.regime }})</div><div class="value">{{ current.total_tax | money }}</div>
+    <div class="foot">≈ {{ current.monthly_tds | money }} / month</div></div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    {% include "_tax_projection.html" %}
+
+    <div class="card flush">
+      <div class="card-head"><h2>My declarations</h2></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Section</th><th class="num">Amount</th><th>Proof</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+          {% for row in declarations %}
+            <tr>
+              <td data-label="Section">{{ row.section_label }}{% if row.description %}<span class="sub">{{ row.description }}</span>{% endif %}</td>
+              <td data-label="Amount" class="num">{{ row.amount | money }}</td>
+              <td data-label="Proof">{% if row.proof_name %}<a href="/tax/declarations/{{ row.id }}/proof">View</a>{% else %}<span class="muted small">none</span>{% endif %}</td>
+              <td data-label="Status"><span class="chip {{ 'chip-ok' if row.status == 'verified' else ('chip-danger' if row.status == 'rejected' else 'chip-warn') }}">{{ 'waiting for HR' if row.status == 'declared' else row.status }}</span></td>
+              <td class="actions-cell">
+                {% if row.status != 'verified' %}
+                <form method="post" action="/me/tax/declarations/{{ row.id }}/delete" data-confirm="Withdraw this declaration?">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <button class="btn btn-sm btn-ghost" type="submit">Withdraw</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty-state">Nothing declared for FY {{ fy }} yet.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Declare an investment</h3></div>
+      <div class="card-body">
+        <form method="post" action="/me/tax/declarations" enctype="multipart/form-data">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}"><input type="hidden" name="fy" value="{{ fy }}">
+          <div class="field"><label for="section">Section</label>
+            <select id="section" name="section">{% for key, item in sections.items() %}<option value="{{ key }}">{{ item[0] }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="amount">Amount for the year (₹)</label><input id="amount" name="amount" type="number" min="1" step="1" required></div>
+          <div class="field"><label for="description">Description</label><input id="description" name="description" type="text" placeholder="ELSS — Axis Long Term Equity"></div>
+          <div class="field"><label for="proof">Proof</label><input id="proof" name="proof" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp">
+            <div class="hint">Receipt or statement · PDF or photo · up to 8 MB. HR can verify only with proof.</div></div>
+          <button class="btn btn-primary btn-block" type="submit">Submit declaration</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Regime &amp; rent</h3></div>
+      <div class="card-body">
+        <form method="post" action="/me/tax/profile">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}"><input type="hidden" name="fy" value="{{ fy }}">
+          <div class="field"><label for="regime">Tax regime</label>
+            <select id="regime" name="regime">
+              <option value="new" {{ 'selected' if (profile.regime or 'new') == 'new' }}>New regime (default)</option>
+              <option value="old" {{ 'selected' if profile.regime == 'old' }}>Old regime</option>
+            </select>
+            <div class="hint">Deductions (80C, 80D, HRA) only count under the old regime.</div></div>
+          <div class="field"><label for="annual_rent">Rent you pay per year (₹)</label>
+            <input id="annual_rent" name="annual_rent" type="number" min="0" step="1" value="{{ (profile.annual_rent or 0) | round(0) | int }}"></div>
+          <label class="checkline mb-2"><input type="checkbox" name="metro" value="1" {{ 'checked' if profile.metro }}> I live in Delhi, Mumbai, Kolkata or Chennai</label>
+          <button class="btn btn-block" type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

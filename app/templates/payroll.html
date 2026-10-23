@@ -15,23 +15,19 @@
     </div>
   </div>
   <div class="page-actions">
-    <a class="btn" href="/payroll?period={{ previous_period }}">← {{ previous_period }}</a>
-    <a class="btn" href="/payroll?period={{ next_period }}">{{ next_period }} →</a>
+    <a class="btn" href="/payroll?period={{ previous_period }}" title="{{ previous_period }}">{{ icon('chevron-left') }}</a>
+    <form class="inline-form" method="get" action="/payroll">
+      <input name="period" type="month" value="{{ period }}" aria-label="Month" onchange="this.form.submit()" style="width:auto">
+    </form>
+    <a class="btn" href="/payroll?period={{ next_period }}" title="{{ next_period }}">{{ icon('chevron-right') }}</a>
+    <a class="btn" href="/payroll">This month</a>
     <a class="btn" href="/attendance/register?period={{ period }}">Attendance register</a>
   </div>
 </div>
 
 <div class="card mb-3">
-  <div class="card-body">
-    <form class="filters" method="get" action="/payroll">
-      <div class="field"><label for="period">Month</label><input id="period" name="period" type="month" value="{{ period }}"></div>
-      <button class="btn btn-primary" type="submit">Show</button>
-      <a class="btn" href="/payroll">This month</a>
-    </form>
-
-    <hr class="divider">
-
-    <div class="inline-form">
+  <div class="card-body" style="padding:.55rem .85rem">
+    <div class="inline-form" style="width:100%">
       <form method="post" action="/payroll/generate">
         <input type="hidden" name="_csrf" value="{{ csrf_token }}">
         <input type="hidden" name="period" value="{{ period }}">
@@ -44,7 +40,7 @@
       </form>
 
       {% if run %}
-        <a class="btn" href="/payroll/export.csv?period={{ period }}">⬇️ Bank CSV</a>
+        <a class="btn" href="/payroll/export.csv?period={{ period }}">{{ icon('download') }} Bank CSV</a>
         {% if run.status == 'draft' %}
           <form method="post" action="/payroll/status" data-confirm="Finalise {{ period_label }}? Payslips become read-only.">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -72,7 +68,7 @@
             <input type="hidden" name="period" value="{{ period }}">
             <input type="hidden" name="only_missing" value="1">
             <input type="hidden" name="send_now" value="1">
-            <button class="btn btn-primary" type="submit">✉️ Email payslips</button>
+            <button class="btn btn-primary" type="submit">Email payslips</button>
           </form>
         {% endif %}
         {% if run.status != 'paid' %}
@@ -87,6 +83,26 @@
   </div>
 </div>
 
+{% if unmarked %}
+  <div class="alert alert-warn">
+    <div>
+      <strong>{{ unmarked_days }} unmarked working day{{ '' if unmarked_days == 1 else 's' }}</strong> across
+      {{ unmarked | length }} employee{{ '' if unmarked | length == 1 else 's' }} will be charged as loss of pay.
+      Mark attendance, leave or a holiday first if any of these are mistakes{% if run %}, then recalculate{% endif %}.
+      <details class="disclosure mt-1" style="margin-bottom:0">
+        <summary>Show the days</summary>
+        <ul class="small" style="margin:.4rem 0 0;padding-left:1.1rem">
+          {% for row in unmarked[:25] %}
+            <li><a href="/employees/{{ row.id }}">{{ row.name }}</a> <span class="muted">{{ row.code }}</span> —
+              {% for day in row.days[:10] %}<a href="/attendance?day={{ day.isoformat() }}">{{ day.strftime('%d %b') }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% if row.days | length > 10 %} and {{ row.days | length - 10 }} more{% endif %}</li>
+          {% endfor %}
+          {% if unmarked | length > 25 %}<li class="muted">…and {{ unmarked | length - 25 }} more employees</li>{% endif %}
+        </ul>
+      </details>
+    </div>
+  </div>
+{% endif %}
+
 {% if run %}
   <div class="grid grid-4 mb-3">
     <div class="stat accent"><div class="label">Net payable</div><div class="value">{{ totals.net | money }}</div>
@@ -94,7 +110,7 @@
     <div class="stat"><div class="label">Earned gross</div><div class="value">{{ totals.gross | money }}</div>
       <div class="foot">bonus {{ totals.bonus | money }}</div></div>
     <div class="stat"><div class="label">Deductions</div><div class="value">{{ totals.deductions | money }}</div>
-      <div class="foot">PF + ESI + PT + advance</div></div>
+      <div class="foot">PF + ESI + PT + TDS {{ totals.tds | money }} + advance</div></div>
     <div class="stat {{ 'warn' if totals.lop_days else 'ok' }}"><div class="label">Loss of pay days</div><div class="value">{{ totals.lop_days | number }}</div>
       <div class="foot">basis {{ basis_days }} days · {{ totals.present_days | number }} present</div></div>
   </div>
@@ -110,7 +126,7 @@
         <thead>
           <tr>
             <th>Employee</th><th class="num">Gross</th><th class="num">Present</th><th class="num">PL</th>
-            <th class="num">LOP</th><th class="num">Earned</th><th class="num">Bonus</th><th class="num">Deductions</th>
+            <th class="num">LOP</th><th class="num">Earned</th><th class="num">Bonus</th><th class="num">TDS</th><th class="num">Deductions</th>
             <th class="num">Net pay</th><th></th>
           </tr>
         </thead>
@@ -129,41 +145,44 @@
             </td>
             <td data-label="Earned" class="num">{{ slip.earned_gross | money }}</td>
             <td data-label="Bonus" class="num">{{ slip.bonus | money if slip.bonus else '—' }}</td>
+            <td data-label="TDS" class="num">{{ slip.tds | money if slip.tds else '—' }}</td>
             <td data-label="Deductions" class="num">{{ slip.total_deductions | money }}</td>
             <td data-label="Net pay" class="num"><strong>{{ slip.net_pay | money }}</strong></td>
             <td class="actions-cell">
+              {% if run.status == 'draft' %}<button class="btn btn-sm" type="button" data-toggle-row="adj-{{ slip.id }}">{{ icon('edit') }} Adjust</button>{% endif %}
               <a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}">Payslip</a>
-              <a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}.pdf">PDF</a>
+              <a class="btn btn-sm btn-ghost" href="/payroll/slip/{{ slip.id }}.pdf" title="Download PDF">{{ icon('download') }}</a>
             </td>
           </tr>
           {% if run.status == 'draft' %}
-            <tr>
-              <td colspan="10" style="background:#fcfbfb">
-                <details class="disclosure" style="margin:0">
-                  <summary>✏️ Adjust {{ slip.name }} — bonus, advance, other deduction</summary>
-                  <div class="card-body">
+            <tr class="detail-row hidden" id="adj-{{ slip.id }}">
+              <td colspan="11">
                     <form method="post" action="/payroll/slip/{{ slip.id }}">
                       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                       <input type="hidden" name="period" value="{{ period }}">
-                      <div class="form-row cols-3">
+                      <div class="form-row cols-4">
                         <div class="field"><label for="bonus{{ slip.id }}">Bonus / incentive</label>
                           <input id="bonus{{ slip.id }}" name="bonus" type="number" min="0" step="100" value="{{ slip.bonus | round(0) | int }}"></div>
                         <div class="field"><label for="advance{{ slip.id }}">Salary advance recovered</label>
                           <input id="advance{{ slip.id }}" name="advance" type="number" min="0" step="100" value="{{ slip.advance | round(0) | int }}"></div>
                         <div class="field"><label for="other{{ slip.id }}">Other deduction</label>
                           <input id="other{{ slip.id }}" name="other_deduction" type="number" min="0" step="100" value="{{ slip.other_deduction | round(0) | int }}"></div>
+                        <div class="field"><label for="tds{{ slip.id }}">Income tax (TDS)</label>
+                          <input id="tds{{ slip.id }}" name="tds" type="number" min="0" step="1" value="{{ slip.tds | round(0) | int }}">
+                          <div class="hint">From the tax profile — override only if your CA says so.</div></div>
                       </div>
                       <div class="field"><label for="note{{ slip.id }}">Note on the payslip</label>
                         <input id="note{{ slip.id }}" name="note" type="text" value="{{ slip.note or '' }}"></div>
-                      <button class="btn btn-primary" type="submit">Save adjustment</button>
+                      <div class="form-actions">
+                        <button class="btn btn-primary btn-sm" type="submit">Save adjustment</button>
+                        <button class="btn btn-ghost btn-sm" type="button" data-toggle-row="adj-{{ slip.id }}">Cancel</button>
+                      </div>
                     </form>
-                  </div>
-                </details>
               </td>
             </tr>
           {% endif %}
         {% else %}
-          <tr><td colspan="10" class="empty-state"><span class="ico">💰</span>No payslips in this run.</td></tr>
+          <tr><td colspan="11" class="empty-state">No payslips in this run.</td></tr>
         {% endfor %}
         </tbody>
         {% if slips %}
@@ -176,6 +195,7 @@
             <td class="num">{{ totals.lop_days | number }}</td>
             <td class="num">{{ totals.gross | money }}</td>
             <td class="num">{{ totals.bonus | money }}</td>
+            <td class="num">{{ totals.tds | money }}</td>
             <td class="num">{{ totals.deductions | money }}</td>
             <td class="num">{{ totals.net | money }}</td>
             <td></td>
@@ -193,7 +213,8 @@
         <p class="mb-1"><strong>Per day rate</strong> = monthly gross ÷ {{ basis_days }} {{ 'calendar days' if basis_days > 26 else 'fixed days' }}.</p>
         <p class="mb-1"><strong>LOP days</strong> = absent days + unpaid leave + half-day penalties for repeat late marks.</p>
         <p class="mb-1"><strong>Earned gross</strong> = monthly gross − (LOP days × per day rate).</p>
-        <p class="mb-0"><strong>Net pay</strong> = earned gross + bonus − PF − ESI − professional tax − advance − other deductions.</p>
+        <p class="mb-0"><strong>Net pay</strong> = earned gross + bonus − PF − ESI − professional tax − TDS − advance − other deductions.</p>
+        <p class="mb-0 mt-1"><strong>TDS</strong> comes from each employee's <a href="/tax">tax profile</a>: the CA-confirmed annual figure, less what was already deducted this financial year, spread over the months left.</p>
       </div>
     </div>
     <div class="card">
@@ -222,7 +243,6 @@
   <div class="card">
     <div class="card-body">
       <div class="empty-state">
-        <span class="ico">💰</span>
         <h3>No payroll for {{ period_label }} yet</h3>
         <p class="muted">Generating reads attendance for the month — every unmarked working day in the past counts as
           absent, so close the month's exceptions first.</p>

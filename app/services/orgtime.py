@@ -9,6 +9,7 @@ timezone comes from ``HRMS_TZ`` (default Asia/Kolkata).
 from __future__ import annotations
 
 import calendar
+from functools import lru_cache
 from datetime import date, datetime, time, timedelta
 
 from ..config import Settings
@@ -94,6 +95,19 @@ def month_label(period: str) -> str:
     return f"{calendar.month_name[month]} {year}"
 
 
+def fiscal_year(period: str) -> str:
+    """``'2026-03'`` → ``'2025-26'`` (the Indian financial year runs April → March)."""
+    year, month = (int(part) for part in period.split("-")[:2])
+    start = year if month >= 4 else year - 1
+    return f"{start}-{str(start + 1)[-2:]}"
+
+
+def fiscal_year_months(fy: str) -> list[str]:
+    """The twelve ``YYYY-MM`` periods of a financial year, April first."""
+    start = int(fy.split("-")[0])
+    return [f"{start}-{m:02d}" for m in range(4, 13)] + [f"{start + 1}-{m:02d}" for m in range(1, 4)]
+
+
 def days_in_period(period: str) -> list[date]:
     start, end = month_bounds(period)
     return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
@@ -106,13 +120,54 @@ def each_day(start: date, end: date) -> list[date]:
 
 
 # ------------------------------------------------------------------ calendar
+WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def parse_weekdays(raw: str | None) -> set[int]:
+    """``"5,6"`` → ``{5, 6}``. Unknown tokens are ignored; empty means no week off."""
+    days: set[int] = set()
+    for token in (raw or "").replace(";", ",").replace(" ", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            value = int(float(token))
+        except ValueError:
+            continue
+        if 0 <= value <= 6:
+            days.add(value)
+    return days
+
+
+def week_off_weekdays(storage: Storage) -> set[int]:
+    """Weekdays that are always off (Monday=0 … Sunday=6)."""
+    return parse_weekdays(storage.get_setting("week_off_days", "6"))
+
+
+def saturday_off_weeks(storage: Storage) -> set[int]:
+    """Which Saturdays of the month are off, e.g. ``{2, 4}`` for 2nd & 4th."""
+    return {week for week in parse_weekdays(storage.get_setting("saturday_off_weeks", "")) if 1 <= week <= 5}
+
+
 def is_week_off(storage: Storage, day: date) -> bool:
-    return day.weekday() == storage.get_int("week_off_days", 6)
+    if day.weekday() in week_off_weekdays(storage):
+        return True
+    # Alternate Saturdays: the Nth Saturday of the month (1st = days 1-7, ...)
+    return day.weekday() == 5 and ((day.day - 1) // 7 + 1) in saturday_off_weeks(storage)
+
+
+def week_off_label(storage: Storage) -> str:
+    """Human summary such as ``"Sunday + 2nd & 4th Saturday"``."""
+    parts = [WEEKDAY_NAMES[d] for d in sorted(week_off_weekdays(storage))]
+    weeks = sorted(saturday_off_weeks(storage))
+    if weeks and 5 not in week_off_weekdays(storage):
+        ordinal = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
+        parts.append(" & ".join(ordinal[w] for w in weeks) + " Saturday")
+    return " + ".join(parts) or "No weekly off"
 
 
 def holiday_name(storage: Storage, day: date) -> str | None:
-    row = storage.query_one("SELECT name FROM holidays WHERE day = ?", (day.isoformat(),))
-    return row["name"] if row else None
+    return storage.holidays().get(day.isoformat())
 
 
 def day_kind(storage: Storage, day: date) -> str:
@@ -155,16 +210,20 @@ def hhmmss(moment: datetime) -> str:
     return moment.strftime("%H:%M:%S")
 
 
+@lru_cache(maxsize=4096)
 def parse_clock(value: str | None) -> time | None:
+    """``'09:30'`` / ``'09:30:15'`` → ``time``. Cached: registers parse the same few
+    hundred clock strings tens of thousands of times, and ``strptime`` is slow."""
     if not value:
         return None
-    value = value.strip()
-    for fmt in ("%H:%M:%S", "%H:%M"):
-        try:
-            return datetime.strptime(value, fmt).time()
-        except ValueError:
-            continue
-    return None
+    parts = value.strip().split(":")
+    if len(parts) not in (2, 3) or not all(part.isdigit() and len(part) <= 2 for part in parts):
+        return None
+    hour, minute = int(parts[0]), int(parts[1])
+    second = int(parts[2]) if len(parts) == 3 else 0
+    if hour > 23 or minute > 59 or second > 59:
+        return None
+    return time(hour, minute, second)
 
 
 def minutes_between(start: str | None, end: str | None) -> int | None:
@@ -201,6 +260,7 @@ def format_minutes(minutes: int | None) -> str:
     return f"{mins}m"
 
 
+@lru_cache(maxsize=4096)
 def format_clock(value: str | None) -> str:
     parsed = parse_clock(value)
     if parsed is None:

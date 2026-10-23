@@ -6,17 +6,20 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 
 from .. import auth
 from ..auth import SessionUser, generate_password, get_user_for_employee, require_hr
-from ..deps import get_face, get_settings_dep, get_storage, redirect, render
+from ..deps import get_face, get_settings_dep, get_storage, paginate, redirect, render
 from ..face import FaceServiceError, FaceServiceUnavailable
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
 from ..services import leave as leave_service
+from ..services import appraisal as appraisal_service
+from ..services import exits as exits_service
 from ..services import orgtime
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
 ALLOWED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp", "image/bmp")
 MAX_FACE_IMAGE_BYTES = 8 * 1024 * 1024  # 8 MB
+PER_PAGE = 50
 
 
 def _as_float(value: str | None) -> float:
@@ -34,8 +37,14 @@ def list_page(
     q: str | None = None,
     department: str | None = None,
     status: str = "active",
+    page: int = 1,
 ):
-    people = employees_service.list_employees(storage, q=q, department=department, status=status)
+    pager = paginate(
+        employees_service.count_employees(storage, q=q, department=department, status=status), page, PER_PAGE
+    )
+    people = employees_service.list_employees(
+        storage, q=q, department=department, status=status, limit=PER_PAGE, offset=pager["offset"]
+    )
     return render(
         request,
         "employees.html",
@@ -45,6 +54,7 @@ def list_page(
         stats=employees_service.stats(storage),
         departments=employees_service.departments(storage),
         filters={"q": q or "", "department": department or "", "status": status},
+        pager=pager,
         missing_face={row["id"] for row in employees_service.employees_missing_face(storage)},
     )
 
@@ -177,7 +187,8 @@ def detail(
         salaries=history,
         salary_defaults=salary_defaults,
         leaves=leave_service.list_leave(storage, employee_id=employee_id, limit=25),
-        attendance=attendance_service.daily_rows(storage, settings, today),
+        exit_record=exits_service.latest_for(storage, employee_id),
+        appraisals=appraisal_service.for_employee(storage, employee_id)[:1],
         today_row=attendance_service.get_row(storage, employee_id, today),
         leave_types=orgtime.ALL_LEAVE_TYPES,
         leave_labels=orgtime.LEAVE_LABELS,

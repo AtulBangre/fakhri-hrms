@@ -22,7 +22,7 @@
       <p>{{ brand.tagline }}</p>
     </div>
     <div class="auth-body">
-      {% if error %}<div class="alert alert-err"><span class="ico">⚠️</span><div>{{ error }}</div></div>{% endif %}
+      {% if error %}<div class="alert alert-err"><div>{{ error }}</div></div>{% endif %}
 
       <form method="post" action="/login" autocomplete="on">
         <input type="hidden" name="next" value="{{ next_url or '' }}">
@@ -53,7 +53,6 @@
 
       {% if demo_hint %}
         <div class="alert alert-info mt-2" style="margin-bottom:0">
-          <span class="ico">🔑</span>
           <div class="small">First run: the generated HR and kiosk passwords are in
             <span class="mono">data/initial_credentials.txt</span> on the server (they are also printed in the
             server log once). Sign in as <span class="mono">hr</span> and change them in Settings.</div>

@@ -4,7 +4,7 @@ The model is deliberately the familiar Indian payroll shape:
 
     per_day      = monthly_gross / basis_days        (calendar days, or a fixed 26)
     earned_gross = monthly_gross - lop_days x per_day
-    net_pay      = earned_gross + bonus - (pf + esi + professional tax + advance + other)
+    net_pay      = earned_gross + bonus - (pf + esi + professional tax + tds + advance + other)
 
 Attendance drives everything: any unmarked working day in the past counts as
 absent (see ``attendance.effective_status``), which is why HR must close the
@@ -15,6 +15,11 @@ third late mark adds half a day of loss of pay. Set it to 0 to switch the rule o
 
 Salary components come from ``salary_revisions`` — the row effective for the
 period is used, so a mid-month raise is picked up the month it starts.
+
+Income tax (TDS) comes from the employee's ``tax_profiles`` row for the financial
+year (see ``services/tax.py``). Once HR/the CA confirms the annual figure, each
+month deducts what is still outstanding divided by the months left, so a figure
+confirmed in October is still fully recovered by March.
 """
 
 from __future__ import annotations
@@ -84,6 +89,31 @@ def salary_for_period(storage: Storage, employee_id: int, period: str) -> dict[s
     }
 
 
+def tds_for_period(storage: Storage, employee_id: int, period: str) -> float:
+    """Income tax to deduct this month, from the FY tax profile (0 without one)."""
+    fy = orgtime.fiscal_year(period)
+    profile = storage.query_one(
+        "SELECT confirmed_tds, monthly_tds FROM tax_profiles WHERE employee_id = ? AND fiscal_year = ?",
+        (employee_id, fy),
+    )
+    if not profile:
+        return 0.0
+    if profile["confirmed_tds"] is None:
+        return max(0.0, float(profile["monthly_tds"] or 0))
+
+    months = orgtime.fiscal_year_months(fy)
+    earlier = months[: months.index(period)]
+    already = 0.0
+    if earlier:
+        marks = ",".join("?" for _ in earlier)
+        already = float(storage.scalar(
+            f"SELECT COALESCE(SUM(tds), 0) AS t FROM payslips WHERE employee_id = ? AND period IN ({marks})",
+            (employee_id, *earlier),
+        ))
+    remaining_months = len(months) - len(earlier)
+    return max(0.0, (float(profile["confirmed_tds"]) - already) / remaining_months)
+
+
 def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any], period: str) -> dict[str, Any]:
     """Pure calculation for one employee-month (no writes)."""
     basis_days = basis_days_for(storage, period)
@@ -107,7 +137,10 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
     pf = float(salary.get("pf") or 0)
     esi = float(salary.get("esi") or 0)
     professional_tax = float(salary.get("professional_tax") or 0)
-    total_deductions = pf + esi + professional_tax
+    # Tax can only come out of pay that was actually earned this month.
+    tds = min(tds_for_period(storage, employee["id"], period),
+              max(0.0, earned_gross - pf - esi - professional_tax))
+    total_deductions = pf + esi + professional_tax + tds
 
     return {
         "period": period,
@@ -126,6 +159,7 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
         "pf": round(pf, 2),
         "esi": round(esi, 2),
         "professional_tax": round(professional_tax, 2),
+        "tds": round(tds, 2),
         "total_deductions": round(total_deductions, 2),
         "net_pay": round(earned_gross - total_deductions, 2),
         "worked_minutes": int(summary["worked_minutes"]),
@@ -174,14 +208,14 @@ def generate_run(
                 """
                 INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, paid_leave_days,
                                       lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
-                                      professional_tax, total_deductions, net_pay, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                      professional_tax, tds, total_deductions, net_pay, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
                     calc["paid_leave_days"], calc["lop_days"], calc["monthly_gross"], calc["per_day_rate"],
                     calc["earned_gross"], calc["pf"], calc["esi"], calc["professional_tax"],
-                    calc["total_deductions"], calc["net_pay"], now, now,
+                    calc["tds"], calc["total_deductions"], calc["net_pay"], now, now,
                 ),
             )
 
@@ -227,10 +261,14 @@ def update_slip(
     bonus: float = 0.0,
     advance: float = 0.0,
     other_deduction: float = 0.0,
+    tds: float | None = None,
     note: str | None = None,
     actor: str | None = None,
 ) -> dict[str, Any]:
-    """Apply HR adjustments (bonus, salary advance, other deduction) to a payslip."""
+    """Apply HR adjustments (bonus, advance, other deduction, TDS) to a payslip.
+
+    ``tds=None`` keeps the computed income tax as it is.
+    """
     slip = storage.query_one("SELECT * FROM payslips WHERE id = ?", (slip_id,))
     if slip is None:
         raise employees_service.ValidationError(f"Payslip #{slip_id} not found.")
@@ -238,24 +276,26 @@ def update_slip(
     assert run is not None
     _require_draft(run)
 
-    for label, value in (("bonus", bonus), ("advance", advance), ("other_deduction", other_deduction)):
+    tds = float(slip.get("tds") or 0) if tds is None else tds
+    for label, value in (("bonus", bonus), ("advance", advance), ("other_deduction", other_deduction),
+                         ("TDS", tds)):
         if value < 0:
             raise employees_service.ValidationError(f"{label.replace('_', ' ').title()} cannot be negative.")
 
-    total_deductions = slip["pf"] + slip["esi"] + slip["professional_tax"] + advance + other_deduction
+    total_deductions = slip["pf"] + slip["esi"] + slip["professional_tax"] + tds + advance + other_deduction
     net_pay = slip["earned_gross"] + bonus - total_deductions
     storage.execute(
         """
-        UPDATE payslips SET bonus = ?, advance = ?, other_deduction = ?, total_deductions = ?,
+        UPDATE payslips SET bonus = ?, advance = ?, other_deduction = ?, tds = ?, total_deductions = ?,
                             net_pay = ?, note = ?, updated_at = ?
         WHERE id = ?
         """,
-        (bonus, advance, other_deduction, round(total_deductions, 2), round(net_pay, 2), note,
+        (bonus, advance, other_deduction, round(tds, 2), round(total_deductions, 2), round(net_pay, 2), note,
          utcnow_iso(), slip_id),
     )
     _recompute_totals(storage, slip["run_id"])
     storage.audit(actor=actor, action="update_payslip", entity="payslip", entity_id=slip_id,
-                  detail=f"bonus={bonus} advance={advance} deduction={other_deduction}")
+                  detail=f"bonus={bonus} advance={advance} deduction={other_deduction} tds={tds}")
     updated = storage.query_one("SELECT * FROM payslips WHERE id = ?", (slip_id,))
     assert updated is not None
     return updated
@@ -334,21 +374,27 @@ def get_slip(storage: Storage, slip_id: int) -> dict[str, Any] | None:
     )
 
 
-def period_summary(storage: Storage, period: str) -> dict[str, Any]:
-    run = get_run(storage, period)
-    if not run:
-        return {"run": None, "slips": [], "totals": {}, "attendance": {}}
-    slips = slips_for_run(storage, run["id"])
-    totals = {
+def slip_totals(slips: list[dict[str, Any]]) -> dict[str, Any]:
+    """Column totals for a list of payslips (no extra queries)."""
+    return {
         "employees": len(slips),
         "gross": round(sum(s["earned_gross"] for s in slips), 2),
         "bonus": round(sum(s["bonus"] for s in slips), 2),
         "deductions": round(sum(s["total_deductions"] for s in slips), 2),
+        "tds": round(sum(float(s.get("tds") or 0) for s in slips), 2),
         "net": round(sum(s["net_pay"] for s in slips), 2),
         "lop_days": round(sum(s["lop_days"] for s in slips), 2),
         "present_days": round(sum(s["present_days"] for s in slips), 2),
         "paid_leave_days": round(sum(s["paid_leave_days"] for s in slips), 2),
     }
+
+
+def period_summary(storage: Storage, period: str) -> dict[str, Any]:
+    run = get_run(storage, period)
+    if not run:
+        return {"run": None, "slips": [], "totals": {}, "attendance": {}}
+    slips = slips_for_run(storage, run["id"])
+    totals = slip_totals(slips)
     return {
         "run": run,
         "slips": slips,
@@ -365,7 +411,7 @@ def payroll_csv(storage: Storage, period: str) -> str:
     header = (
         "Employee Code,Employee Name,Department,Designation,Monthly Gross,Basis Days,Present Days,"
         "Paid Leave Days,LOP Days,Earned Gross,Bonus,Advance,Other Deduction,PF,ESI,Professional Tax,"
-        "Total Deductions,Net Pay,Note"
+        "TDS,Total Deductions,Net Pay,Note"
     )
     lines = [header]
     for slip in slips:
@@ -375,7 +421,7 @@ def payroll_csv(storage: Storage, period: str) -> str:
             f"{slip['paid_leave_days']:g}", f"{slip['lop_days']:g}", f"{slip['earned_gross']:.2f}",
             f"{slip['bonus']:.2f}", f"{slip['advance']:.2f}", f"{slip['other_deduction']:.2f}",
             f"{slip['pf']:.2f}", f"{slip['esi']:.2f}", f"{slip['professional_tax']:.2f}",
-            f"{slip['total_deductions']:.2f}", f"{slip['net_pay']:.2f}", (slip.get("note") or "").replace(",", ";"),
+            f"{float(slip.get('tds') or 0):.2f}", f"{slip['total_deductions']:.2f}", f"{slip['net_pay']:.2f}", (slip.get("note") or "").replace(",", ";"),
         ]
         lines.append(",".join(_csv_safe(value) for value in fields))
     return "\n".join(lines) + "\n"

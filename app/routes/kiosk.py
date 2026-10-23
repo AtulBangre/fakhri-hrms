@@ -181,6 +181,8 @@ def kiosk_status(
     the scanner for testing) still gets the full summary for monitoring.
     """
     health = face.health()
+    if user.is_kiosk:
+        attendance_service.record_kiosk_heartbeat(storage, device_label_for(user))
     payload: dict = {
         "face_service": {
             "ok": bool(health.get("ok")),

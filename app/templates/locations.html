@@ -31,7 +31,7 @@
           <div class="field"><label for="address">Address (optional)</label>
             <input id="address" name="address" type="text"></div>
           <button class="btn btn-primary" type="submit">Add location</button>
-          <button class="btn" type="button" id="useHere">📍 Use my current position</button>
+          <button class="btn" type="button" id="useHere">Use my current position</button>
           <div class="small muted mt-1" id="geoStatus"></div>
         </form>
       </div>
@@ -64,7 +64,7 @@
               </td>
             </tr>
           {% else %}
-            <tr><td colspan="5" class="empty-state"><span class="ico">📍</span>No locations yet — field attendance stays blocked until you add one.</td></tr>
+            <tr><td colspan="5" class="empty-state">No locations yet — field attendance stays blocked until you add one.</td></tr>
           {% endfor %}
           </tbody>
         </table>
@@ -108,7 +108,7 @@
       </div>
     </div>
     <div class="card">
-      <div class="card-head"><h3>⚠️ Honest limit</h3></div>
+      <div class="card-head"><h3>Honest limit</h3></div>
       <div class="card-body small muted">
         A phone's GPS can be mocked. Geo-fencing raises the effort and leaves evidence; it does not prove someone was
         physically there. Use it for field staff convenience, and review the checks — not as the only control for

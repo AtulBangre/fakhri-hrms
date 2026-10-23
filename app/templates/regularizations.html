@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Regularizations · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Attendance regularizations</h1>
+    <div class="sub">Missed or wrong punches raised by employees. Approving writes the corrected attendance for that day.</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/attendance">Daily board</a>
+    <a class="btn" href="/attendance/register">Monthly register</a>
+  </div>
+</div>
+
+<div class="card flush" data-bulk>
+  <div class="card-head">
+    <div class="btn-group">
+      {% for tab in tabs %}
+        <a class="btn btn-sm {{ 'btn-dark' if status == tab else '' }}" href="/attendance/regularizations?status={{ tab }}">
+          {{ tab | title }}{% if tab != 'all' %} <span class="muted">{{ counts.get(tab, 0) }}</span>{% endif %}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if status == 'pending' and rows %}
+  <form id="bulkForm" method="post" action="/attendance/regularizations/bulk">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="bulk-bar">
+      <span><strong data-bulk-count>0</strong> selected</span>
+      <span class="spacer" style="margin-left:auto"></span>
+      <button class="btn btn-primary" name="action" value="approve" type="submit">{{ icon('check') }} Approve selected</button>
+      <button class="btn" name="action" value="reject" type="submit">{{ icon('x') }} Reject selected</button>
+    </div>
+  </form>
+  {% endif %}
+
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead>
+        <tr>
+          {% if status == 'pending' and rows %}<th class="check-cell"><input type="checkbox" data-bulk-all aria-label="Select all"></th>{% endif %}
+          <th>Employee</th><th>Date</th><th>Was</th><th>Requested</th><th>In – out</th><th>Reason</th><th>Status</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          {% if status == 'pending' and rows %}
+            <td class="check-cell">{% if row.status == 'pending' %}<input type="checkbox" name="ids" value="{{ row.id }}" form="bulkForm" data-bulk-item aria-label="Select {{ row.name }}">{% endif %}</td>
+          {% endif %}
+          <td data-label="Employee"><a href="/employees/{{ row.employee_id }}"><strong>{{ row.name }}</strong></a>
+            <span class="sub">{{ row.code }}{% if row.department %} · {{ row.department }}{% endif %}</span></td>
+          <td data-label="Date" class="nowrap">{{ row.work_date | nice_date }}<span class="sub">{{ row.requested_at[:10] | nice_date('%d %b') }} raised</span></td>
+          <td data-label="Was"><span class="{{ (row.previous_status or 'absent') | chip }}">{{ STATUS_LABELS.get(row.previous_status, 'Not marked') }}</span></td>
+          <td data-label="Requested"><span class="{{ row.requested_status | chip }}">{{ STATUS_LABELS.get(row.requested_status) }}</span></td>
+          <td data-label="In – out" class="num-cell nowrap">{{ row.check_in | clock }} – {{ row.check_out | clock }}</td>
+          <td data-label="Reason" class="small" style="max-width:320px">{{ row.reason }}
+            {% if row.decision_note %}<span class="sub">Note: {{ row.decision_note }}</span>{% endif %}</td>
+          <td data-label="Status"><span class="chip {{ {'pending':'chip-warn','approved':'chip-ok','rejected':'chip-danger'}.get(row.status, 'chip-muted') }}">{{ row.status }}</span>
+            {% if row.decided_by %}<span class="sub">{{ row.decided_by }}</span>{% endif %}</td>
+          <td class="actions-cell">
+            {% if row.status == 'pending' %}
+              <form method="post" action="/attendance/regularizations/{{ row.id }}/approve">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <button class="btn btn-sm btn-primary" type="submit">{{ icon('check') }} Approve</button>
+              </form>
+              <button class="btn btn-sm" type="button" data-toggle-row="reject-{{ row.id }}">Reject</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% if row.status == 'pending' %}
+        <tr class="detail-row hidden" id="reject-{{ row.id }}">
+          <td colspan="9">
+            <form class="inline-form" method="post" action="/attendance/regularizations/{{ row.id }}/reject" style="width:100%">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input name="note" type="text" placeholder="Reason for rejecting (shown to the employee)" style="flex:1;min-width:220px">
+              <button class="btn btn-sm btn-danger" type="submit">Reject request</button>
+            </form>
+          </td>
+        </tr>
+        {% endif %}
+      {% else %}
+        <tr><td colspan="9" class="empty-state">{{ 'Nothing waiting — all caught up.' if status == 'pending' else 'No requests here.' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

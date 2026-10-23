@@ -33,7 +33,7 @@
       <form method="post" action="/notifications/retry" style="display:inline"
             data-confirm="Queue every failed message for another attempt?">
         <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-        <button class="btn" type="submit">↻ Retry failed</button>
+        <button class="btn" type="submit">Retry failed</button>
       </form>
       <form method="get" action="/notifications" class="filters" style="margin-left:auto">
         <div class="field">
@@ -87,7 +87,7 @@
           <td data-label="Tries" class="num">{{ row.attempts }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="7" class="empty-state"><span class="ico">📨</span>No messages yet. Post an announcement or mark attendance to generate some.</td></tr>
+        <tr><td colspan="7" class="empty-state">No messages yet. Post an announcement or mark attendance to generate some.</td></tr>
       {% endfor %}
       </tbody>
     </table>

@@ -45,15 +45,8 @@ def next_employee_code(storage: Storage, prefix: str = "FITS") -> str:
 
 
 # ------------------------------------------------------------------ queries
-def list_employees(
-    storage: Storage,
-    *,
-    q: str | None = None,
-    department: str | None = None,
-    status: str = "active",
-    limit: int = 200,
-    offset: int = 0,
-) -> list[dict[str, Any]]:
+def _employee_filters(q: str | None, department: str | None, status: str) -> tuple[str, list[Any]]:
+    """Shared WHERE clause, so a list and its count always agree."""
     clauses: list[str] = []
     params: list[Any] = []
     if status and status != "all":
@@ -66,22 +59,29 @@ def list_employees(
         clauses.append("(name LIKE ? OR code LIKE ? OR email LIKE ? OR phone LIKE ? OR designation LIKE ?)")
         like = f"%{q}%"
         params.extend([like] * 5)
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
+
+
+def list_employees(
+    storage: Storage,
+    *,
+    q: str | None = None,
+    department: str | None = None,
+    status: str = "active",
+    limit: int = 200,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    where, params = _employee_filters(q, department, status)
     params.extend([limit, offset])
     return storage.query(
         f"SELECT * FROM employees {where} ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?", params
     )
 
 
-def count_employees(storage: Storage, *, status: str = "active", q: str | None = None) -> int:
-    clauses, params = [], []
-    if status and status != "all":
-        clauses.append("status = ?")
-        params.append(status)
-    if q:
-        clauses.append("(name LIKE ? OR code LIKE ?)")
-        params.extend([f"%{q}%", f"%{q}%"])
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+def count_employees(
+    storage: Storage, *, status: str = "active", q: str | None = None, department: str | None = None
+) -> int:
+    where, params = _employee_filters(q, department, status)
     return int(storage.scalar(f"SELECT COUNT(*) AS n FROM employees {where}", params))
 
 

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Form 16 · {{ data.employee.name }} · FY {{ fy }}{% endblock %}
+
+{% block content %}
+{% set e = data.employee %}
+<div class="page-head no-print">
+  <div class="titles">
+    <h1>Form 16 — Part B</h1>
+    <div class="sub">{{ e.name }} · FY {{ fy }} · regime {{ data.regime }}</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{{ back_url }}">← Back</a>
+    <button class="btn btn-primary" onclick="window.print()">Print / save as PDF</button>
+  </div>
+</div>
+
+<div class="card payslip-print" style="max-width:820px">
+  <div class="card-body">
+    <div style="border-bottom:2px solid var(--primary);padding-bottom:.75rem;margin-bottom:1rem">
+      <h2 style="margin:0">{{ org_name }}</h2>
+      <div class="small muted">Details of salary paid and tax deducted · Part B (annexure) · FY {{ fy }} · assessment year {{ fy[:4] | int + 1 }}-{{ '%02d' % ((fy[:4] | int + 2) % 100) }}</div>
+    </div>
+
+    <div class="grid grid-2 mb-3">
+      <div class="kv">
+        <div><span class="k">Employee</span><span class="v">{{ e.name }}</span></div>
+        <div><span class="k">Employee code</span><span class="v mono">{{ e.code }}</span></div>
+        <div><span class="k">PAN</span><span class="v mono">{{ e.pan or 'not on record' }}</span></div>
+      </div>
+      <div class="kv">
+        <div><span class="k">Period</span><span class="v">{{ data.period_from | nice_date }} – {{ data.period_to | nice_date }}</span></div>
+        <div><span class="k">Months paid</span><span class="v">{{ data.months }}</span></div>
+        <div><span class="k">Designation</span><span class="v">{{ e.designation or '—' }}</span></div>
+      </div>
+    </div>
+
+    <table class="data">
+      <tbody>
+        <tr><td>1(a) Salary as per section 17(1)</td><td class="num">{{ data.salary_17_1 | money }}</td></tr>
+        <tr><td>1(c) Profits in lieu of salary / bonus 17(3)</td><td class="num">{{ data.bonus_17_3 | money }}</td></tr>
+        <tr class="total-row"><td>1(d) Gross salary</td><td class="num">{{ data.gross_salary | money }}</td></tr>
+        <tr><td>2. Less: allowances exempt u/s 10 (HRA)</td><td class="num">{{ data.exempt_allowances | money }}</td></tr>
+        <tr><td>4(a) Standard deduction u/s 16(ia)</td><td class="num">{{ data.standard_deduction | money }}</td></tr>
+        <tr><td>4(c) Tax on employment u/s 16(iii)</td><td class="num">{{ data.professional_tax | money }}</td></tr>
+        <tr class="total-row"><td>6. Income chargeable under "Salaries"</td><td class="num">{{ data.income_from_salary | money }}</td></tr>
+        {% if data.regime == 'old' %}
+          {% for section, amount in data.declared.items() %}
+            <tr><td>Chapter VI-A / other deduction — {{ section }}</td><td class="num">{{ amount | money }}</td></tr>
+          {% endfor %}
+        {% endif %}
+        <tr class="total-row"><td>12. Total taxable income</td><td class="num">{{ data.taxable_income | money }}</td></tr>
+        <tr><td>13–18. Tax on total income incl. rebate, surcharge and cess (computed)</td><td class="num">{{ data.total_tax | money }}</td></tr>
+        <tr class="total-row"><td>19. Tax payable as confirmed by employer</td><td class="num">{{ data.tds_confirmed | money }}</td></tr>
+        <tr><td>Tax deducted through payroll this FY</td><td class="num">{{ data.tds_deducted_by_payroll | money }}</td></tr>
+      </tbody>
+    </table>
+
+    {% if (data.tds_confirmed - data.tds_deducted_by_payroll) | abs > 1 %}
+      <div class="alert alert-warn mt-2 no-print"><div class="small">Payroll has deducted {{ data.tds_deducted_by_payroll | money }} against a confirmed
+          {{ data.tds_confirmed | money }}. The remaining months' payroll recovers the difference; reconcile before issuing.</div></div>
+    {% endif %}
+
+    <div class="grid grid-2" style="margin-top:2.5rem">
+      <div class="small muted">Confirmed by {{ data.confirmed_by or '—' }} on {{ data.confirmed_at | nice_date }}</div>
+      <div style="border-top:1px dashed var(--border-strong);padding-top:.4rem" class="small muted right">Signature of person responsible for deduction of tax</div>
+    </div>
+    <div class="small muted mt-2">Part A (TRACES certificate with TAN and challan details) is downloaded separately from the TRACES portal.
+      This annexure is generated from {{ org_name }} HRMS payroll records.</div>
+  </div>
+</div>
+{% endblock %}

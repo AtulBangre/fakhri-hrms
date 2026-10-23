@@ -8,9 +8,9 @@
     <div class="sub">{{ register.label }} · {{ register.rows | length }} employees · P present · ½ half day · L leave · A absent · W week off · H holiday</div>
   </div>
   <div class="page-actions">
-    <a class="btn" href="/attendance/register.csv?period={{ register.period }}{{ '&department=' ~ department if department }}">⬇️ Full CSV</a>
-    <a class="btn" href="/attendance/summary.csv?period={{ register.period }}{{ '&department=' ~ department if department }}">⬇️ Summary CSV</a>
-    <a class="btn" href="/payroll?period={{ register.period }}">💰 Payroll</a>
+    <a class="btn" href="/attendance/register.csv?period={{ register.period }}{{ '&department=' ~ department if department }}">Full CSV</a>
+    <a class="btn" href="/attendance/summary.csv?period={{ register.period }}{{ '&department=' ~ department if department }}">Summary CSV</a>
+    <a class="btn" href="/payroll?period={{ register.period }}">Payroll</a>
   </div>
 </div>
 
@@ -58,7 +58,7 @@
             <a href="/employees/{{ row.employee.id }}"><strong>{{ row.employee.name }}</strong></a>
             <span class="sub muted" style="display:block">{{ row.employee.code }}{% if row.employee.department %} · {{ row.employee.department }}{% endif %}</span>
           </td>
-          {% for day, cell in row.cells | zip(register.days) %}
+          {% for cell, day in row.cells | zip(register.days) %}
             <td class="cell {{ cell.code }} {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
                 title="{{ day.iso }} — {{ cell.title }}">
               {{ cell.code }}

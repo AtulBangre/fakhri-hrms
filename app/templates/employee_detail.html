@@ -16,7 +16,8 @@
   <div class="page-actions">
     <a class="btn" href="/attendance?day={{ today.isoformat() }}">Attendance board</a>
     <a class="btn" href="/employees/{{ employee.id }}/payslips">Payslips</a>
-    <a class="btn" href="/employees/{{ employee.id }}/edit">✏️ Edit details</a>
+    <a class="btn" href="/tax/employee/{{ employee.id }}">Tax / TDS</a>
+    <a class="btn" href="/employees/{{ employee.id }}/edit">Edit details</a>
   </div>
 </div>
 
@@ -57,14 +58,14 @@
             </div>
           </div>
           <div class="form-row cols-3">
-            <div class="field"><label for="basic">Basic</label><input id="basic" name="basic" type="number" min="0" step="100" value="{{ salary_defaults.basic }}"></div>
-            <div class="field"><label for="hra">HRA</label><input id="hra" name="hra" type="number" min="0" step="100" value="{{ salary_defaults.hra }}"></div>
-            <div class="field"><label for="other_allowances">Other allowances</label><input id="other_allowances" name="other_allowances" type="number" min="0" step="100" value="{{ salary_defaults.other_allowances }}"></div>
+            <div class="field"><label for="basic">Basic</label><input id="basic" name="basic" type="number" min="0" step="100" value="{{ salary_defaults.basic | plain }}"></div>
+            <div class="field"><label for="hra">HRA</label><input id="hra" name="hra" type="number" min="0" step="100" value="{{ salary_defaults.hra | plain }}"></div>
+            <div class="field"><label for="other_allowances">Other allowances</label><input id="other_allowances" name="other_allowances" type="number" min="0" step="100" value="{{ salary_defaults.other_allowances | plain }}"></div>
           </div>
           <div class="form-row cols-3">
-            <div class="field"><label for="pf">PF</label><input id="pf" name="pf" type="number" min="0" step="10" value="{{ salary_defaults.pf }}"></div>
-            <div class="field"><label for="esi">ESI</label><input id="esi" name="esi" type="number" min="0" step="10" value="{{ salary_defaults.esi }}"></div>
-            <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="10" value="{{ salary_defaults.professional_tax }}"></div>
+            <div class="field"><label for="pf">PF</label><input id="pf" name="pf" type="number" min="0" step="10" value="{{ salary_defaults.pf | plain }}"></div>
+            <div class="field"><label for="esi">ESI</label><input id="esi" name="esi" type="number" min="0" step="10" value="{{ salary_defaults.esi | plain }}"></div>
+            <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="10" value="{{ salary_defaults.professional_tax | plain }}"></div>
           </div>
           <button class="btn btn-primary" type="submit">Save new structure</button>
           <span class="small muted">Old structures stay in history and are used for past payroll months.</span>
@@ -136,7 +137,6 @@
       <div class="card-body">
         {% set row = today_row %}
         <div class="alert alert-info">
-          <span class="ico">🗓️</span>
           <div>Today ({{ today | nice_date }}):
             {% if row %}
               <strong>{{ STATUS_LABELS.get(row.status, row.status) }}</strong>
@@ -187,13 +187,11 @@
       <div class="card-body">
         {% if employee.face_id %}
           <div class="alert alert-ok" style="margin-bottom:.75rem">
-            <span class="ico">✅</span>
             <div class="small">Enrolled {{ employee.face_enrolled_at | nice_date }}.<br>
               <span class="mono">{{ employee.face_id }}</span></div>
           </div>
         {% else %}
           <div class="alert alert-warn" style="margin-bottom:.75rem">
-            <span class="ico">📷</span>
             <div class="small">No face enrolled — this person cannot use the gate scanner yet.</div>
           </div>
         {% endif %}
@@ -202,7 +200,7 @@
           <video id="enrolVideo" playsinline muted autoplay class="hidden"></video>
           <canvas id="enrolCanvas" class="hidden"></canvas>
           <div id="enrolPlaceholder" class="empty-state" style="padding:1.4rem">
-            <span class="ico">📸</span>Camera is off
+            Camera is off
           </div>
         </div>
 
@@ -248,7 +246,7 @@
           <p class="small muted">They can see their own attendance, payslips and leave balance, and apply for leave
             (it arrives in your approval queue). They cannot see anyone else's data.</p>
           <details class="disclosure" style="margin-bottom:.5rem">
-            <summary>🔑 Reset their password</summary>
+            <summary>Reset their password</summary>
             <div class="card-body">
               <form method="post" action="/employees/{{ employee.id }}/portal">
                 <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -301,8 +299,16 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><h3>Danger zone</h3></div>
+      <div class="card-head"><h3>Lifecycle</h3></div>
       <div class="card-body">
+        {% if exit_record and exit_record.status in ('requested', 'approved', 'settled') %}
+          <a class="btn btn-block mb-2" href="/exits/{{ exit_record.id }}">Exit: {{ exit_record.status }} · LWD {{ exit_record.last_working_day | nice_date }}</a>
+        {% elif employee.status == 'active' %}
+          <a class="btn btn-block mb-2" href="/exits?employee_id={{ employee.id }}">{{ icon('user-x') }} Start exit / F&amp;F</a>
+        {% endif %}
+        {% if appraisals %}
+          <a class="btn btn-block mb-2" href="/appraisals/{{ appraisals[0].id }}">{{ icon('star') }} {{ appraisals[0].cycle_name }}{% if appraisals[0].final_rating is not none %} · {{ appraisals[0].final_rating }}{% endif %}</a>
+        {% endif %}
         <form method="post" action="/employees/{{ employee.id }}/status" class="mb-2">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <input type="hidden" name="status" value="{{ 'inactive' if employee.status == 'active' else 'active' }}">

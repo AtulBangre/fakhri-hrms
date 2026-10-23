@@ -21,6 +21,12 @@
       document.body.classList.toggle("drawer-open");
     });
     if (backdrop) backdrop.addEventListener("click", close);
+    $$("[data-open-drawer]").forEach(function (link) {
+      link.addEventListener("click", function (event) {
+        event.preventDefault();
+        document.body.classList.add("drawer-open");
+      });
+    });
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape") close();
     });
@@ -47,6 +53,54 @@
         event.stopImmediatePropagation();
       }
     }, true);
+  }
+
+  /* --------------------------------------------- expandable table detail rows */
+  function initRowToggles() {
+    document.addEventListener("click", function (event) {
+      var trigger = event.target.closest("[data-toggle-row]");
+      if (!trigger) return;
+      event.preventDefault();
+      var row = document.getElementById(trigger.getAttribute("data-toggle-row"));
+      if (!row) return;
+      var open = row.classList.toggle("hidden") === false;
+      trigger.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        var first = row.querySelector("input, select, textarea");
+        if (first) first.focus();
+      }
+    });
+  }
+
+  /* -------------------------------------------- select-all + bulk action bar */
+  function initBulk() {
+    $$("[data-bulk]").forEach(function (scope) {
+      var all = $("[data-bulk-all]", scope);
+      var bar = $(".bulk-bar", scope);
+      var counter = $("[data-bulk-count]", scope);
+      function boxes() { return $$("input[data-bulk-item]", scope); }
+      function sync() {
+        var picked = boxes().filter(function (box) { return box.checked; });
+        boxes().forEach(function (box) {
+          var tr = box.closest("tr");
+          if (tr) tr.classList.toggle("is-selected", box.checked);
+        });
+        if (bar) bar.classList.toggle("is-visible", picked.length > 0);
+        if (counter) counter.textContent = picked.length;
+        if (all) {
+          all.checked = picked.length > 0 && picked.length === boxes().length;
+          all.indeterminate = picked.length > 0 && picked.length < boxes().length;
+        }
+      }
+      if (all) all.addEventListener("change", function () {
+        boxes().forEach(function (box) { box.checked = all.checked; });
+        sync();
+      });
+      scope.addEventListener("change", function (event) {
+        if (event.target.matches("input[data-bulk-item]")) sync();
+      });
+      sync();
+    });
   }
 
   /* ------------------------------------------------------- webcam enrolment */
@@ -144,6 +198,8 @@
     initDrawer();
     initAlerts();
     initConfirm();
+    initRowToggles();
+    initBulk();
   });
 
   window.FakhriHRMS = {

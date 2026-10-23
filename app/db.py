@@ -354,6 +354,110 @@ CREATE TABLE IF NOT EXISTS tax_declarations (
 );
 CREATE INDEX IF NOT EXISTS idx_tax_decl ON tax_declarations(employee_id, fiscal_year);
 
+CREATE TABLE IF NOT EXISTS attendance_regularizations (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id      INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    work_date        TEXT NOT NULL,
+    requested_status TEXT NOT NULL DEFAULT 'present',   -- present | half_day
+    check_in         TEXT,
+    check_out        TEXT,
+    reason           TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected | withdrawn
+    previous_status  TEXT,
+    requested_by     TEXT,
+    requested_at     TEXT NOT NULL,
+    decided_by       TEXT,
+    decided_at       TEXT,
+    decision_note    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_regularization_status ON attendance_regularizations(status, id);
+CREATE INDEX IF NOT EXISTS idx_regularization_emp ON attendance_regularizations(employee_id, work_date);
+
+CREATE TABLE IF NOT EXISTS employee_exits (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id        INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    exit_type          TEXT NOT NULL DEFAULT 'resignation', -- resignation | termination | retirement | absconding | other
+    initiated_by       TEXT NOT NULL DEFAULT 'employee',    -- employee | hr
+    reason             TEXT,
+    resignation_date   TEXT NOT NULL,
+    notice_days        INTEGER NOT NULL DEFAULT 30,
+    notice_waived      INTEGER NOT NULL DEFAULT 0,
+    last_working_day   TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'requested',   -- requested | approved | settled | withdrawn | rejected
+    extra_earnings     REAL NOT NULL DEFAULT 0,
+    extra_deductions   REAL NOT NULL DEFAULT 0,
+    recover_assets     INTEGER NOT NULL DEFAULT 1,
+    fnf_note           TEXT,
+    fnf_snapshot       TEXT,
+    fnf_net            REAL,
+    decided_by         TEXT,
+    decided_at         TEXT,
+    settled_by         TEXT,
+    settled_at         TEXT,
+    created_by         TEXT,
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exits_status ON employee_exits(status, id);
+CREATE INDEX IF NOT EXISTS idx_exits_employee ON employee_exits(employee_id);
+
+CREATE TABLE IF NOT EXISTS exit_checklist (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    exit_id   INTEGER NOT NULL REFERENCES employee_exits(id) ON DELETE CASCADE,
+    item      TEXT NOT NULL,
+    done      INTEGER NOT NULL DEFAULT 0,
+    done_by   TEXT,
+    done_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_exit_checklist ON exit_checklist(exit_id);
+
+CREATE TABLE IF NOT EXISTS appraisal_cycles (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end   TEXT NOT NULL,
+    self_due     TEXT,
+    status       TEXT NOT NULL DEFAULT 'draft',   -- draft | open | closed
+    goals_template TEXT,
+    created_by   TEXT,
+    created_at   TEXT NOT NULL,
+    launched_at  TEXT,
+    closed_at    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS appraisals (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    cycle_id          INTEGER NOT NULL REFERENCES appraisal_cycles(id) ON DELETE CASCADE,
+    employee_id       INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    status            TEXT NOT NULL DEFAULT 'self_review',  -- self_review | manager_review | completed
+    self_comment      TEXT,
+    self_submitted_at TEXT,
+    self_score        REAL,
+    manager_score     REAL,
+    manager_comment   TEXT,
+    final_rating      REAL,
+    increment_pct     REAL,
+    reviewed_by       TEXT,
+    reviewed_at       TEXT,
+    created_at        TEXT NOT NULL,
+    UNIQUE (cycle_id, employee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_appraisals_employee ON appraisals(employee_id);
+
+CREATE TABLE IF NOT EXISTS appraisal_goals (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    appraisal_id  INTEGER NOT NULL REFERENCES appraisals(id) ON DELETE CASCADE,
+    title         TEXT NOT NULL,
+    weight        REAL NOT NULL DEFAULT 1,
+    target        TEXT,
+    self_score    REAL,
+    self_note     TEXT,
+    manager_score REAL,
+    manager_note  TEXT,
+    position      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_appraisal_goals ON appraisal_goals(appraisal_id);
+
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -373,6 +477,11 @@ class Storage:
         self.db_path = Path(settings.db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        #: Read-mostly lookups that calendar code hits once per *day*. Cleared by
+        #: any write that touches the table (see ``_invalidate``).
+        self._settings_cache: dict[str, str] | None = None
+        self._holidays_cache: dict[str, str] | None = None
+        self._data_version: int | None = None
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         with self._lock:
@@ -565,21 +674,49 @@ class Storage:
                 self._conn.rollback()
                 raise
 
+    def _invalidate(self, sql: str) -> None:
+        lowered = sql.lower()
+        if "app_settings" in lowered:
+            self._settings_cache = None
+        if "holidays" in lowered:
+            self._holidays_cache = None
+
     def execute_tx(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         """Execute a statement without committing (used within a transaction block)."""
         with self._lock:
+            self._invalidate(sql)
             return self._conn.execute(sql, tuple(params))
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         with self._lock:
+            self._invalidate(sql)
             cursor = self._conn.execute(sql, tuple(params))
             self._conn.commit()
             return cursor
 
     def executemany(self, sql: str, rows: Sequence[Sequence[Any]]) -> None:
         with self._lock:
+            self._invalidate(sql)
             self._conn.executemany(sql, rows)
             self._conn.commit()
+
+    def _drop_stale_caches(self) -> None:
+        """Another process (the CLI, a second worker) may have written the file."""
+        version = self._conn.execute("PRAGMA data_version").fetchone()[0]
+        if version != self._data_version:
+            self._data_version = version
+            self._settings_cache = None
+            self._holidays_cache = None
+
+    def holidays(self) -> dict[str, str]:
+        """``{'2026-01-26': 'Republic Day', ...}`` — cached until a holiday changes."""
+        with self._lock:
+            self._drop_stale_caches()
+            if self._holidays_cache is None:
+                self._holidays_cache = {
+                    row["day"]: row["name"] for row in self._conn.execute("SELECT day, name FROM holidays")
+                }
+            return self._holidays_cache
 
     def query(self, sql: str, params: Iterable[Any] = ()) -> list[dict[str, Any]]:
         with self._lock:
@@ -606,9 +743,15 @@ class Storage:
             self._conn.commit()
 
     def get_setting(self, key: str, default: str = "") -> str:
-        row = self.query_one("SELECT value FROM app_settings WHERE key = ?", (key,))
-        if row:
-            return row["value"]
+        with self._lock:
+            self._drop_stale_caches()
+            if self._settings_cache is None:
+                self._settings_cache = {
+                    row["key"]: row["value"] for row in self._conn.execute("SELECT key, value FROM app_settings")
+                }
+            cached = self._settings_cache.get(key)
+        if cached is not None:
+            return cached
         for def_key, def_value, *_ in SETTING_DEFS:
             if def_key == key:
                 return def_value
@@ -627,7 +770,9 @@ class Storage:
             return default
 
     def all_settings(self) -> dict[str, str]:
-        return {row["key"]: row["value"] for row in self.query("SELECT key, value FROM app_settings")}
+        self.get_setting("org_name")  # warm the cache
+        with self._lock:
+            return dict(self._settings_cache or {})
 
     def set_setting(self, key: str, value: str) -> None:
         self.execute(

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Appraisals · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Performance appraisals</h1>
+    <div class="sub">Run a review cycle: employees rate themselves on weighted goals, HR reviews, and the final rating feeds the raise discussion.</div>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div class="card flush">
+    <div class="card-head"><h2>Review cycles</h2></div>
+    <div class="table-wrap">
+      <table class="data stack">
+        <thead><tr><th>Cycle</th><th>Review period</th><th>Status</th><th>Progress</th><th class="num">Avg rating</th><th></th></tr></thead>
+        <tbody>
+        {% for cycle in cycles %}
+          <tr>
+            <td data-label="Cycle"><a href="/appraisals/cycles/{{ cycle.id }}"><strong>{{ cycle.name }}</strong></a>
+              {% if cycle.self_due %}<span class="sub">self review due {{ cycle.self_due | nice_date }}</span>{% endif %}</td>
+            <td data-label="Review period" class="nowrap">{{ cycle.period_start | nice_date('%b %Y') }} – {{ cycle.period_end | nice_date('%b %Y') }}</td>
+            <td data-label="Status"><span class="chip {{ {'draft':'chip-muted','open':'chip-info','closed':'chip-ok'}.get(cycle.status) }}">{{ cycle.status }}</span></td>
+            <td data-label="Progress" style="min-width:160px">
+              {% if cycle.total %}
+                <div class="progress"><span style="width:{{ (cycle.completed / cycle.total * 100) | round(0) }}%"></span></div>
+                <span class="sub">{{ cycle.completed }}/{{ cycle.total }} reviewed · {{ cycle.self_done }} self-reviews in</span>
+              {% else %}<span class="muted small">not launched</span>{% endif %}
+            </td>
+            <td data-label="Avg rating" class="num">{{ cycle.average if cycle.average is not none else '—' }}</td>
+            <td class="actions-cell"><a class="btn btn-sm" href="/appraisals/cycles/{{ cycle.id }}">Open</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="empty-state">No review cycles yet — create the first one on the right.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>New review cycle</h3></div>
+    <div class="card-body">
+      <form method="post" action="/appraisals/cycles">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <div class="field"><label for="name">Name</label><input id="name" name="name" type="text" required placeholder="Annual review FY 2026-27"></div>
+        <div class="form-row cols-2">
+          <div class="field"><label for="period_start">Period from</label><input id="period_start" name="period_start" type="date" required value="{{ default_start }}"></div>
+          <div class="field"><label for="period_end">Period to</label><input id="period_end" name="period_end" type="date" required value="{{ default_end }}"></div>
+        </div>
+        <div class="field"><label for="self_due">Self review due</label><input id="self_due" name="self_due" type="date"></div>
+        <div class="field"><label for="goals">Goals for everyone</label>
+          <textarea id="goals" name="goals" rows="6">{{ default_goals }}</textarea>
+          <div class="hint">One per line, weight after a pipe: <span class="mono">Quality of work | 30</span>. You can add individual goals per employee after launch.</div></div>
+        <button class="btn btn-primary btn-block" type="submit">Create draft cycle</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

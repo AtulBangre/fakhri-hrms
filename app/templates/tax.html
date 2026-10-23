@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Income tax · FY {{ fy }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Income tax · FY {{ fy }}</h1>
+    <div class="sub">Declarations, regime choice and the TDS your CA confirms. Payroll deducts only confirmed figures.</div>
+  </div>
+  <div class="page-actions">
+    <form class="inline-form" method="get" action="/tax">
+      <select name="fy" aria-label="Financial year" onchange="this.form.submit()">
+        {% for item in fys %}<option value="{{ item }}" {{ 'selected' if item == fy }}>FY {{ item }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+</div>
+
+<div class="alert alert-warn">
+  <div class="small">Projected tax uses FY slabs, standard deduction, 87A rebate and 4% cess. It is an estimate — confirm the
+    annual TDS with your CA. Payroll and Form 16 use <strong>only the confirmed figure</strong>.</div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat accent"><div class="label">Confirmed TDS</div><div class="value">{{ summary.confirmed_total | money }}</div>
+    <div class="foot">{{ summary.confirmed }} of {{ summary.employees }} employees</div></div>
+  <div class="stat"><div class="label">Deducted so far</div><div class="value">{{ summary.deducted | money }}</div>
+    <div class="foot">from this FY's payslips</div></div>
+  <div class="stat"><div class="label">Projected (estimate)</div><div class="value">{{ summary.projected | money }}</div>
+    <div class="foot">current regime choices</div></div>
+  <div class="stat {{ 'warn' if summary.pending else 'ok' }}"><div class="label">Awaiting confirmation</div><div class="value">{{ summary.pending }}</div>
+    <div class="foot">{{ pending | length }} declaration(s) to verify</div></div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card flush mb-3">
+      <div class="card-head"><h2>TDS register</h2></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr>
+            <th>Employee</th><th>Regime</th><th class="num">Gross</th><th class="num">Declared</th>
+            <th class="num">Projected</th><th class="num">Confirmed</th><th class="num">Deducted</th><th></th>
+          </tr></thead>
+          <tbody>
+          {% for row in rows %}
+            <tr>
+              <td data-label="Employee"><strong>{{ row.employee.name }}</strong><span class="sub">{{ row.employee.code }}</span></td>
+              <td data-label="Regime"><span class="chip {{ 'chip-info' if row.regime == 'old' else 'chip-muted' }}">{{ row.regime }}</span></td>
+              <td data-label="Gross" class="num">{{ row.gross | money }}</td>
+              <td data-label="Declared" class="num">{{ row.declared_total | money if row.declared_total else '—' }}</td>
+              <td data-label="Projected" class="num">{{ row.projected_tax | money }}</td>
+              <td data-label="Confirmed" class="num">
+                {% if row.confirmed %}<strong>{{ row.confirmed_tds | money }}</strong>{% else %}<span class="chip chip-warn">pending</span>{% endif %}
+              </td>
+              <td data-label="Deducted" class="num">{{ row.deducted | money }}</td>
+              <td class="actions-cell"><a class="btn btn-sm" href="/tax/employee/{{ row.employee.id }}?fy={{ fy }}">Open</a></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="8" class="empty-state">No active employees.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div class="card-head"><h2>Declarations to verify</h2><span class="spacer"></span>
+        <span class="small muted">{{ pending | length }} waiting</span></div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead><tr><th>Employee</th><th>Section</th><th class="num">Amount</th><th>Proof</th><th></th></tr></thead>
+          <tbody>
+          {% for row in pending %}
+            <tr>
+              <td data-label="Employee"><strong>{{ row.name }}</strong><span class="sub">{{ row.code }}</span></td>
+              <td data-label="Section">{{ row.section_label }}{% if row.description %}<span class="sub">{{ row.description }}</span>{% endif %}</td>
+              <td data-label="Amount" class="num">{{ row.amount | money }}</td>
+              <td data-label="Proof">{% if row.proof_name %}<a href="/tax/declarations/{{ row.id }}/proof">View</a>{% else %}<span class="muted small">none</span>{% endif %}</td>
+              <td class="actions-cell">
+                <form class="inline-form" method="post" action="/tax/declarations/{{ row.id }}/verify">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}"><input type="hidden" name="return_to" value="/tax">
+                  <button class="btn btn-sm btn-primary" type="submit">Verify</button>
+                </form>
+                <form class="inline-form" method="post" action="/tax/declarations/{{ row.id }}/reject">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}"><input type="hidden" name="return_to" value="/tax">
+                  <button class="btn btn-sm" type="submit">Reject</button>
+                </form>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="empty-state">Nothing waiting.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Import CA's TDS schedule</h3></div>
+      <div class="card-body">
+        <form method="post" action="/tax/import" enctype="multipart/form-data">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="fy" value="{{ fy }}">
+          <div class="field"><label for="csv_file">CSV file</label>
+            <input id="csv_file" name="file" type="file" accept=".csv,text/csv"></div>
+          <div class="field"><label for="csv_text">…or paste lines</label>
+            <textarea id="csv_text" name="csv_text" placeholder="code,annual_tds,taxable_income&#10;FIT001,48000,980000"></textarea>
+            <div class="hint">One employee per line: <span class="mono">code,annual_tds[,taxable_income]</span>. A header row is skipped.
+              Write amounts without thousands separators.</div></div>
+          <button class="btn btn-primary btn-block" type="submit">Apply schedule</button>
+        </form>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>How TDS flows</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1"><strong>1.</strong> Employees declare 80C/80D/HRA and choose a regime under <em>My tax</em>.</p>
+        <p class="mb-1"><strong>2.</strong> You verify proofs and confirm the annual TDS (or import the CA's sheet).</p>
+        <p class="mb-1"><strong>3.</strong> Each payroll run deducts (confirmed − already deducted) ÷ months left in the FY.</p>
+        <p class="mb-0"><strong>4.</strong> Form 16 Part B is printable once TDS is confirmed.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

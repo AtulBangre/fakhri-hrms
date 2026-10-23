@@ -11,6 +11,7 @@ from .. import notify
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..pdf import filename_for, render_payslip
 from ..services import employees as employees_service
+from ..services import attendance as attendance_service
 from ..services import orgtime, payroll
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
@@ -34,6 +35,11 @@ def index(
     period = period or orgtime.period_of(orgtime.today(settings))
     runs = payroll.list_runs(storage)
     run = payroll.get_run(storage, period)
+    slips = payroll.slips_for_run(storage, run["id"]) if run else []
+    unmarked = (
+        attendance_service.unmarked_working_days(storage, settings, period)
+        if not run or run["status"] == "draft" else []
+    )
     return render(
         request,
         "payroll.html",
@@ -43,10 +49,12 @@ def index(
         period=period,
         period_label=orgtime.month_label(period),
         run=run,
-        slips=payroll.list_slips(storage, period) if run else [],
-        totals=payroll.period_summary(storage, period)["totals"],
+        slips=slips,
+        totals=payroll.slip_totals(slips) if slips else {},
         basis_days=payroll.basis_days_for(storage, period),
-        employees_count=len(employees_service.list_employees(storage, limit=500)),
+        unmarked=unmarked,
+        unmarked_days=sum(len(row["days"]) for row in unmarked),
+        employees_count=employees_service.count_employees(storage),
         previous_period=orgtime.period_of(
             (orgtime.month_bounds(period)[0].fromordinal(orgtime.month_bounds(period)[0].toordinal() - 1))
         ),
@@ -122,6 +130,7 @@ def update_slip(
     bonus: str = Form("0"),
     advance: str = Form("0"),
     other_deduction: str = Form("0"),
+    tds: str = Form(""),
     note: str = Form(""),
     period: str = Form(""),
 ):
@@ -129,7 +138,9 @@ def update_slip(
     try:
         payroll.update_slip(
             storage, slip_id, bonus=_as_float(bonus), advance=_as_float(advance),
-            other_deduction=_as_float(other_deduction), note=note or None, actor=user.username,
+            other_deduction=_as_float(other_deduction),
+            tds=_as_float(tds) if tds.strip() else None,
+            note=note or None, actor=user.username,
         )
     except employees_service.ValidationError as exc:
         return redirect("/payroll", err=str(exc), period=period or None)

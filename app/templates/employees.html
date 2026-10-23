@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_pager.html" import pager_bar %}
 {% block title %}Employees · {{ org_name }} HRMS{% endblock %}
 
 {% block content %}
@@ -9,13 +10,12 @@
   </div>
   <div class="page-actions">
     <a class="btn" href="/attendance/register">Monthly register</a>
-    <a class="btn btn-primary" href="/employees/new">➕ Add employee</a>
+    <a class="btn btn-primary" href="/employees/new">Add employee</a>
   </div>
 </div>
 
 {% if stats.missing_face %}
   <div class="alert alert-warn">
-    <span class="ico">📷</span>
     <div>{{ stats.missing_face }} active employee{{ '' if stats.missing_face == 1 else 's' }} cannot mark attendance yet —
       no face enrolled. Open the employee and capture a photo.</div>
   </div>
@@ -86,14 +86,13 @@
             <span class="chip {{ 'chip-ok' if person.status == 'active' else 'chip-muted' }}">{{ person.status }}</span>
           </td>
           <td class="actions-cell">
-            <a class="btn btn-sm {{ 'btn-primary' if person.id in missing_face and person.status == 'active' }}" href="/employees/{{ person.id }}">
+            <a class="btn btn-sm " href="/employees/{{ person.id }}">
               {{ 'Enrol face' if person.id in missing_face and person.status == 'active' else 'Open' }}
             </a>
           </td>
         </tr>
       {% else %}
         <tr><td colspan="7" class="empty-state">
-          <span class="ico">👥</span>
           No employees match this filter.
           <div class="mt-2"><a class="btn btn-primary" href="/employees/new">Add the first employee</a></div>
         </td></tr>
@@ -101,5 +100,6 @@
       </tbody>
     </table>
   </div>
+  {{ pager_bar(pager, '/employees', filters) }}
 </div>
 {% endblock %}

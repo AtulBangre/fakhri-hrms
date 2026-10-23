@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Review · {{ row.name }} · {{ row.cycle_name }}{% endblock %}
+
+{% block content %}
+{% set editable = row.cycle_status == 'open' and row.status != 'completed' %}
+<div class="page-head">
+  <div class="titles">
+    <h1>{{ row.name }}</h1>
+    <div class="sub">{{ row.code }}{% if row.designation %} · {{ row.designation }}{% endif %} · {{ row.cycle_name }}
+      · <span class="chip {{ {'self_review':'chip-muted','manager_review':'chip-warn','completed':'chip-ok'}.get(row.status) }}">{{ row.status_label }}</span></div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/appraisals/cycles/{{ row.cycle_id }}">{{ icon('chevron-left') }} Cycle</a>
+    <a class="btn" href="/employees/{{ row.employee_id }}">Employee</a>
+    {% if row.cycle_status == 'open' and row.status != 'self_review' %}
+      <form method="post" action="/appraisals/{{ row.id }}/reopen" data-confirm="Send back to the employee for self review?">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn" type="submit">Return to employee</button></form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <form method="post" action="/appraisals/{{ row.id }}/review" id="reviewForm">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="card flush mb-3">
+        <div class="card-head"><h2>Goals</h2><span class="spacer"></span><span class="small muted">1 needs improvement · 3 meets · 5 outstanding</span></div>
+        <div class="table-wrap">
+          <table class="data stack">
+            <thead><tr><th>Goal</th><th class="num">Weight</th><th>Self</th><th>HR score</th><th>HR note</th>{% if editable %}<th></th>{% endif %}</tr></thead>
+            <tbody>
+            {% for goal in row.goals %}
+              <tr>
+                <td data-label="Goal"><strong>{{ goal.title }}</strong>{% if goal.target %}<span class="sub">Target: {{ goal.target }}</span>{% endif %}
+                  {% if goal.self_note %}<span class="sub">Employee: “{{ goal.self_note }}”</span>{% endif %}</td>
+                <td data-label="Weight" class="num">{{ goal.weight | number }}</td>
+                <td data-label="Self" class="nowrap">{{ goal.self_score if goal.self_score is not none else '—' }}</td>
+                <td data-label="HR score">
+                  {% if editable %}
+                    <span class="score">{% for n in range(1, 6) %}
+                      <input type="radio" id="s{{ goal.id }}-{{ n }}" name="score_{{ goal.id }}" value="{{ n }}" {{ 'checked' if goal.manager_score and goal.manager_score | round(0) | int == n }}><label for="s{{ goal.id }}-{{ n }}" title="{{ labels[n] }}">{{ n }}</label>
+                    {% endfor %}</span>
+                  {% else %}<strong>{{ goal.manager_score if goal.manager_score is not none else '—' }}</strong>{% endif %}
+                </td>
+                <td data-label="HR note">{% if editable %}<input type="text" name="note_{{ goal.id }}" value="{{ goal.manager_note or '' }}" placeholder="optional">{% else %}<span class="small">{{ goal.manager_note or '—' }}</span>{% endif %}</td>
+                {% if editable %}<td class="actions-cell"><button class="btn btn-sm btn-ghost" type="submit" form="del-{{ goal.id }}" title="Remove goal">{{ icon('x') }}</button></td>{% endif %}
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="empty-state">No goals yet — add one below.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-head"><h2>Overall</h2></div>
+        <div class="card-body">
+          {% if row.self_comment %}<div class="alert alert-info">{{ icon('user') }}<div><strong>Employee's summary:</strong> {{ row.self_comment }}</div></div>{% endif %}
+          <div class="field"><label>HR / manager feedback</label>
+            <textarea name="comment" rows="3" {{ 'readonly' if not editable }}>{{ row.manager_comment or '' }}</textarea></div>
+          <div class="form-row cols-2">
+            <div class="field"><label>Final rating (1–5)</label>
+              <input name="final_rating" type="number" min="1" max="5" step="0.1" value="{{ row.final_rating if row.final_rating is not none else '' }}" {{ 'readonly' if not editable }}>
+              <div class="hint">Leave empty to use the weighted HR score{% if row.manager_score is not none %} ({{ row.manager_score }}){% endif %}.</div></div>
+            <div class="field"><label>Recommended increment (%)</label>
+              <input name="increment_pct" type="number" step="0.5" value="{{ row.increment_pct if row.increment_pct is not none else '' }}" {{ 'readonly' if not editable }}></div>
+          </div>
+          {% if editable %}
+          <div class="form-actions">
+            <button class="btn" type="submit" name="complete" value="0">Save draft</button>
+            <button class="btn btn-primary" type="submit" name="complete" value="1">{{ icon('check') }} Complete review</button>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </form>
+    {% for goal in row.goals %}
+      <form id="del-{{ goal.id }}" method="post" action="/appraisal-goals/{{ goal.id }}/delete" data-confirm="Remove “{{ goal.title }}”?" class="hidden">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}"></form>
+    {% endfor %}
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Scores</h3></div>
+      <div class="card-body">
+        <div class="kv">
+          <div><span class="k">Self (weighted)</span><span class="v">{{ row.self_score if row.self_score is not none else '—' }}</span></div>
+          <div><span class="k">HR (weighted)</span><span class="v">{{ row.manager_score if row.manager_score is not none else '—' }}</span></div>
+          <div><span class="k">Final rating</span><span class="v"><strong>{{ row.final_rating if row.final_rating is not none else '—' }}</strong> {{ rating_label(row.final_rating) if row.final_rating is not none }}</span></div>
+          <div><span class="k">Self review submitted</span><span class="v">{{ row.self_submitted_at | nice_date if row.self_submitted_at else 'not yet' }}</span></div>
+          {% if row.reviewed_by %}<div><span class="k">Reviewed by</span><span class="v">{{ row.reviewed_by }} · {{ row.reviewed_at | nice_date }}</span></div>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if editable %}
+    <div class="card mb-3">
+      <div class="card-head"><h3>Add an individual goal</h3></div>
+      <div class="card-body">
+        <form method="post" action="/appraisals/{{ row.id }}/goals">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="field"><label>Goal</label><input name="title" type="text" required></div>
+          <div class="form-row cols-2">
+            <div class="field"><label>Weight</label><input name="weight" type="number" min="0" step="1" value="10"></div>
+            <div class="field"><label>Target</label><input name="target" type="text" placeholder="optional"></div>
+          </div>
+          <button class="btn btn-block" type="submit">{{ icon('plus') }} Add goal</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-head"><h3>Previous reviews</h3></div>
+      <div class="list">
+        {% for item in history %}
+          <a class="list-row" href="/appraisals/{{ item.id }}" style="color:inherit;text-decoration:none">
+            <div class="grow"><strong>{{ item.cycle_name }}</strong><span>{{ item.status_label }}</span></div>
+            <strong>{{ item.final_rating if item.final_rating is not none else '—' }}</strong></a>
+        {% else %}
+          <div class="list-row small muted">First review for this employee.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

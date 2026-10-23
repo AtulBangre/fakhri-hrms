@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}F&F statement · {{ fnf.employee.name }}{% endblock %}
+
+{% block content %}
+{% set e = fnf.employee %}
+<div class="page-head no-print">
+  <div class="titles">
+    <h1>Full &amp; final settlement</h1>
+    <div class="sub">{{ e.name }} · last working day {{ fnf.last_working_day | nice_date }}{% if row.status != 'settled' %} · <strong>draft — not settled yet</strong>{% endif %}</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="{{ back_url }}">{{ icon('chevron-left') }} Back</a>
+    <button class="btn btn-primary" onclick="window.print()">{{ icon('printer') }} Print / save PDF</button>
+  </div>
+</div>
+
+<div class="card payslip-print" style="max-width:820px">
+  <div class="card-body">
+    <div style="display:flex;justify-content:space-between;gap:1rem;border-bottom:2px solid var(--primary);padding-bottom:.6rem;margin-bottom:.9rem">
+      <div><h2 style="margin:0;font-size:1.1rem">{{ org_name }}</h2>
+        <div class="small muted">Full &amp; final settlement statement</div></div>
+      <div class="right small">
+        <div><strong>Ref</strong> FNF-{{ row.id }}</div>
+        <div><strong>Status</strong> {{ row.status }}</div>
+        <div><strong>Date</strong> {{ (row.settled_at or fnf.computed_at) | nice_date }}</div>
+      </div>
+    </div>
+
+    <div class="grid grid-2 mb-3">
+      <div class="kv">
+        <div><span class="k">Employee</span><span class="v">{{ e.name }}</span></div>
+        <div><span class="k">Code</span><span class="v mono">{{ e.code }}</span></div>
+        <div><span class="k">Designation</span><span class="v">{{ e.designation or '—' }}</span></div>
+        <div><span class="k">PAN</span><span class="v mono">{{ e.pan or '—' }}</span></div>
+      </div>
+      <div class="kv">
+        <div><span class="k">Date of joining</span><span class="v">{{ e.joined_on | nice_date }}</span></div>
+        <div><span class="k">Resignation / notice</span><span class="v">{{ fnf.resignation_date | nice_date }}</span></div>
+        <div><span class="k">Last working day</span><span class="v">{{ fnf.last_working_day | nice_date }}</span></div>
+        <div><span class="k">Service</span><span class="v">{{ fnf.service_years }} years</span></div>
+      </div>
+    </div>
+
+    <div class="grid grid-2">
+      <table class="data statement">
+        <thead><tr><th>Earnings</th><th class="num">Amount</th></tr></thead>
+        <tbody>{% for line in fnf.earnings %}<tr><td>{{ line.label }}{% if line.note %}<span class="sub">{{ line.note }}</span>{% endif %}</td><td class="num">{{ line.amount | money }}</td></tr>{% else %}<tr><td colspan="2" class="muted">—</td></tr>{% endfor %}</tbody>
+        <tfoot><tr class="total-row"><td>Total earnings</td><td class="num">{{ fnf.total_earnings | money }}</td></tr></tfoot>
+      </table>
+      <table class="data statement">
+        <thead><tr><th>Deductions</th><th class="num">Amount</th></tr></thead>
+        <tbody>{% for line in fnf.deductions %}<tr><td>{{ line.label }}{% if line.note %}<span class="sub">{{ line.note }}</span>{% endif %}</td><td class="num">{{ line.amount | money }}</td></tr>{% else %}<tr><td colspan="2" class="muted">—</td></tr>{% endfor %}</tbody>
+        <tfoot><tr class="total-row"><td>Total deductions</td><td class="num">{{ fnf.total_deductions | money }}</td></tr></tfoot>
+      </table>
+    </div>
+
+    <div class="mt-3" style="display:flex;justify-content:space-between;align-items:center;background:var(--primary-soft);border:1px solid var(--primary-soft-border);border-radius:var(--radius);padding:.7rem .9rem">
+      <div class="small muted">{{ 'Net amount payable to the employee' if fnf.net >= 0 else 'Net amount recoverable from the employee' }}</div>
+      <div style="font-size:1.4rem;font-weight:700">{{ fnf.net | abs | money }}</div>
+    </div>
+    {% if e.account_number %}<div class="small muted mt-2">Payable to {{ e.bank_name or 'bank' }} account ending {{ e.account_number[-4:] }}{% if e.ifsc %} · IFSC {{ e.ifsc }}{% endif %}.</div>{% endif %}
+    {% for note in fnf.notes %}<div class="small muted">{{ note }}</div>{% endfor %}
+
+    <div class="grid grid-2" style="margin-top:2.5rem">
+      <div style="border-top:1px dashed var(--border-strong);padding-top:.4rem" class="small muted">Employee signature</div>
+      <div style="border-top:1px dashed var(--border-strong);padding-top:.4rem" class="small muted right">For {{ org_name }}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

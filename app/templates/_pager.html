@@ -1,0 +1,16 @@
+{# Previous / next links for a paged list. pager = {page, pages, total, per_page, first, last}; params keeps the filters. #}
+{% macro pager_bar(pager, base, params={}) -%}
+  {% if pager.total %}
+  <div class="pager">
+    <span class="muted">Showing {{ pager.first }}–{{ pager.last }} of {{ pager.total }}</span>
+    {% if pager.pages > 1 %}
+    <span class="pager-links">
+      {% set query = params | dictsort | selectattr(1) | list | urlencode %}
+      {% if pager.page > 1 %}<a class="btn btn-sm" href="{{ base }}?{{ query }}{{ '&' if query }}page={{ pager.page - 1 }}">← Previous</a>{% endif %}
+      <span class="small muted" style="align-self:center">Page {{ pager.page }} of {{ pager.pages }}</span>
+      {% if pager.page < pager.pages %}<a class="btn btn-sm" href="{{ base }}?{{ query }}{{ '&' if query }}page={{ pager.page + 1 }}">Next →</a>{% endif %}
+    </span>
+    {% endif %}
+  </div>
+  {% endif %}
+{%- endmacro %}

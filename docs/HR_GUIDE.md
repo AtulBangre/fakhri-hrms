@@ -249,13 +249,16 @@ Before you generate, close the month's exceptions: every unmarked working day in
 the past becomes **absent**, which is charged as loss of pay. Check the
 **Monthly register** first — that grid is the whole month at a glance
 (P present · ½ half day · L leave · A absent · W week off · H holiday).
+The payroll page also lists every **unmarked working day** per employee (with
+links to the daily board) until the run is finalised.
 
 * **Generate payroll** computes one payslip per active employee:
   `per day = monthly gross ÷ basis days` (calendar days, or a fixed 26 — set in
   Settings), then `earned gross = gross − LOP days × per day`.
-* **Adjust** any payslip for **bonus / incentive**, **salary advance recovered**
-  and **other deduction**, plus a note that prints on the payslip. Net pay
-  updates immediately.
+* **Adjust** any payslip for **bonus / incentive**, **salary advance recovered**,
+  **other deduction** and **income tax (TDS)**, plus a note that prints on the
+  payslip. Net pay updates immediately.
+* **TDS** is filled in automatically from the employee's tax profile — see 5b.
 * **Finalise** locks the numbers (no more recalculation) — do this once HR and
   the accountant agree.
 * **Mark as paid** freezes the run for good. If you find a mistake after
@@ -267,6 +270,27 @@ the past becomes **absent**, which is charged as loss of pay. Check the
 
 Repeat every month. Past runs stay in the list with their status, so you always
 know which months are done.
+
+## 5b. Income tax (TDS) and Form 16
+
+**Income tax / TDS** in the sidebar lists every active employee for the
+financial year: regime, declared investments, projected tax, confirmed TDS and
+what payroll has deducted so far.
+
+1. Employees open **My tax**, pick the old or new regime, enter rent, and
+   declare 80C / 80CCD(1B) / 80D / 80TTA / 80E / 24(b) amounts with a proof.
+2. You **Verify** or **Reject** each declaration (from the register, or the
+   employee's tax page).
+3. Open an employee and **Confirm TDS** with your CA's annual figure, or use
+   **Import CA's TDS schedule** with one `code,annual_tds[,taxable_income]`
+   line per employee.
+4. Every payroll run then deducts *(confirmed − already deducted this FY) ÷
+   months left*, so a figure confirmed mid-year is still fully recovered by March.
+5. **Form 16** (Part B annexure) prints from the employee's tax page — and from
+   the employee's own **My tax** page — once TDS is confirmed.
+
+The slab calculation shown on screen is a projection only; payroll and Form 16
+use the confirmed figure.
 
 ---
 
@@ -282,25 +306,60 @@ know which months are done.
 | Half-day threshold (minutes) | worked less than this on a full day → half day (default 240 = 4 h) |
 | Payroll basis | calendar days in the month, or a fixed **26** |
 | Paid leave accrual / month | 1.5 days by default; drives the leave balance |
-| Weekly off day | 0 = Monday … 6 = Sunday (default Sunday) |
+| Notice period (days) | default notice for resignations; shortfall is recovered in the F&F unless waived |
+| Weekly off days | tick every day that is always off — e.g. Sat + Sun for a 5-day week (default Sunday) |
+| Alternate Saturdays off | e.g. `2,4` for 2nd & 4th Saturday off (only when Saturday is otherwise working) |
 | Late marks per half-day LOP | e.g. 3 → every 3 late marks costs half a day. **0 disables it.** |
 | Currency symbol | used on payroll screens and payslips |
 
 Also on this page: **Logins** (add one per gate, change passwords, disable),
-**Holidays**, and the **Face service** panel that tells you whether face
-recognition is reachable.
+**Holidays**, **Email delivery** (with a *Send test email* button to check
+SMTP), and the **Face service** panel that tells you whether face recognition
+is reachable. The dashboard shows a live green/red dot for the face service and
+for each gate kiosk (offline after ~75 s without a check-in).
 
 ---
 
-## 7. Everyone leaves eventually
+## 7. Everyone leaves eventually — exits and full & final
 
-1. **Employees → (person) → Remove face enrolment** — deletes the biometric
-   template.
-2. **Mark inactive** — they can no longer scan and drop out of payroll runs.
-3. Keep their attendance, leave and payslip history (needed for the final
-   settlement and for statutory records).
-4. Only use **Delete employee permanently** when you are sure: it removes all of
-   their attendance, leave, salary revisions and payslips.
+**Exits & F&F** in the sidebar handles the whole exit.
+
+1. The employee resigns from **Resignation** in their portal (or you use
+   **Record an exit** for terminations, retirements or paper resignations).
+2. Open the exit, confirm the **last working day** and notice period, and tick
+   **Waive notice shortfall** if you agree to an early release. Accepting creates a
+   clearance checklist (assets, ID card, system access, knowledge transfer, exit
+   interview, no-dues).
+3. The **Full & final statement** updates live while they serve notice:
+   salary up to the last day (unless that month's payroll already paid it),
+   leave encashment, gratuity (from 4 years 240 days of service), approved
+   expense claims, less PF/ESI/PT, unserved notice and unreturned assets. Add
+   other earnings or deductions under **Adjust settlement**.
+4. Tick every checklist item, then **Settle F&F**. The figures are frozen, the
+   employee is marked inactive and their portal login is closed. Print the
+   **Statement** for signatures.
+5. Remove their face enrolment from the employee page. Use **Delete employee
+   permanently** only when you are sure — it removes all their history.
+
+## 7b. Attendance corrections (regularization)
+
+Employees who missed a punch use **Fix** next to that day in **My attendance**
+(actual in/out time and a reason). Requests arrive under **Regularizations**
+with a badge in the sidebar. **Approve** writes the corrected attendance; tick
+several rows to approve or reject in bulk. A day inside a finalised or paid
+payroll month cannot be changed until you reopen that run.
+
+## 7c. Performance appraisals
+
+1. **Appraisals → New review cycle**: name, review period and the common goals
+   (one per line, weight after a pipe: `Quality of work | 30`).
+2. **Launch cycle** creates a review for every active employee. You can add
+   individual goals per person.
+3. Employees score each goal 1–5 under **Appraisal** in their portal and submit.
+4. Open each review, give your 1–5 score per goal and feedback. The final rating
+   defaults to the weighted score (override it if needed); add a recommended
+   increment and **Complete review**. The employee then sees their rating.
+5. **Close cycle** once every review is completed.
 
 ---
 

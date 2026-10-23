@@ -11,39 +11,49 @@
 
 <div class="grid grid-sidebar">
   <div>
-    <div class="card mb-3">
+    <form class="card mb-3" method="post" action="/settings/values">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <div class="card-head"><h2>Attendance &amp; payroll rules</h2><span class="spacer"></span>
         <span class="small muted">applies to new calculations immediately</span></div>
       <div class="card-body">
-        <div class="grid grid-2">
+        <div class="form-row cols-2">
           {% for key, default, label, kind, help_text in defs %}
-            <form method="post" action="/settings/value" class="card" style="box-shadow:none;padding:.75rem">
-              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-              <input type="hidden" name="key" value="{{ key }}">
-              <div class="field" style="margin-bottom:.5rem">
-                <label for="s-{{ key }}">{{ label }}</label>
-                {% if kind.startswith('select:') %}
-                  {% set options = kind.split(':', 1)[1].split('|') %}
-                  <select id="s-{{ key }}" name="value">
-                    {% for option in options %}
-                      <option value="{{ option }}" {{ 'selected' if values.get(key) == option }}>{{ option }}</option>
-                    {% endfor %}
-                  </select>
-                {% elif kind == 'time' %}
-                  <input id="s-{{ key }}" name="value" type="time" value="{{ values.get(key, default) }}">
-                {% elif kind == 'number' %}
-                  <input id="s-{{ key }}" name="value" type="number" step="0.5" min="0" value="{{ values.get(key, default) }}">
-                {% else %}
-                  <input id="s-{{ key }}" name="value" type="text" value="{{ values.get(key, default) }}">
-                {% endif %}
-                <div class="hint">{{ help_text }}</div>
-              </div>
-              <button class="btn btn-sm btn-primary" type="submit">Save</button>
-            </form>
+            <div class="field">
+              <label for="s-{{ key }}">{{ label }}</label>
+              {% if kind.startswith('select:') %}
+                {% set options = kind.split(':', 1)[1].split('|') %}
+                <select id="s-{{ key }}" name="{{ key }}">
+                  {% for option in options %}
+                    <option value="{{ option }}" {{ 'selected' if values.get(key) == option }}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+              {% elif kind == 'weekdays' %}
+                {% set ticked = values.get(key, default).split(',') %}
+                <div id="s-{{ key }}" style="display:flex;flex-wrap:wrap;gap:.25rem .8rem;min-height:32px;align-items:center">
+                  <input type="hidden" name="{{ key }}__present" value="1">
+                  {% for name in weekday_names %}
+                    <label class="checkline" style="font-weight:400;margin:0">
+                      <input type="checkbox" name="{{ key }}" value="{{ loop.index0 }}" {{ 'checked' if (loop.index0 | string) in ticked }}> {{ name[:3] }}
+                    </label>
+                  {% endfor %}
+                </div>
+              {% elif kind == 'time' %}
+                <input id="s-{{ key }}" name="{{ key }}" type="time" value="{{ values.get(key, default) }}">
+              {% elif kind == 'number' %}
+                <input id="s-{{ key }}" name="{{ key }}" type="number" step="0.5" min="0" value="{{ values.get(key, default) }}">
+              {% else %}
+                <input id="s-{{ key }}" name="{{ key }}" type="text" value="{{ values.get(key, default) }}">
+              {% endif %}
+              <div class="hint">{{ help_text }}</div>
+            </div>
           {% endfor %}
         </div>
       </div>
-    </div>
+      <div class="card-foot" style="display:flex;gap:.5rem;align-items:center">
+        <button class="btn btn-primary" type="submit">Save changes</button>
+        <span class="small muted">Week off: {{ week_off_label }}</span>
+      </div>
+    </form>
 
     <div class="card flush mb-3">
       <div class="card-head"><h2>Logins</h2><span class="spacer"></span>
@@ -140,7 +150,6 @@
 
         {% if not health.ok %}
           <div class="alert alert-err mt-2" style="margin-bottom:0">
-            <span class="ico">⚠️</span>
             <div class="small">{{ health.detail }}<br>
               Start the Face API (<span class="mono">cd faceapi &amp;&amp; ./venv/bin/python cli.py serve</span>) or fix
               <span class="mono">HRMS_FACEAPI_URL</span>. Until then the gate scanner cannot identify anyone; HR can
@@ -148,7 +157,6 @@
           </div>
         {% elif collection and collection.face_count is defined and collection.face_count != employee_stats.face_enrolled %}
           <div class="alert alert-warn mt-2" style="margin-bottom:0">
-            <span class="ico">🔍</span>
             <div class="small">The face collection has {{ collection.face_count }} templates but HRMS tracks
               {{ employee_stats.face_enrolled }} enrolments. Someone was probably deleted from the Face API directly —
               re-enrol the affected people to be safe.</div>
@@ -156,14 +164,37 @@
         {% endif %}
 
         {% if collection and collection.error %}
-          <div class="alert alert-warn mt-2" style="margin-bottom:0"><span class="ico">⚠️</span>
-            <div class="small">{{ collection.error }}</div></div>
+          <div class="alert alert-warn mt-2" style="margin-bottom:0"><div class="small">{{ collection.error }}</div></div>
         {% endif %}
       </div>
     </div>
 
     <div class="card mb-3">
-      <div class="card-head"><h3>Holidays</h3></div>
+      <div class="card-head"><h3>Email delivery</h3><span class="spacer"></span>
+        <span class="chip {{ 'chip-ok' if settings.smtp_host else 'chip-muted' }}">{{ 'SMTP' if settings.smtp_host else 'console' }}</span></div>
+      <div class="card-body">
+        <div class="kv mb-2">
+          {% if settings.smtp_host %}
+            <div><span class="k">Server</span><span class="v mono">{{ settings.smtp_host }}:{{ settings.smtp_port }} ({{ settings.smtp_tls }})</span></div>
+            <div><span class="k">From</span><span class="v mono">{{ settings.smtp_from or settings.smtp_user or '—' }}</span></div>
+          {% else %}
+            <div><span class="k">Driver</span><span class="v small">No <span class="mono">HRMS_SMTP_HOST</span> set — mail is written to <span class="mono">data/outbox/</span> instead of being sent.</span></div>
+          {% endif %}
+        </div>
+        <form method="post" action="/notifications/test">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="channel" value="email">
+          <input type="hidden" name="return_to" value="/settings">
+          <div class="field"><label for="test-recipient">Send a test email to</label>
+            <input id="test-recipient" name="recipient" type="email" required placeholder="you@company.com"></div>
+          <button class="btn btn-block" type="submit">Send test email</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-head"><h3>Holidays</h3><span class="spacer"></span>
+        <span class="small muted">Week off: {{ week_off_label }}</span></div>
       <div class="card-body">
         <form method="post" action="/attendance/holidays" class="mb-2">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">

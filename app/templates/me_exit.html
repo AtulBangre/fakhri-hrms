@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Resignation · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Resignation</h1>
+    <div class="sub">Submit your resignation, follow its progress and see your full &amp; final settlement.</div>
+  </div>
+</div>
+
+{% set open = latest and latest.status in ('requested', 'approved') %}
+<div class="grid grid-sidebar">
+  <div>
+    {% if latest and latest.status not in ('withdrawn', 'rejected') %}
+      <div class="card mb-3">
+        <div class="card-head"><h2>Your resignation</h2><span class="spacer"></span>
+          <span class="chip {{ {'requested':'chip-warn','approved':'chip-info','settled':'chip-ok'}.get(latest.status, 'chip-muted') }}">
+            {{ {'requested': 'waiting for HR', 'approved': 'accepted — serving notice', 'settled': 'settled'}.get(latest.status, latest.status) }}</span></div>
+        <div class="card-body">
+          <ol class="steps mb-2">
+            <li class="done">Submitted</li>
+            <li class="{{ 'done' if latest.status in ('approved', 'settled') else 'current' }}">Accepted by HR</li>
+            <li class="{{ 'done' if latest.status == 'settled' else ('current' if latest.status == 'approved' else '') }}">Clearance</li>
+            <li class="{{ 'done' if latest.status == 'settled' }}">Full &amp; final</li>
+          </ol>
+          <div class="kv">
+            <div><span class="k">Submitted on</span><span class="v">{{ latest.resignation_date | nice_date }}</span></div>
+            <div><span class="k">Last working day</span><span class="v">{{ latest.last_working_day | nice_date }}{% if latest.status == 'requested' %} (proposed){% endif %}</span></div>
+            <div><span class="k">Notice period</span><span class="v">{{ latest.notice_days }} days</span></div>
+            {% if latest.reason %}<div><span class="k">Reason</span><span class="v">{{ latest.reason }}</span></div>{% endif %}
+          </div>
+          {% if latest.status == 'requested' %}
+            <form method="post" action="/me/exit/{{ latest.id }}/withdraw" class="mt-2" data-confirm="Withdraw your resignation?">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <button class="btn btn-sm" type="submit">Withdraw resignation</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+      {% if fnf %}
+      <div class="card flush">
+        <div class="card-head"><h2>Full &amp; final settlement</h2><span class="spacer"></span><strong>{{ fnf.net | money }}</strong></div>
+        <div class="table-wrap">
+          <table class="data">
+            <tbody>
+              {% for line in fnf.earnings %}<tr><td>{{ line.label }}</td><td class="num">{{ line.amount | money }}</td></tr>{% endfor %}
+              {% for line in fnf.deductions %}<tr><td>Less: {{ line.label }}</td><td class="num">− {{ line.amount | money }}</td></tr>{% endfor %}
+            </tbody>
+            <tfoot><tr class="total-row"><td>Net {{ 'payable' if fnf.net >= 0 else 'recoverable' }}</td><td class="num">{{ fnf.net | abs | money }}</td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+    {% endif %}
+
+    {% if not open and not (latest and latest.status == 'settled') %}
+      <div class="card">
+        <div class="card-head"><h2>Submit resignation</h2></div>
+        <div class="card-body">
+          <form method="post" action="/me/exit" data-confirm="Submit your resignation to HR?">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <div class="field"><label for="proposed_last_day">Proposed last working day</label>
+              <input id="proposed_last_day" name="proposed_last_day" type="date" min="{{ today.isoformat() }}" value="{{ suggested_lwd }}">
+              <div class="hint">Your notice period is {{ notice_days }} days. Leaving earlier may be recovered from your settlement unless HR waives it.</div></div>
+            <div class="field"><label for="reason">Reason</label>
+              <textarea id="reason" name="reason" rows="3" required minlength="5" placeholder="A short note for HR"></textarea></div>
+            <button class="btn btn-primary" type="submit">Submit resignation</button>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h3>Before you leave</h3></div>
+      <div class="list">
+        {% for asset in assets %}
+          <div class="list-row"><div class="grow"><strong>{{ asset.name }}</strong><span>{{ asset.tag }} · return to HR</span></div></div>
+        {% else %}
+          <div class="list-row small muted">No company assets are issued to you.</div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>How settlement works</h3></div>
+      <div class="card-body small muted">
+        <p class="mb-1">Your final settlement includes salary up to your last day, encashment of unused paid leave and gratuity after five years.</p>
+        <p class="mb-0">Unserved notice and unreturned assets may be deducted. HR finalises the figures after clearance.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

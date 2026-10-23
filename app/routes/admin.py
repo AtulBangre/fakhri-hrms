@@ -19,6 +19,7 @@ from ..config import SETTING_DEFS
 from ..deps import get_face, get_settings_dep, get_storage, redirect, render
 from ..face import FaceServiceUnavailable
 from ..services import employees as employees_service
+from ..services import orgtime
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -46,6 +47,8 @@ def settings_page(
         user=user,
         defs=SETTING_DEFS,
         values=storage.all_settings(),
+        weekday_names=orgtime.WEEKDAY_NAMES,
+        week_off_label=orgtime.week_off_label(storage),
         users=list_users(storage),
         holidays=storage.query("SELECT * FROM holidays ORDER BY day"),
         health=health,
@@ -65,15 +68,59 @@ def save_value(
     csrf: str = Form("", alias="_csrf"),
     key: str = Form(...),
     value: str = Form(""),
+    value_multi: list[str] = Form([]),
 ):
     verify_form_csrf(user, csrf)
-    allowed = {definition[0] for definition in SETTING_DEFS}
-    if key not in allowed:
+    kinds = {definition[0]: definition[3] for definition in SETTING_DEFS}
+    if key not in kinds:
         return redirect("/settings", err=f"Unknown setting '{key}'.")
+    if kinds[key] == "weekdays":
+        # checkboxes: an unticked box is simply absent, so "none ticked" is valid
+        value = ",".join(str(day) for day in sorted(orgtime.parse_weekdays(",".join(value_multi))))
+    elif key == "saturday_off_weeks":
+        weeks = sorted(w for w in orgtime.parse_weekdays(value) if 1 <= w <= 5)
+        value = ",".join(str(week) for week in weeks)
     storage.set_setting(key, value.strip())
     storage.audit(actor=user.username, action="update_setting", entity="settings", entity_id=key,
                   detail=value.strip()[:120])
     return redirect("/settings", ok=f"Setting saved: {key}.")
+
+
+@router.post("/values")
+async def save_values(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    """Save the whole rules form at once (only keys that actually changed)."""
+    form = await request.form()
+    verify_form_csrf(user, str(form.get("_csrf") or ""))
+    current = storage.all_settings()
+    changed = []
+    for key, default, _label, kind, _help in SETTING_DEFS:
+        if kind == "weekdays":
+            if not form.get(f"{key}__present"):
+                continue
+            value = ",".join(str(d) for d in sorted(orgtime.parse_weekdays(",".join(form.getlist(key)))))
+        elif key in form:
+            value = str(form.get(key) or "").strip()
+            if key == "saturday_off_weeks":
+                value = ",".join(str(w) for w in sorted(w for w in orgtime.parse_weekdays(value) if 1 <= w <= 5))
+            if kind == "number" and value:
+                try:
+                    float(value)
+                except ValueError:
+                    return redirect("/settings", err=f"{_label} must be a number.")
+        else:
+            continue
+        if value != current.get(key, default):
+            storage.set_setting(key, value)
+            changed.append(key)
+    if changed:
+        storage.audit(actor=user.username, action="update_settings", entity="settings",
+                      detail=", ".join(changed)[:200])
+        return redirect("/settings", ok=f"Saved {len(changed)} setting(s).")
+    return redirect("/settings", ok="No changes to save.")
 
 
 @router.post("/users")

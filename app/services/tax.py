@@ -36,9 +36,7 @@ from . import orgtime
 #: Financial year helpers ------------------------------------------------
 def fy_for_period(period: str) -> str:
     """``'2026-03'`` → ``'2025-26'`` (Indian FY runs April → March)."""
-    year, month = (int(part) for part in period.split("-")[:2])
-    start = year if month >= 4 else year - 1
-    return f"{start}-{str(start + 1)[-2:]}"
+    return orgtime.fiscal_year(period)
 
 
 def fy_for_date(day: date) -> str:
@@ -54,8 +52,7 @@ def fy_label(fy: str) -> str:
 
 
 def fy_months(fy: str) -> list[str]:
-    start = int(fy.split("-")[0])
-    return [f"{start}-{m:02d}" for m in range(4, 13)] + [f"{start + 1}-{m:02d}" for m in range(1, 4)]
+    return orgtime.fiscal_year_months(fy)
 
 
 def fy_range(fy: str) -> tuple[str, str]:
@@ -316,15 +313,14 @@ def confirm_tds(
 # ------------------------------------------------------------------ gross pay
 def annual_gross_for(storage: Storage, settings: Settings, employee_id: int, fy: str) -> float:
     """Earned gross across the FY's payslips; falls back to the salary record × 12."""
-    total = 0.0
-    found = False
-    for period in fy_months(fy):
-        for slip in payroll.list_slips(storage, period):
-            if slip["employee_id"] == employee_id:
-                total += float(slip["earned_gross"] or 0)
-                found = True
-    if found:
-        return round(total, 2)
+    months = fy_months(fy)
+    row = storage.query_one(
+        "SELECT COALESCE(SUM(earned_gross), 0) AS total, COUNT(*) AS n FROM payslips "
+        "WHERE employee_id = ? AND period BETWEEN ? AND ?",
+        (employee_id, months[0], months[-1]),
+    ) or {}
+    if row.get("n"):
+        return round(float(row["total"]), 2)
 
     employee = employees_service.get_employee(storage, employee_id)
     if not employee:
@@ -335,12 +331,11 @@ def annual_gross_for(storage: Storage, settings: Settings, employee_id: int, fy:
 
 def tds_deducted(storage: Storage, employee_id: int, fy: str) -> float:
     """What payroll has actually deducted this FY (sum of payslip TDS)."""
-    total = 0.0
-    for period in fy_months(fy):
-        for slip in payroll.list_slips(storage, period):
-            if slip["employee_id"] == employee_id:
-                total += float(slip.get("tds") or 0)
-    return round(total, 2)
+    months = fy_months(fy)
+    return round(float(storage.scalar(
+        "SELECT COALESCE(SUM(tds), 0) AS t FROM payslips WHERE employee_id = ? AND period BETWEEN ? AND ?",
+        (employee_id, months[0], months[-1]),
+    )), 2)
 
 
 # ----------------------------------------------------------------- projection

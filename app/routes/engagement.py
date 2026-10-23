@@ -176,8 +176,10 @@ def send_test(
     csrf: str = Form("", alias="_csrf"),
     channel: str = Form("email"),
     recipient: str = Form(...),
+    return_to: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
+    back = "/settings" if return_to == "/settings" else "/notifications"
     body = (
         f"<p>This is a test message from {settings.org_name} HRMS, sent at "
         f"{orgtime.local_now(settings).strftime('%H:%M on %d %b %Y')}.</p>"
@@ -189,10 +191,10 @@ def send_test(
         category="test", settings=settings,
     )
     if row_id is None:
-        return redirect("/notifications", err="Enter a recipient first.")
+        return redirect(back, err="Enter a recipient first.")
     result = notify.dispatch(storage, settings, limit=1)
     ok = bool(result and result[0].get("ok"))
     if ok:
-        return redirect("/notifications", ok=f"Test {channel} delivered to {recipient}.")
+        return redirect(back, ok=f"Test {channel} delivered to {recipient}.")
     detail = result[0].get("error") if result else "unknown error"
-    return redirect("/notifications", err=f"Test {channel} failed: {detail}")
+    return redirect(back, err=f"Test {channel} failed: {detail}")
