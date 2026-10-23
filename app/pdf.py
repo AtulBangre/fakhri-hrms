@@ -155,8 +155,11 @@ def render_payslip(
     pdf.cell(70, 7, "EARNING", new_x="RIGHT")
     pdf.cell(25, 7, "AMOUNT", align="R", new_x="LEFT", new_y="NEXT")
     pdf.set_text_color(*INK)
-    lop_deduction = max(0.0, float(slip.get("monthly_gross") or 0) - float(slip.get("earned_gross") or 0))
+    gap = max(0.0, float(slip.get("monthly_gross") or 0) - float(slip.get("earned_gross") or 0))
+    lop_deduction = min(gap, float(slip.get("lop_days") or 0) * float(slip.get("per_day_rate") or 0))
     pdf.amount_row("Monthly gross", _money(slip.get("monthly_gross")))
+    if gap - lop_deduction > 0.5:
+        pdf.amount_row("Not employed (part month)", "- " + _money(gap - lop_deduction))
     pdf.amount_row(f"Loss of pay ({_num(slip.get('lop_days'))} d)", "- " + _money(lop_deduction))
     pdf.amount_row("Earned gross", _money(slip.get("earned_gross")), bold=True, tint=True)
     pdf.amount_row("Bonus / incentive", _money(slip.get("bonus")))

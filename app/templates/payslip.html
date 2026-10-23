@@ -54,7 +54,10 @@
         <table class="data">
           <tbody>
             <tr><td>Monthly gross</td><td class="num">{{ slip.monthly_gross | money }}</td></tr>
-            <tr><td>Loss of pay ({{ slip.lop_days | number }} days)</td><td class="num">− {{ ((slip.monthly_gross - slip.earned_gross) if slip.monthly_gross >slip.earned_gross else 0) | money }}</td></tr>
+            {% set gap = [slip.monthly_gross - slip.earned_gross, 0] | max %}
+            {% set lop_amount = [slip.lop_days * slip.per_day_rate, gap] | min %}
+            {% if gap - lop_amount > 0.5 %}<tr><td>Not employed (joined / left mid-month)</td><td class="num">− {{ (gap - lop_amount) | money }}</td></tr>{% endif %}
+            <tr><td>Loss of pay ({{ slip.lop_days | number }} days)</td><td class="num">− {{ lop_amount | money }}</td></tr>
             <tr class="total-row"><td>Earned gross</td><td class="num">{{ slip.earned_gross | money }}</td></tr>
             <tr><td>Bonus / incentive</td><td class="num">{{ slip.bonus | money }}</td></tr>
             <tr class="total-row"><td>Total earnings</td><td class="num">{{ (slip.earned_gross + slip.bonus) | money }}</td></tr>

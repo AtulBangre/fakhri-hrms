@@ -105,19 +105,16 @@ def my_attendance(
         )
     }
     today = orgtime.today(settings)
+    window = attendance_service.employment_window(storage, employee, start, end)
     days = []
     for day in orgtime.days_in_period(period):
         iso = day.isoformat()
         record = rows.get(iso)
-        kind = orgtime.day_kind(storage, day)
-        if record:
-            status = record["status"]
-        elif kind in (orgtime.STATUS_WEEK_OFF, orgtime.STATUS_HOLIDAY):
-            status = kind
-        elif day < today:
-            status = orgtime.STATUS_ABSENT
-        else:
-            status = orgtime.STATUS_PENDING
+        cls = attendance_service.classify_day(record, orgtime.day_kind(storage, day), day, today, window)
+        status = (record["status"] if record and cls != "not_employed"
+                  else {"not_employed": orgtime.STATUS_NOT_EMPLOYED, "absent": orgtime.STATUS_ABSENT,
+                        "week_off": orgtime.STATUS_WEEK_OFF, "holiday": orgtime.STATUS_HOLIDAY}
+                  .get(cls, orgtime.STATUS_PENDING))
         days.append(
             {
                 "day": day,

@@ -583,11 +583,12 @@ def test_compute_slip_maths(storage: Storage, settings, aarav):
     assert calc["paid_leave_days"] == 2
     assert calc["absent_days"] == 2
     assert calc["unpaid_leave_days"] == 2
-    assert calc["lop_days"] == 4
+    # 2 absent + 2 unpaid leave + 0.5 for the half day without leave (PAY-01)
+    assert calc["lop_days"] == 4.5
     assert calc["per_day_rate"] == pytest.approx(1000.0)
-    assert calc["earned_gross"] == pytest.approx(27000.0)
+    assert calc["earned_gross"] == pytest.approx(26500.0)
     assert calc["total_deductions"] == pytest.approx(2000.0)
-    assert calc["net_pay"] == pytest.approx(25000.0)
+    assert calc["net_pay"] == pytest.approx(24500.0)
 
 
 def test_payroll_basis_can_be_fixed_26_days(storage: Storage, settings, aarav):

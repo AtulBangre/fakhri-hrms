@@ -105,8 +105,11 @@ def daily_rows(storage: Storage, settings: Settings, day: date | None = None) ->
         (day.isoformat(),),
     )
     kind = orgtime.day_kind(storage, day)
+    joined = {r["id"]: r["joined_on"] for r in storage.query("SELECT id, joined_on FROM employees WHERE status = 'active'")}
     for row in rows:
-        if row["status"]:
+        if (joined.get(row["employee_id"]) or "") > day.isoformat():
+            effective = orgtime.STATUS_NOT_EMPLOYED
+        elif row["status"]:
             effective = row["status"]
         elif kind in (orgtime.STATUS_HOLIDAY, orgtime.STATUS_WEEK_OFF):
             effective = kind
@@ -142,73 +145,116 @@ def month_rows(storage: Storage, period: str, *, department: str | None = None) 
     )
 
 
+# ------------------------------------------------------------ day classifier
+#: Tally keys produced by :func:`classify_day`. Payroll, the register and the ESS
+#: views all count with these, so they can never disagree about a day.
+DAY_CLASSES = (
+    "present", "half_paid", "half_unpaid", "leave_paid", "leave_unpaid", "absent",
+    "week_off", "holiday", "pending", "future", "not_employed",
+)
+
+
+def employment_window(storage: Storage, employee: dict, start: date, end: date) -> tuple[date, date] | None:
+    """The part of ``start..end`` the person was employed: joining date to last working day.
+
+    The last working day comes from an approved or settled exit. ``None`` when the
+    whole range falls outside their employment.
+    """
+    lo, hi = start, end
+    if employee.get("joined_on"):
+        lo = max(lo, orgtime.parse_date(employee["joined_on"]))
+    exit_row = storage.query_one(
+        "SELECT last_working_day FROM employee_exits WHERE employee_id = ? AND status IN ('approved','settled') "
+        "ORDER BY id DESC LIMIT 1",
+        (employee["id"],),
+    )
+    if exit_row:
+        hi = min(hi, orgtime.parse_date(exit_row["last_working_day"]))
+    return (lo, hi) if lo <= hi else None
+
+
+def classify_day(record: dict | None, kind: str, day: date, today: date,
+                 window: tuple[date, date] | None) -> str:
+    """One of :data:`DAY_CLASSES` for an employee-day.
+
+    * outside the employment window → ``not_employed`` (never paid, never absent)
+    * a half day is paid when it carries a paid leave type, otherwise it costs 0.5 LOP
+    * an unmarked working day is ``absent`` only once it has passed — today is ``pending``
+    """
+    if window is None or day < window[0] or day > window[1]:
+        return "not_employed"
+    if record:
+        status, leave_type = record["status"], record.get("leave_type")
+        if status == orgtime.STATUS_PRESENT:
+            return "present"
+        if status == orgtime.STATUS_HALF_DAY:
+            return "half_paid" if leave_type in orgtime.PAID_LEAVE_TYPES else "half_unpaid"
+        if status == orgtime.STATUS_LEAVE:
+            return "leave_paid" if leave_type in orgtime.PAID_LEAVE_TYPES else "leave_unpaid"
+        if status in (orgtime.STATUS_ABSENT, orgtime.STATUS_WEEK_OFF, orgtime.STATUS_HOLIDAY):
+            return status
+    if kind in (orgtime.STATUS_WEEK_OFF, orgtime.STATUS_HOLIDAY):
+        return kind
+    if day < today:
+        return "absent"
+    return "pending" if day == today else "future"
+
+
+def pay_figures(tally: dict, late_marks: int, marks_per_half_lop: int) -> dict:
+    """Payable and loss-of-pay days from a tally — the one formula payroll and the register share."""
+    late_lop = (late_marks // marks_per_half_lop) * 0.5 if marks_per_half_lop > 0 else 0.0
+    present_days = tally["present"] + 0.5 * (tally["half_paid"] + tally["half_unpaid"])
+    paid_leave = tally["leave_paid"] + 0.5 * tally["half_paid"]
+    lop = tally["absent"] + tally["leave_unpaid"] + 0.5 * tally["half_unpaid"] + late_lop
+    return {"present_days": present_days, "paid_leave_days": paid_leave,
+            "late_lop_days": late_lop, "lop_days": lop}
+
+
 def employee_month_summary(storage: Storage, settings: Settings, employee_id: int, period: str) -> dict:
     """Present / half / leave / absent / late tallies for one employee-month."""
     start, end = orgtime.month_bounds(period)
-    summary = employee_range_summary(storage, employee_id, start, min(end, orgtime.today(settings)))
+    summary = employee_range_summary(storage, employee_id, start, end, today=orgtime.today(settings))
     summary["period"] = period
     return summary
 
 
-def employee_range_summary(storage: Storage, employee_id: int, start: date, limit: date) -> dict:
-    """The same tallies for any date range (used by the F&F settlement)."""
-    summary = {
-        "period": orgtime.period_of(start),
-        "present": 0.0,
-        "half_days": 0.0,
-        "paid_leave": 0.0,
-        "unpaid_leave": 0.0,
-        "absent": 0.0,
-        "week_off": 0,
-        "holiday": 0,
-        "late_marks": 0,
-        "late_minutes": 0,
-        "worked_minutes": 0,
-        "days": 0,
-    }
-    if limit < start:
-        return summary
+def employee_range_summary(storage: Storage, employee_id: int, start: date, limit: date,
+                           *, today: date | None = None) -> dict:
+    """Tallies for any date range (used by payroll, the ESS views and the F&F settlement).
 
+    Days after ``today`` are not counted yet; ``employed_days`` is the calendar
+    length of the employment window inside the range (used to pro-rate salary).
+    """
+    employee = employees_service.require_employee(storage, employee_id)
+    today = today or limit
+    window = employment_window(storage, employee, start, limit)
+    tally = {key: 0 for key in DAY_CLASSES}
+    summary = {"period": orgtime.period_of(start), "late_marks": 0, "late_minutes": 0, "worked_minutes": 0,
+               "days": 0, "employed_days": (window[1] - window[0]).days + 1 if window else 0}
+    counted_until = min(limit, today)
     rows = {
         row["work_date"]: row
         for row in storage.query(
             "SELECT * FROM attendance WHERE employee_id = ? AND work_date BETWEEN ? AND ?",
-            (employee_id, start.isoformat(), limit.isoformat()),
+            (employee_id, start.isoformat(), counted_until.isoformat()),
         )
-    }
-    for day in orgtime.each_day(start, limit):
+    } if counted_until >= start else {}
+    for day in (orgtime.each_day(start, counted_until) if counted_until >= start else []):
         summary["days"] += 1
         row = rows.get(day.isoformat())
-        if row:
-            status = row["status"]
-            if status == orgtime.STATUS_PRESENT:
-                summary["present"] += 1
-            elif status == orgtime.STATUS_HALF_DAY:
-                summary["half_days"] += 1
-            elif status == orgtime.STATUS_LEAVE:
-                if row.get("leave_type") in orgtime.PAID_LEAVE_TYPES:
-                    summary["paid_leave"] += 1
-                else:
-                    summary["unpaid_leave"] += 1
-            elif status == orgtime.STATUS_ABSENT:
-                summary["absent"] += 1
-            elif status == orgtime.STATUS_WEEK_OFF:
-                summary["week_off"] += 1
-            elif status == orgtime.STATUS_HOLIDAY:
-                summary["holiday"] += 1
+        cls = classify_day(row, orgtime.day_kind(storage, day), day, today, window)
+        tally[cls] += 1
+        if row and cls != "not_employed":
             if row.get("late_minutes"):
                 summary["late_marks"] += 1
                 summary["late_minutes"] += int(row["late_minutes"])
             if row.get("worked_minutes"):
                 summary["worked_minutes"] += int(row["worked_minutes"])
-        else:
-            kind = orgtime.day_kind(storage, day)
-            if kind == orgtime.STATUS_WEEK_OFF:
-                summary["week_off"] += 1
-            elif kind == orgtime.STATUS_HOLIDAY:
-                summary["holiday"] += 1
-            else:
-                summary["absent"] += 1
+    summary.update(tally)
+    # backwards-compatible names used by templates
+    summary["half_days"] = tally["half_paid"] + tally["half_unpaid"]
+    summary["paid_leave"] = tally["leave_paid"]
+    summary["unpaid_leave"] = tally["leave_unpaid"]
     return summary
 
 
@@ -452,8 +498,12 @@ def mark_manual(
     day = orgtime.parse_date(work_date)
     if status not in orgtime.ALL_STATUSES:
         raise employees_service.ValidationError(f"Unknown status '{status}'.")
-    if status in (orgtime.STATUS_LEAVE, orgtime.STATUS_HALF_DAY) and leave_type not in orgtime.ALL_LEAVE_TYPES:
-        leave_type = leave_type or "paid"
+    if leave_type not in orgtime.ALL_LEAVE_TYPES:
+        leave_type = None
+    if status == orgtime.STATUS_LEAVE and leave_type is None:
+        leave_type = "paid"
+    # A half day keeps no leave type unless HR picks one: the other half is then
+    # unpaid (0.5 LOP), never silently paid leave (PAY-01).
     if status not in (orgtime.STATUS_LEAVE, orgtime.STATUS_HALF_DAY):
         leave_type = None
 
@@ -605,7 +655,7 @@ def monthly_register(
     else:
         params = []
     staff = storage.query(
-        f"SELECT e.id, e.code, e.name, e.department, e.designation FROM employees e {status_filter} "
+        f"SELECT e.id, e.code, e.name, e.department, e.designation, e.joined_on FROM employees e {status_filter} "
         "ORDER BY e.name COLLATE NOCASE",
         params,
     )
@@ -636,56 +686,45 @@ def monthly_register(
         )
 
     register_rows = []
+    marks_per_half_lop = storage.get_int("late_marks_per_half_lop", 0)
     for person in staff:
+        window = employment_window(storage, person, start, end)
+        tally = {key: 0 for key in DAY_CLASSES}
+        totals = {"late": 0, "worked_minutes": 0}
         cells = []
-        totals = {
-            "present": 0.0, "half_day": 0, "leave": 0, "unpaid_leave": 0, "absent": 0,
-            "late": 0, "worked_minutes": 0,
-        }
-        for day in days:
-            iso = day["iso"]
-            record = rows_by_key.get((person["id"], iso))
-            if record:
-                status = record["status"]
-                cell = {
-                    "status": status,
-                    "code": _cell_code(status),
-                    "check_in": orgtime.format_clock(record["check_in"]),
-                    "check_out": orgtime.format_clock(record["check_out"]),
-                    "late_minutes": record["late_minutes"],
-                    "worked_minutes": record["worked_minutes"],
-                    "leave_type": record["leave_type"],
-                    "note": record["note"],
-                    "title": _cell_title(record),
-                }
-                if status == orgtime.STATUS_PRESENT:
-                    totals["present"] += 1
-                elif status == orgtime.STATUS_HALF_DAY:
-                    totals["half_day"] += 1
-                elif status == orgtime.STATUS_LEAVE:
-                    totals["leave"] += 1
-                    if record["leave_type"] not in orgtime.PAID_LEAVE_TYPES:
-                        totals["unpaid_leave"] += 1
-                elif status == orgtime.STATUS_ABSENT:
-                    totals["absent"] += 1
+        for day, day_date in zip(days, orgtime.each_day(start, end)):
+            record = rows_by_key.get((person["id"], day["iso"]))
+            kind = (orgtime.STATUS_HOLIDAY if day["is_holiday"]
+                    else orgtime.STATUS_WEEK_OFF if day["is_week_off"] else "working")
+            cls = classify_day(record, kind, day_date, today_date, window)
+            tally[cls] += 1
+            cell = {"status": _CLASS_STATUS[cls], "cls": cls, "code": _CLASS_CODE[cls], "css": _CLASS_CSS[cls]}
+            if record and cls != "not_employed":
+                cell.update(
+                    check_in=orgtime.format_clock(record["check_in"]),
+                    check_out=orgtime.format_clock(record["check_out"]),
+                    late_minutes=record["late_minutes"], worked_minutes=record["worked_minutes"],
+                    leave_type=record["leave_type"], note=record["note"], title=_cell_title(record),
+                )
                 if record["late_minutes"]:
                     totals["late"] += 1
                 if record["worked_minutes"]:
                     totals["worked_minutes"] += int(record["worked_minutes"])
-            elif day["is_week_off"]:
-                cell = {"status": orgtime.STATUS_WEEK_OFF, "code": "W", "title": "Weekly off"}
-            elif day["is_holiday"]:
-                cell = {"status": orgtime.STATUS_HOLIDAY, "code": "H", "title": day["holiday_name"] or "Holiday"}
-            elif day["is_future"]:
-                cell = {"status": orgtime.STATUS_PENDING, "code": "·", "title": "Not marked yet"}
             else:
-                cell = {"status": orgtime.STATUS_ABSENT, "code": "A", "title": "Absent (no scan, no leave)"}
-                totals["absent"] += 1
+                cell["title"] = {
+                    "week_off": "Weekly off", "holiday": day["holiday_name"] or "Holiday",
+                    "pending": "Not marked yet", "future": "Not marked yet",
+                    "absent": "Absent (no scan, no leave)", "not_employed": "Not employed (before joining / after leaving)",
+                }[cls]
             cells.append(cell)
 
-        totals["paid_leave"] = totals["leave"] - totals["unpaid_leave"]
-        totals["payable_days"] = totals["present"] + totals["half_day"] * 0.5 + totals["paid_leave"]
-        totals["lop_days"] = totals["absent"] + totals["unpaid_leave"]
+        figures = pay_figures(tally, totals["late"], marks_per_half_lop)
+        totals.update(
+            present=tally["present"], half_day=tally["half_paid"] + tally["half_unpaid"],
+            leave=tally["leave_paid"] + tally["leave_unpaid"], unpaid_leave=tally["leave_unpaid"],
+            paid_leave=tally["leave_paid"], absent=tally["absent"], not_employed=tally["not_employed"],
+            payable_days=figures["present_days"] + figures["paid_leave_days"], lop_days=figures["lop_days"],
+        )
         register_rows.append({"employee": person, "cells": cells, "totals": totals})
 
     day_totals = []
@@ -704,6 +743,23 @@ def monthly_register(
         "department": department,
         "departments": employees_service.departments(storage),
     }
+
+
+_CLASS_STATUS = {
+    "present": orgtime.STATUS_PRESENT, "half_paid": orgtime.STATUS_HALF_DAY, "half_unpaid": orgtime.STATUS_HALF_DAY,
+    "leave_paid": orgtime.STATUS_LEAVE, "leave_unpaid": orgtime.STATUS_LEAVE, "absent": orgtime.STATUS_ABSENT,
+    "week_off": orgtime.STATUS_WEEK_OFF, "holiday": orgtime.STATUS_HOLIDAY, "pending": orgtime.STATUS_PENDING,
+    "future": orgtime.STATUS_PENDING, "not_employed": orgtime.STATUS_NOT_EMPLOYED,
+}
+_CLASS_CODE = {
+    "present": "P", "half_paid": "½", "half_unpaid": "½", "leave_paid": "L", "leave_unpaid": "L",
+    "absent": "A", "week_off": "W", "holiday": "H", "pending": "·", "future": "·", "not_employed": "–",
+}
+_CLASS_CSS = {
+    "present": "P", "half_paid": "half", "half_unpaid": "half", "leave_paid": "leave", "leave_unpaid": "leave",
+    "absent": "A", "week_off": "W", "holiday": "H", "pending": "pending", "future": "pending",
+    "not_employed": "ne",
+}
 
 
 def _cell_code(status: str) -> str:

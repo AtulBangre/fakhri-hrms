@@ -22,6 +22,8 @@ STATUS_LEAVE = "leave"
 STATUS_WEEK_OFF = "week_off"
 STATUS_HOLIDAY = "holiday"
 STATUS_PENDING = "pending"
+#: Before the joining date or after the last working day: neither paid nor absent.
+STATUS_NOT_EMPLOYED = "not_employed"
 
 ALL_STATUSES = (
     STATUS_PRESENT,
@@ -51,6 +53,7 @@ STATUS_LABELS = {
     STATUS_WEEK_OFF: "Week off",
     STATUS_HOLIDAY: "Holiday",
     STATUS_PENDING: "Not marked",
+    STATUS_NOT_EMPLOYED: "Not employed",
 }
 
 

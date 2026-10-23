@@ -3,7 +3,9 @@
 The model is deliberately the familiar Indian payroll shape:
 
     per_day      = monthly_gross / basis_days        (calendar days, or a fixed 26)
-    earned_gross = monthly_gross - lop_days x per_day
+    base_gross   = monthly_gross x employed_days / calendar_days   (joined / left mid-month)
+    lop_days     = absent + unpaid leave + 0.5 x half days without paid leave + late penalty
+    earned_gross = base_gross - lop_days x per_day
     net_pay      = earned_gross + bonus - (pf + esi + professional tax + tds + advance + other)
 
 Attendance drives everything: any unmarked working day in the past counts as
@@ -167,17 +169,19 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
     monthly_gross = float(salary.get("monthly_gross") or 0)
     per_day = monthly_gross / basis_days if basis_days else 0.0
 
-    present_days = float(summary["present"]) + 0.5 * float(summary["half_days"])
-    paid_leave_days = float(summary["paid_leave"])
-    lop_days = float(summary["absent"]) + float(summary["unpaid_leave"])
+    figures = attendance_service.pay_figures(
+        summary, int(summary["late_marks"]), storage.get_int("late_marks_per_half_lop", 0)
+    )
+    present_days = figures["present_days"]
+    paid_leave_days = figures["paid_leave_days"]
+    late_lop_days = figures["late_lop_days"]
+    lop_days = figures["lop_days"]
+    # Joined or left mid-month: pay only the employed share of the month (PAY-03).
+    month_days = orgtime.month_days(period)
+    employed_share = min(1.0, summary["employed_days"] / month_days) if month_days else 0.0
+    base_gross = monthly_gross * employed_share
 
-    marks_per_lop = storage.get_int("late_marks_per_half_lop", 0)
-    late_lop_days = 0.0
-    if marks_per_lop > 0 and summary["late_marks"] >= marks_per_lop:
-        late_lop_days = (summary["late_marks"] // marks_per_lop) * 0.5
-        lop_days += late_lop_days
-
-    earned_gross = max(0.0, monthly_gross - lop_days * per_day)
+    earned_gross = max(0.0, base_gross - lop_days * per_day)
 
     pf = float(salary.get("pf") or 0)
     esi = float(salary.get("esi") or 0)
@@ -196,6 +200,8 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
         "unpaid_leave_days": round(float(summary["unpaid_leave"]), 2),
         "absent_days": round(float(summary["absent"]), 2),
         "late_marks": int(summary["late_marks"]),
+        "employed_days": int(summary["employed_days"]),
+        "not_employed_days": month_days - int(summary["employed_days"]),
         "late_lop_days": round(late_lop_days, 2),
         "lop_days": round(lop_days, 2),
         "monthly_gross": round(monthly_gross, 2),

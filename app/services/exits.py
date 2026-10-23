@@ -317,8 +317,9 @@ def compute_fnf(storage: Storage, settings: Settings, exit_row: dict[str, Any]) 
             counted_until = min(lwd, orgtime.today(settings))
             lop = 0.0
             if counted_until >= start:
-                summary = attendance_service.employee_range_summary(storage, employee["id"], start, counted_until)
-                lop = float(summary["absent"]) + float(summary["unpaid_leave"])
+                summary = attendance_service.employee_range_summary(
+                    storage, employee["id"], start, counted_until, today=orgtime.today(settings))
+                lop = attendance_service.pay_figures(summary, 0, 0)["lop_days"]
             calendar_days = (lwd - start).days + 1
             payable_days = max(0.0, calendar_days - lop)
             pending_salary = min(gross, per_day * payable_days)

@@ -114,6 +114,7 @@ def status_chip(status: str | None) -> str:
         orgtime.STATUS_WEEK_OFF: "chip chip-muted",
         orgtime.STATUS_HOLIDAY: "chip chip-muted",
         orgtime.STATUS_PENDING: "chip chip-ghost",
+        orgtime.STATUS_NOT_EMPLOYED: "chip chip-ghost",
     }.get(status or "", "chip")
 
 

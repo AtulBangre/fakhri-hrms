@@ -445,7 +445,8 @@ table.register thead .sticky-col { z-index: 4; background: var(--subtle); }
 table.register td.cell { font-weight: 600; cursor: help; }
 table.register td.cell.P { background: var(--success-soft); color: var(--success); }
 table.register td.cell.A { background: var(--danger-soft); color: var(--danger); }
-table.register td.cell\. { color: var(--faint); }
+table.register td.cell.pending { color: var(--faint); }
+table.register td.cell.ne { color: var(--faint); background: repeating-linear-gradient(135deg, #fafaf9 0 4px, #f1f0ef 4px 8px); }
 table.register td.cell.H, table.register td.cell.W { background: #f5f5f4; color: var(--faint); }
 table.register td.cell.leave { background: var(--info-soft); color: var(--info); }
 table.register td.cell.half { background: var(--warning-soft); color: var(--warning); }

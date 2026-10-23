@@ -59,7 +59,7 @@
             <span class="sub muted" style="display:block">{{ row.employee.code }}{% if row.employee.department %} · {{ row.employee.department }}{% endif %}</span>
           </td>
           {% for cell, day in row.cells | zip(register.days) %}
-            <td class="cell {{ cell.code }} {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
+            <td class="cell {{ cell.css }} {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
                 title="{{ day.iso }} — {{ cell.title }}">
               {{ cell.code }}
             </td>
@@ -97,6 +97,7 @@
       <span class="chip chip-muted">W · week off</span>
       <span class="chip chip-muted">H · holiday</span>
       <span class="chip chip-ghost">· · not marked yet</span>
+      <span class="chip chip-ghost">– · not employed</span>
     </div>
   </div>
   <div class="card">

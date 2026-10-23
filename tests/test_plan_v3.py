@@ -128,3 +128,99 @@ def test_pay05_ambiguous_commas_apply_nothing(storage: Storage, settings, staff)
     result = tax.import_tds_schedule(storage, settings, csv_text=text, fy="2025-26")
     assert result["applied"] == 0 and result["errors"]
     assert tax.get_profile(storage, staff[0]["id"], "2025-26") == {}
+
+
+# ------------------------------------------------- day classification (step 3)
+from app.services import leave as leave_service  # noqa: E402
+from app.services import exits as exits_service  # noqa: E402
+
+SEPT = "2026-09"
+
+
+def _working_days(storage, period):
+    return [d for d in orgtime.days_in_period(period) if orgtime.day_kind(storage, d) == "working"]
+
+
+def _fill(storage, employee_id, days):
+    for d in days:
+        attendance_service.mark_manual(storage, employee_id=employee_id, work_date=d.isoformat(),
+                                       status="present", check_in="09:30", check_out="18:30")
+
+
+def _employee(storage, name, joined="2025-01-01", gross=30000):
+    return employees_service.get_employee(storage, employees_service.create_employee(
+        storage, {"name": name, "joined_on": joined, "monthly_gross": gross}))
+
+
+def test_pay01_half_day_without_leave_costs_half_a_day(storage: Storage, settings):
+    e = _employee(storage, "Half Worker")
+    days = _working_days(storage, SEPT)
+    _fill(storage, e["id"], days[1:])
+    attendance_service.mark_manual(storage, employee_id=e["id"], work_date=days[0].isoformat(),
+                                   status="half_day", check_in="09:30", check_out="12:00")
+    calc = payroll.compute_slip(storage, settings, e, SEPT)
+    assert calc["lop_days"] == 0.5
+    assert calc["earned_gross"] == pytest.approx(30000 - 0.5 * 1000)
+
+
+def test_pay01_paid_half_day_leave_costs_nothing(storage: Storage, settings):
+    e = _employee(storage, "Paid Half")
+    days = _working_days(storage, SEPT)
+    _fill(storage, e["id"], days[1:])
+    leave_service.apply_leave(storage, settings, employee_id=e["id"], leave_type="paid",
+                              from_date=days[0].isoformat(), half_day=True)
+    assert payroll.compute_slip(storage, settings, e, SEPT)["lop_days"] == 0
+
+
+def test_pay02_unpaid_half_day_leave_costs_half_a_day(storage: Storage, settings):
+    e = _employee(storage, "Unpaid Half")
+    days = _working_days(storage, SEPT)
+    _fill(storage, e["id"], days[1:])
+    leave_service.apply_leave(storage, settings, employee_id=e["id"], leave_type="unpaid",
+                              from_date=days[0].isoformat(), half_day=True)
+    assert payroll.compute_slip(storage, settings, e, SEPT)["lop_days"] == 0.5
+
+
+def test_pay03_joiner_is_paid_from_the_joining_date(storage: Storage, settings):
+    e = _employee(storage, "Joiner", joined="2026-09-20")
+    _fill(storage, e["id"], [d for d in _working_days(storage, SEPT) if d.day >= 20])
+    calc = payroll.compute_slip(storage, settings, e, SEPT)
+    assert calc["earned_gross"] == pytest.approx(30000 * 11 / 30)
+    assert calc["lop_days"] == 0 and calc["not_employed_days"] == 19
+
+
+def test_pay03_leaver_is_paid_up_to_the_last_working_day(storage: Storage, settings):
+    e = _employee(storage, "Leaver")
+    _fill(storage, e["id"], [d for d in _working_days(storage, SEPT) if d.day <= 10])
+    exits_service.record_exit(storage, settings, employee_id=e["id"], exit_type="resignation",
+                              resignation_date="2026-08-10", last_working_day="2026-09-10", notice_days=30)
+    calc = payroll.compute_slip(storage, settings, e, SEPT)
+    assert calc["earned_gross"] == pytest.approx(30000 * 10 / 30)
+
+
+def test_att03_today_is_not_absent_yet(storage: Storage, settings, aarav):
+    today = orgtime.today(settings)
+    summary = attendance_service.employee_month_summary(storage, settings, aarav["id"], orgtime.period_of(today))
+    if orgtime.day_kind(storage, today) == "working":
+        assert summary["pending"] == 1
+    register = attendance_service.monthly_register(storage, settings, orgtime.period_of(today))
+    row = next(r for r in register["rows"] if r["employee"]["id"] == aarav["id"])
+    cell = row["cells"][today.day - 1]
+    assert cell["code"] != "A"
+
+
+def test_att03_register_matches_payslips(storage: Storage, settings):
+    joiner = _employee(storage, "Reg Joiner", joined="2026-09-15")
+    regular = _employee(storage, "Reg Regular")
+    days = _working_days(storage, SEPT)
+    _fill(storage, regular["id"], days[2:])
+    attendance_service.mark_manual(storage, employee_id=regular["id"], work_date=days[0].isoformat(),
+                                   status="half_day")
+    _fill(storage, joiner["id"], [d for d in days if d.day >= 15])
+    register = attendance_service.monthly_register(storage, settings, SEPT)
+    for row in register["rows"]:
+        calc = payroll.compute_slip(storage, settings, row["employee"], SEPT)
+        assert row["totals"]["lop_days"] == calc["lop_days"], row["employee"]["name"]
+        assert row["totals"]["payable_days"] == calc["present_days"] + calc["paid_leave_days"]
+    joiner_row = next(r for r in register["rows"] if r["employee"]["id"] == joiner["id"])
+    assert joiner_row["cells"][0]["code"] == "–" and joiner_row["totals"]["absent"] == 0
