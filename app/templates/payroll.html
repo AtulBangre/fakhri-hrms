@@ -31,12 +31,14 @@
       <form method="post" action="/payroll/generate">
         <input type="hidden" name="_csrf" value="{{ csrf_token }}">
         <input type="hidden" name="period" value="{{ period }}">
-        {% if run and run.status == 'draft' %}
-          <input type="hidden" name="include_inactive" value="">
-        {% endif %}
-        <button class="btn btn-primary" type="submit">
+        <button class="btn btn-primary" type="submit" {{ 'disabled' if state.future }}
+                title="{{ 'This month has not started yet' if state.future }}">
           {{ 'Recalculate draft' if run and run.status == 'draft' else 'Generate payroll' }}
         </button>
+        {% if run and run.status == 'draft' %}
+          <label class="checkline small" title="Start every payslip from scratch">
+            <input type="checkbox" name="reset_adjustments" value="1"> Reset adjustments</label>
+        {% endif %}
       </form>
 
       {% if run %}
@@ -46,14 +48,15 @@
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <input type="hidden" name="period" value="{{ period }}">
             <input type="hidden" name="status" value="finalized">
-            <button class="btn btn-dark" type="submit">Finalise</button>
+            <button class="btn btn-dark" type="submit" {{ 'disabled' if not state.closable }}
+                    title="{{ 'Can be finalised from ' ~ (state.closable_from | nice_date) if not state.closable }}">Finalise</button>
           </form>
         {% elif run.status == 'finalized' %}
           <form method="post" action="/payroll/status" data-confirm="Mark {{ period_label }} as paid? This locks the run for good.">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <input type="hidden" name="period" value="{{ period }}">
             <input type="hidden" name="status" value="paid">
-            <button class="btn btn-primary" type="submit">Mark as paid</button>
+            <button class="btn btn-primary" type="submit" {{ 'disabled' if not state.closable }}>Mark as paid</button>
           </form>
           <form method="post" action="/payroll/status" data-confirm="Reopen the run for editing?">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -71,7 +74,7 @@
             <button class="btn btn-primary" type="submit">Email payslips</button>
           </form>
         {% endif %}
-        {% if run.status != 'paid' %}
+        {% if run.status == 'draft' %}
           <form method="post" action="/payroll/delete" data-confirm="Delete the {{ period_label }} run and all its payslips?">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <input type="hidden" name="period" value="{{ period }}">
@@ -82,6 +85,14 @@
     </div>
   </div>
 </div>
+
+{% if state.future %}
+  <div class="alert alert-info">{{ icon('info') }}<div>{{ period_label }} has not started yet, so there is nothing to pay. Payroll can be generated from the 1st.</div></div>
+{% elif state.running %}
+  <div class="alert alert-info">{{ icon('info') }}<div><strong>Provisional</strong> — {{ period_label }} is still running
+    ({{ state.days_left }} day{{ '' if state.days_left == 1 else 's' }} to go). Days ahead are not counted yet; recalculate before
+    finalising{% if not state.closable %} (finalising opens on {{ state.closable_from | nice_date }}){% endif %}.</div></div>
+{% endif %}
 
 {% if unmarked %}
   <div class="alert alert-warn">

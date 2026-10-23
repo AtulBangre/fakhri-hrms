@@ -53,6 +53,7 @@ def index(
         totals=payroll.slip_totals(slips) if slips else {},
         basis_days=payroll.basis_days_for(storage, period),
         unmarked=unmarked,
+        state=payroll.period_state(storage, settings, period),
         unmarked_days=sum(len(row["days"]) for row in unmarked),
         employees_count=employees_service.count_employees(storage),
         previous_period=orgtime.period_of(
@@ -73,18 +74,20 @@ def generate(
     csrf: str = Form("", alias="_csrf"),
     period: str = Form(...),
     include_inactive: str = Form(""),
+    reset_adjustments: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
     try:
         run = payroll.generate_run(
-            storage, settings, period, actor=user.username, include_inactive=bool(include_inactive)
+            storage, settings, period, actor=user.username, include_inactive=bool(include_inactive),
+            reset_adjustments=bool(reset_adjustments),
         )
     except employees_service.ValidationError as exc:
         return redirect("/payroll", err=str(exc), period=period)
-    return redirect(
-        "/payroll", period=period,
-        ok=f"{orgtime.month_label(period)} payroll calculated — {run['status']}. Review the payslips below.",
-    )
+    message = f"{orgtime.month_label(period)} payroll calculated — {run['status']}."
+    if run.get("kept_adjustments"):
+        message += f" {run['kept_adjustments']} payslip(s) kept their bonus/deduction adjustments."
+    return redirect("/payroll", period=period, ok=message + " Review the payslips below.")
 
 
 @router.post("/status")
@@ -116,7 +119,10 @@ def delete_run(
     period: str = Form(...),
 ):
     verify_form_csrf(user, csrf)
-    payroll.delete_run(storage, period, actor=user.username)
+    try:
+        payroll.delete_run(storage, period, actor=user.username)
+    except employees_service.ValidationError as exc:
+        return redirect("/payroll", err=str(exc), period=period)
     return redirect("/payroll", period=period, ok=f"{orgtime.month_label(period)} payroll deleted.")
 
 

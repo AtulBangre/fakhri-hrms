@@ -195,6 +195,8 @@ SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
     ("standard_work_minutes", "480", "Standard work day (minutes)", "number", "Displayed on the dashboard."),
     ("payroll_basis_days", "calendar", "Payroll basis", "select:calendar|26",
      "Divide monthly salary by calendar days in the month, or by a fixed 26."),
+    ("payroll_finalise_from_day", "0", "Finalise payroll from day", "number",
+     "Earliest day of the month a run may be finalised or paid. 0 = the last day of the month."),
     ("pl_accrual_per_month", "1.5", "Paid leave accrual / month", "number",
      "Leave balance = months of service x this value - paid leave taken."),
     ("week_off_days", "6", "Weekly off days", "weekdays",

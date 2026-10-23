@@ -565,41 +565,72 @@ def summary(storage: Storage, settings: Settings, fy: str) -> dict[str, Any]:
     }
 
 
-def import_tds_schedule(storage: Storage, settings: Settings, *, csv_text: str, fy: str,
-                        actor: str | None = None) -> dict[str, Any]:
-    """Apply a CA-supplied sheet: ``code,annual_tds[,taxable_income]`` per line."""
-    applied, skipped, errors = 0, 0, []
-    for line_no, raw in enumerate(csv_text.splitlines(), start=1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
+def _amount(raw: str) -> float:
+    text = raw.strip().replace("₹", "").replace(" ", "")
+    if not text:
+        raise ValueError("empty")
+    if text.count(",") and not text.replace(",", "").replace(".", "", 1).isdigit():
+        raise ValueError(raw)
+    value = float(text.replace(",", ""))
+    if value < 0:
+        raise ValueError(raw)
+    return value
+
+
+def parse_tds_schedule(storage: Storage, csv_text: str) -> dict[str, Any]:
+    """Validate a CA sheet without applying it: ``code,annual_tds[,taxable_income]``.
+
+    Amounts with thousands separators must be quoted (``"1,50,000"``) or the line
+    is tab-separated; an unquoted ``1,50,000`` is ambiguous and is rejected rather
+    than silently read as 1.
+    """
+    import csv
+    import io
+
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    lines = [line for line in csv_text.splitlines() if line.strip() and not line.strip().startswith("#")]
+    delimiter = "\t" if lines and "\t" in lines[0] else ","
+    seen: set[str] = set()
+    for line_no, parts in enumerate(csv.reader(io.StringIO("\n".join(lines)), delimiter=delimiter), start=1):
+        parts = [part.strip() for part in parts]
+        if line_no == 1 and parts and parts[0].lower() in ("code", "employee", "employee code", "emp code"):
             continue
-        if line_no == 1 and line.lower().startswith(("code", "employee")):
-            continue
-        parts = [part.strip() for part in line.replace("\t", ",").split(",")]
         if len(parts) < 2:
-            errors.append(f"line {line_no}: expected code,tds")
-            skipped += 1
+            errors.append(f"line {line_no}: expected code and annual TDS")
             continue
-        code, tds_raw = parts[0], parts[1]
-        taxable_raw = parts[2] if len(parts) > 2 else ""
-        employee = storage.query_one(
-            "SELECT * FROM employees WHERE UPPER(code) = ?", (code.upper(),)
-        )
+        if len(parts) > 3:
+            errors.append(f"line {line_no}: too many columns — write amounts without commas or wrap them in quotes")
+            continue
+        code = parts[0]
+        employee = storage.query_one("SELECT id, code, name FROM employees WHERE UPPER(code) = ?", (code.upper(),))
         if employee is None:
             errors.append(f"line {line_no}: no employee with code {code}")
-            skipped += 1
+            continue
+        if employee["code"] in seen:
+            errors.append(f"line {line_no}: {code} appears twice")
             continue
         try:
-            annual = float(tds_raw.replace(",", ""))
-            taxable = float(taxable_raw.replace(",", "")) if taxable_raw else None
+            annual = _amount(parts[1])
+            taxable = _amount(parts[2]) if len(parts) > 2 and parts[2] else None
         except ValueError:
-            errors.append(f"line {line_no}: '{tds_raw}' is not a number")
-            skipped += 1
+            errors.append(f"line {line_no}: '{', '.join(parts[1:])}' is not a valid amount")
             continue
-        ensure_profile(storage, settings, employee_id=employee["id"], fy=fy)
-        confirm_tds(storage, employee_id=employee["id"], fy=fy, annual_tds=annual,
-                    taxable_income=taxable, actor=actor, note="imported from CA schedule")
-        applied += 1
-    storage.audit(actor=actor, action="tds_import", entity="tax",
-                  detail=f"{fy}: {applied} applied, {skipped} skipped")
-    return {"applied": applied, "skipped": skipped, "errors": errors[:10]}
+        seen.add(employee["code"])
+        rows.append({"employee_id": employee["id"], "code": employee["code"], "name": employee["name"],
+                     "annual_tds": annual, "taxable_income": taxable})
+    return {"rows": rows, "errors": errors}
+
+
+def import_tds_schedule(storage: Storage, settings: Settings, *, csv_text: str, fy: str,
+                        actor: str | None = None) -> dict[str, Any]:
+    """Apply a CA-supplied sheet — all lines or none (see :func:`parse_tds_schedule`)."""
+    parsed = parse_tds_schedule(storage, csv_text)
+    if parsed["errors"]:
+        return {"applied": 0, "skipped": len(parsed["errors"]), "errors": parsed["errors"][:10]}
+    for row in parsed["rows"]:
+        ensure_profile(storage, settings, employee_id=row["employee_id"], fy=fy)
+        confirm_tds(storage, employee_id=row["employee_id"], fy=fy, annual_tds=row["annual_tds"],
+                    taxable_income=row["taxable_income"], actor=actor, note="imported from CA schedule")
+    storage.audit(actor=actor, action="tds_import", entity="tax", detail=f"{fy}: {len(parsed['rows'])} applied")
+    return {"applied": len(parsed["rows"]), "skipped": 0, "errors": []}

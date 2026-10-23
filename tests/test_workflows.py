@@ -60,7 +60,8 @@ def test_regularization_validation(storage: Storage, settings, aarav):
 
 
 def test_finalised_payroll_blocks_regularization(storage: Storage, settings, aarav):
-    day = _last_working_day(storage, settings)
+    # a past month: the current month cannot be finalised before it ends (PAY-04)
+    day = _last_working_day(storage, settings, back=orgtime.today(settings).day)
     request = regularization.submit(storage, settings, employee_id=aarav["id"], work_date=day.isoformat(),
                                     check_in="09:30", check_out="18:30", reason="missed the punch")
     payroll.generate_run(storage, settings, day.isoformat()[:7])

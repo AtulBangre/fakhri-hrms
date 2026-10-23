@@ -60,6 +60,51 @@ def basis_days_for(storage: Storage, period: str) -> int:
     return orgtime.month_days(period)
 
 
+#: Adjustments HR types onto a draft payslip; they survive a recalculation.
+ADJUSTMENT_FIELDS = ("bonus", "advance", "other_deduction", "tds_override", "note")
+
+
+def _require_started(settings: Settings, period: str) -> None:
+    """A month that has not begun has no attendance to pay for (PAY-04)."""
+    if period > orgtime.period_of(orgtime.today(settings)):
+        raise employees_service.ValidationError(
+            f"Cannot generate payroll for {orgtime.month_label(period)} — that month has not started. "
+            "Payroll can only be run for the current or a past month."
+        )
+
+
+def _require_closable(storage: Storage, settings: Settings, period: str) -> None:
+    """Finalising/paying the current month waits for its last day (configurable)."""
+    today = orgtime.today(settings)
+    if period > orgtime.period_of(today):
+        _require_started(settings, period)
+    if period < orgtime.period_of(today):
+        return
+    last_day = orgtime.month_bounds(period)[1].day
+    from_day = storage.get_int("payroll_finalise_from_day", 0) or last_day
+    if today.day < min(from_day, last_day):
+        raise employees_service.ValidationError(
+            f"{orgtime.month_label(period)} is still running — it can be finalised from day "
+            f"{min(from_day, last_day)} of the month. Keep it as a draft until then."
+        )
+
+
+def period_state(storage: Storage, settings: Settings, period: str) -> dict[str, Any]:
+    """What the payroll screen may offer for a month: future, still running, or closable."""
+    today = orgtime.today(settings)
+    current = orgtime.period_of(today)
+    last_day = orgtime.month_bounds(period)[1]
+    from_day = min(storage.get_int("payroll_finalise_from_day", 0) or last_day.day, last_day.day)
+    running = period == current
+    return {
+        "future": period > current,
+        "running": running,
+        "days_left": (last_day - today).days if running else 0,
+        "closable": period < current or (running and today.day >= from_day),
+        "closable_from": last_day.replace(day=from_day) if running else None,
+    }
+
+
 def _require_draft(run: dict[str, Any]) -> None:
     if run["status"] != "draft":
         raise employees_service.ValidationError(
@@ -174,20 +219,35 @@ def generate_run(
     *,
     actor: str | None = None,
     include_inactive: bool = False,
+    reset_adjustments: bool = False,
 ) -> dict[str, Any]:
-    """Create or refresh the draft run for a month, recomputing every payslip."""
+    """Create or refresh the draft run for a month, recomputing every payslip.
+
+    Recalculating keeps HR's adjustments (bonus, advance, other deduction, TDS
+    override, note) unless ``reset_adjustments`` is set.
+    """
     try:
         orgtime.month_bounds(period)  # validates the period string
     except (ValueError, TypeError) as exc:
         raise employees_service.ValidationError("Period must look like 2026-10.") from exc
+    _require_started(settings, period)
 
     clause = "" if include_inactive else "WHERE status = 'active'"
     staff = storage.query(f"SELECT * FROM employees {clause} ORDER BY name COLLATE NOCASE")
 
     with storage.transaction():
         run = get_run(storage, period)
+        kept: dict[int, dict[str, Any]] = {}
         if run:
             _require_draft(run)
+            if not reset_adjustments:
+                kept = {
+                    row["employee_id"]: row
+                    for row in storage.query(
+                        f"SELECT employee_id, {', '.join(ADJUSTMENT_FIELDS)} FROM payslips WHERE run_id = ?",
+                        (run["id"],),
+                    )
+                }
             storage.execute_tx("DELETE FROM payslips WHERE run_id = ?", (run["id"],))
             storage.execute_tx(
                 "UPDATE payroll_runs SET basis_days = ?, generated_at = ?, note = NULL WHERE id = ?",
@@ -204,18 +264,21 @@ def generate_run(
         now = utcnow_iso()
         for employee in staff:
             calc = compute_slip(storage, settings, employee, period)
+            _apply_adjustments(calc, kept.get(employee["id"]))
             storage.execute_tx(
                 """
                 INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, paid_leave_days,
                                       lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
-                                      professional_tax, tds, total_deductions, net_pay, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                      professional_tax, tds, total_deductions, net_pay, created_at, updated_at,
+                                      bonus, advance, other_deduction, tds_override, note)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
                     calc["paid_leave_days"], calc["lop_days"], calc["monthly_gross"], calc["per_day_rate"],
                     calc["earned_gross"], calc["pf"], calc["esi"], calc["professional_tax"],
                     calc["tds"], calc["total_deductions"], calc["net_pay"], now, now,
+                    calc["bonus"], calc["advance"], calc["other_deduction"], calc["tds_override"], calc["note"],
                 ),
             )
 
@@ -232,11 +295,29 @@ def generate_run(
             (round(row.get("gross", 0), 2), round(row.get("deductions", 0), 2), round(row.get("net", 0), 2), run["id"]),
         )
 
+    kept_count = sum(1 for row in kept.values() if any(row.get(f) for f in ADJUSTMENT_FIELDS))
     storage.audit(actor=actor, action="generate_payroll", entity="payroll_run", entity_id=run["id"],
-                  detail=f"{period}: {len(staff)} payslip(s)")
+                  detail=f"{period}: {len(staff)} payslip(s), {kept_count} kept adjustments")
     refreshed = get_run(storage, period)
     assert refreshed is not None
+    refreshed["kept_adjustments"] = kept_count
     return refreshed
+
+
+def _apply_adjustments(calc: dict[str, Any], kept: dict[str, Any] | None) -> None:
+    """Fold HR's saved adjustments into a freshly computed slip."""
+    kept = kept or {}
+    bonus = float(kept.get("bonus") or 0)
+    advance = float(kept.get("advance") or 0)
+    other = float(kept.get("other_deduction") or 0)
+    override = kept.get("tds_override")
+    tds = float(override) if override is not None else calc["tds"]
+    total = calc["pf"] + calc["esi"] + calc["professional_tax"] + tds + advance + other
+    calc.update(
+        bonus=bonus, advance=advance, other_deduction=other, tds=round(tds, 2),
+        tds_override=override, note=kept.get("note"),
+        total_deductions=round(total, 2), net_pay=round(calc["earned_gross"] + bonus - total, 2),
+    )
 
 
 def _recompute_totals(storage: Storage, run_id: int) -> None:
@@ -276,6 +357,7 @@ def update_slip(
     assert run is not None
     _require_draft(run)
 
+    tds_override = slip.get("tds_override") if tds is None else round(tds, 2)
     tds = float(slip.get("tds") or 0) if tds is None else tds
     for label, value in (("bonus", bonus), ("advance", advance), ("other_deduction", other_deduction),
                          ("TDS", tds)):
@@ -287,11 +369,11 @@ def update_slip(
     storage.execute(
         """
         UPDATE payslips SET bonus = ?, advance = ?, other_deduction = ?, tds = ?, total_deductions = ?,
-                            net_pay = ?, note = ?, updated_at = ?
+                            net_pay = ?, note = ?, tds_override = ?, updated_at = ?
         WHERE id = ?
         """,
         (bonus, advance, other_deduction, round(tds, 2), round(total_deductions, 2), round(net_pay, 2), note,
-         utcnow_iso(), slip_id),
+         tds_override, utcnow_iso(), slip_id),
     )
     _recompute_totals(storage, slip["run_id"])
     storage.audit(actor=actor, action="update_payslip", entity="payslip", entity_id=slip_id,
@@ -309,6 +391,8 @@ def set_run_status(storage: Storage, period: str, status: str, *, actor: str | N
         raise employees_service.ValidationError(f"No payroll run found for {period}.")
     if run["status"] == "paid":
         raise employees_service.ValidationError("A paid run cannot be changed.")
+    if status in ("finalized", "paid"):
+        _require_closable(storage, storage.settings, period)
 
     column = "finalized_at" if status == "finalized" else "paid_at"
     storage.execute(
@@ -341,6 +425,11 @@ def delete_run(storage: Storage, period: str, *, actor: str | None = None) -> No
     run = get_run(storage, period)
     if run is None:
         return
+    if run["status"] != "draft":
+        raise employees_service.ValidationError(
+            "Only a draft run can be deleted — a paid run is a permanent record."
+            if run["status"] == "paid" else "Reopen the run first; only a draft run can be deleted."
+        )
     storage.execute("DELETE FROM payslips WHERE run_id = ?", (run["id"],))
     storage.execute("DELETE FROM payroll_runs WHERE id = ?", (run["id"],))
     storage.audit(actor=actor, action="delete_payroll", entity="payroll_run", entity_id=run["id"], detail=period)

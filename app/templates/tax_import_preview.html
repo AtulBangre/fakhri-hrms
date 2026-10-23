@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Check TDS schedule · FY {{ fy }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Check the TDS schedule · FY {{ fy }}</h1>
+    <div class="sub">Nothing has been saved yet. Review the figures, then apply.</div>
+  </div>
+  <div class="page-actions"><a class="btn" href="/tax?fy={{ fy }}">{{ icon('chevron-left') }} Back</a></div>
+</div>
+
+{% if parsed.errors %}
+  <div class="alert alert-err">{{ icon('alert') }}<div>
+    <strong>{{ parsed.errors | length }} line(s) need fixing</strong> — the schedule is applied all-or-nothing.
+    <ul class="mb-0" style="margin:.3rem 0 0;padding-left:1.1rem">{% for e in parsed.errors[:20] %}<li>{{ e }}</li>{% endfor %}</ul>
+    <div class="small mt-1">Tip: write amounts as <span class="mono">150000</span>, or quote them: <span class="mono">"1,50,000"</span>.</div>
+  </div></div>
+{% endif %}
+
+<div class="card flush mb-3">
+  <div class="card-head"><h2>{{ parsed.rows | length }} employee(s) ready</h2></div>
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead><tr><th>Employee</th><th class="num">Currently confirmed</th><th class="num">New annual TDS</th><th class="num">Taxable income</th></tr></thead>
+      <tbody>
+      {% for row in parsed.rows %}
+        <tr>
+          <td data-label="Employee"><strong>{{ row.name }}</strong><span class="sub">{{ row.code }}</span></td>
+          <td data-label="Currently confirmed" class="num">{{ row.current | money if row.current is not none else '—' }}</td>
+          <td data-label="New annual TDS" class="num"><strong>{{ row.annual_tds | money }}</strong></td>
+          <td data-label="Taxable income" class="num">{{ row.taxable_income | money if row.taxable_income is not none else '—' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4" class="empty-state">No valid lines.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<form method="post" action="/tax/import" class="form-actions">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <input type="hidden" name="fy" value="{{ fy }}">
+  <input type="hidden" name="step" value="apply">
+  <textarea name="csv_text" class="hidden">{{ csv_text }}</textarea>
+  <button class="btn btn-primary" type="submit" {{ 'disabled' if parsed.errors or not parsed.rows }}>Apply to {{ parsed.rows | length }} employee(s)</button>
+  <a class="btn" href="/tax?fy={{ fy }}">Cancel</a>
+</form>
+{% endblock %}

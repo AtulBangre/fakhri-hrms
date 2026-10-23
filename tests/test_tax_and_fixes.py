@@ -124,9 +124,17 @@ def test_hr_confirms_tds_and_prints_form16(hr_client: TestClient, storage: Stora
 def test_tds_schedule_import(hr_client: TestClient, storage: Storage, staff):
     token = csrf_of(hr_client, "/tax")
     code = staff[1]["code"]
-    response = hr_client.post(
+    # step 1: preview — the bad line is reported and nothing is saved
+    preview = hr_client.post(
         "/tax/import",
         data={"_csrf": token, "fy": "2025-26", "csv_text": f"code,annual_tds\n{code},18000\nNOPE,1\n"},
+    )
+    assert "no employee with code NOPE" in preview.text
+    assert tax.get_profile(storage, staff[1]["id"], "2025-26") == {}
+    # step 2: apply a clean sheet
+    response = hr_client.post(
+        "/tax/import",
+        data={"_csrf": token, "fy": "2025-26", "step": "apply", "csv_text": f"code,annual_tds\n{code},18000\n"},
         follow_redirects=False,
     )
     assert "applied" in response.headers["location"]

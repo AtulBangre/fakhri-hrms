@@ -89,6 +89,7 @@ async def import_schedule(
     csrf: str = Form("", alias="_csrf"),
     fy: str = Form(""),
     csv_text: str = Form(""),
+    step: str = Form("preview"),
     file: UploadFile | None = File(None),
 ):
     verify_form_csrf(user, csrf)
@@ -102,11 +103,17 @@ async def import_schedule(
             return redirect("/tax", fy=fy, err="That file is not a UTF-8 CSV. Save it as CSV (UTF-8) and retry.")
     if not text.strip():
         return redirect("/tax", fy=fy, err="Paste the CA's schedule or choose a CSV file.")
+    if step != "apply":
+        # Always show what will change first; nothing is written on a preview.
+        parsed = tax.parse_tds_schedule(storage, text)
+        for row in parsed["rows"]:
+            row["current"] = tax.get_profile(storage, row["employee_id"], fy).get("confirmed_tds")
+        return render(request, "tax_import_preview.html", active="tax", user=user, fy=fy,
+                      parsed=parsed, csv_text=text)
     result = tax.import_tds_schedule(storage, settings, csv_text=text, fy=fy, actor=user.username)
-    message = f"TDS schedule applied: {result['applied']} employee(s)"
-    if result["skipped"]:
-        message += f", {result['skipped']} line(s) skipped — " + "; ".join(result["errors"])
-    return redirect("/tax", fy=fy, ok=message + ".")
+    if result["errors"]:
+        return redirect("/tax", fy=fy, err="Nothing was applied — fix these lines: " + "; ".join(result["errors"][:5]))
+    return redirect("/tax", fy=fy, ok=f"TDS schedule applied to {result['applied']} employee(s).")
 
 
 @router.get("/tax/employee/{employee_id}")

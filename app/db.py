@@ -626,6 +626,7 @@ class Storage:
         ],
         "payslips": [
             ("tds", "REAL NOT NULL DEFAULT 0"),
+            ("tds_override", "REAL"),
         ],
         "employees": [
             ("address", "TEXT"),
