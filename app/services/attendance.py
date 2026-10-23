@@ -433,6 +433,21 @@ def mark_by_face(
                 worked_minutes=existing.get("worked_minutes"),
             )
 
+        # Half-day leave: the person works the other half. Record the scan, keep the
+        # paid half day — never turn it into a full "present" (LV-05).
+        if status == orgtime.STATUS_HALF_DAY and existing.get("leave_type"):
+            storage.execute(
+                "UPDATE attendance SET check_in = ?, device_label = ?, updated_at = ? WHERE id = ?",
+                (now_clock, device_label, utcnow_iso(), existing["id"]),
+            )
+            updated = get_row(storage, employee["id"], day)
+            return MarkOutcome(
+                ok=True, action="check_in", kind="success",
+                message=f"{employee['name']} checked in at {orgtime.format_clock(now_clock)} (half-day leave)",
+                employee=employee, attendance=updated, similarity=similarity,
+                status=orgtime.STATUS_HALF_DAY, check_in=now_clock, late_minutes=0,
+            )
+
         # Row exists without a check-in (e.g. HR marked absent, then the person showed up).
         late = orgtime.late_minutes_for(storage, moment)
         note = "face scan overrode a manual entry"

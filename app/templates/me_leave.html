@@ -6,7 +6,7 @@
 <div class="page-head">
   <div class="titles">
     <h1>My leave</h1>
-    <div class="sub">{{ balance.balance | number }} day(s) available · {{ balance.used_paid | number }} taken this year</div>
+    <div class="sub">{{ balance.available | number }} day(s) available to request · {{ balance.used_paid | number }} taken</div>
   </div>
   <div class="page-actions">
     <a class="btn" href="/me">← My day</a>
@@ -100,13 +100,14 @@
       <div class="card-head"><h3>Balance</h3></div>
       <div class="card-body">
         <div style="font-family:var(--font-heading);font-size:2.2rem;font-weight:600;line-height:1">
-          {{ balance.balance | number }}<span class="small muted">days</span>
+          {{ balance.available | number }}<span class="small muted">days available</span>
         </div>
         <div class="kv small mt-2">
           <div><span class="k">Earned so far</span><span class="v">{{ balance.accrued | number }}</span></div>
           <div><span class="k">Paid leave taken</span><span class="v">{{ balance.used_paid | number }}</span></div>
           <div><span class="k">Unpaid taken</span><span class="v">{{ balance.used_unpaid | number }}</span></div>
           <div><span class="k">Waiting for approval</span><span class="v">{{ balance.pending | number }}</span></div>
+          <div><span class="k">Unused balance</span><span class="v">{{ balance.balance | number }}</span></div>
           <div><span class="k">Months of service</span><span class="v">{{ balance.months_of_service }}</span></div>
         </div>
       </div>

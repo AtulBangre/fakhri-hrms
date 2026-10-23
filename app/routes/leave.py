@@ -69,6 +69,7 @@ def apply(
     half_day: str = Form(""),
     reason: str = Form(""),
     period: str = Form(""),
+    allow_negative: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
     try:
@@ -82,6 +83,7 @@ def apply(
             half_day=bool(half_day),
             reason=reason or None,
             actor=user.username,
+            allow_negative=bool(allow_negative),
         )
     except employees_service.ValidationError as exc:
         return redirect("/leave", err=str(exc), period=period or None)
@@ -125,10 +127,12 @@ def approve(
     settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
     period: str = Form(""),
+    allow_negative: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
     try:
-        result = leave_service.approve_leave(storage, leave_id=leave_id, actor=user.username)
+        result = leave_service.approve_leave(storage, leave_id=leave_id, actor=user.username,
+                                             allow_negative=bool(allow_negative))
     except employees_service.ValidationError as exc:
         return redirect("/leave", err=str(exc), period=period or None)
 

@@ -502,6 +502,7 @@ class Storage:
             self._repair_dangling_user_refs()
             self._rebuild_users_if_needed()
             self._add_missing_columns()
+            self._backfill_leave_ids()
             # Must exist on both paths (fresh database and migrated one).
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_users_employee ON users(employee_id)"
@@ -628,6 +629,9 @@ class Storage:
             ("tds", "REAL NOT NULL DEFAULT 0"),
             ("tds_override", "REAL"),
         ],
+        "attendance": [
+            ("leave_id", "INTEGER"),
+        ],
         "employees": [
             ("address", "TEXT"),
             ("bank_name", "TEXT"),
@@ -639,6 +643,18 @@ class Storage:
             ("emergency_contact", "TEXT"),
         ],
     }
+
+    def _backfill_leave_ids(self) -> None:
+        """Link old leave-stamped attendance rows to their leave (they only had a note)."""
+        rows = self._conn.execute(
+            "SELECT id, note FROM attendance WHERE source = 'leave' AND leave_id IS NULL AND note LIKE 'leave #%'"
+        ).fetchall()
+        for row in rows:
+            match = re.match(r"leave #(\d+)\b", row["note"] or "")
+            if match:
+                self._conn.execute("UPDATE attendance SET leave_id = ? WHERE id = ?", (int(match.group(1)), row["id"]))
+        if rows:
+            self._conn.commit()
 
     def _add_missing_columns(self) -> None:
         """``ALTER TABLE ... ADD COLUMN`` for anything added since the table was made.

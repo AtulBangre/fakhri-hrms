@@ -224,3 +224,89 @@ def test_att03_register_matches_payslips(storage: Storage, settings):
         assert row["totals"]["payable_days"] == calc["present_days"] + calc["paid_leave_days"]
     joiner_row = next(r for r in register["rows"] if r["employee"]["id"] == joiner["id"])
     assert joiner_row["cells"][0]["code"] == "–" and joiner_row["totals"]["absent"] == 0
+
+
+# ---------------------------------------------------------------- leave (step 4)
+def test_lv01_paid_leave_cannot_exceed_balance(storage: Storage, settings):
+    e = _employee(storage, "Short Service", joined="2026-09-01")
+    with pytest.raises(employees_service.ValidationError, match="balance"):
+        leave_service.apply_leave(storage, settings, employee_id=e["id"], leave_type="paid",
+                                  from_date="2026-10-05", to_date="2026-10-16")
+    # pending ESS requests count against what is left
+    leave_service.apply_leave(storage, settings, employee_id=e["id"], leave_type="paid",
+                              from_date="2026-10-05", status="pending")
+    available = leave_service.balance(storage, settings, e["id"])["available"]
+    with pytest.raises(employees_service.ValidationError):
+        leave_service.apply_leave(storage, settings, employee_id=e["id"], leave_type="sick",
+                                  from_date="2026-10-06", to_date="2026-10-16", status="pending")
+    assert available >= 0
+    # HR may override explicitly; unpaid leave is never limited
+    leave_service.apply_leave(storage, settings, employee_id=e["id"], leave_type="paid",
+                              from_date="2026-10-19", to_date="2026-10-23", allow_negative=True)
+    leave_service.apply_leave(storage, settings, employee_id=e["id"], leave_type="unpaid",
+                              from_date="2026-09-21", to_date="2026-09-25")
+
+
+def test_lv02_overlapping_leave_is_refused(storage: Storage, settings, aarav):
+    leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
+                              from_date="2026-09-07", to_date="2026-09-09")
+    with pytest.raises(employees_service.ValidationError, match="already"):
+        leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="casual",
+                                  from_date="2026-09-09", status="pending")
+
+
+def test_lv03_cancel_only_removes_its_own_days(storage: Storage, settings, aarav):
+    first = leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
+                                      from_date="2026-09-07")["leave"]
+    # force ids so one is a numeric prefix of the other (#N and #N0)
+    storage.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = 'leave_requests'", (first["id"] * 10 - 1,))
+    second = leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
+                                       from_date="2026-09-08")["leave"]
+    assert str(second["id"]).startswith(str(first["id"]))
+    assert attendance_service.get_row(storage, aarav["id"], "2026-09-08")["leave_id"] == second["id"]
+    # even a day that sits inside the first leave's range but belongs to the second survives
+    storage.execute("UPDATE leave_requests SET to_date = '2026-09-08' WHERE id = ?", (first["id"],))
+    leave_service.cancel_leave(storage, first["id"])
+    assert attendance_service.get_row(storage, aarav["id"], "2026-09-07") is None
+    assert attendance_service.get_row(storage, aarav["id"], "2026-09-08")["status"] == "leave"
+
+
+def test_lv04_worked_days_are_not_charged(storage: Storage, settings, aarav):
+    _fill(storage, aarav["id"], [date(2026, 9, 8)])
+    result = leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
+                                       from_date="2026-09-07", to_date="2026-09-09")
+    assert result["leave"]["days"] == 2 and len(result["skipped"]) == 1
+    _fill(storage, aarav["id"], [date(2026, 9, 14)])
+    with pytest.raises(employees_service.ValidationError, match="no day"):
+        leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
+                                  from_date="2026-09-14")
+
+
+def test_lv05_half_day_leave_survives_gate_scans(storage: Storage, settings, aarav):
+    today = orgtime.today(settings)
+    if orgtime.day_kind(storage, today) != "working":
+        pytest.skip("needs a working day")
+    leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
+                              from_date=today.isoformat(), half_day=True)
+    attendance_service.mark_by_face(storage, settings, aarav, moment=datetime.combine(today, datetime.min.time()).replace(hour=14))
+    attendance_service.mark_by_face(storage, settings, aarav, moment=datetime.combine(today, datetime.min.time()).replace(hour=18))
+    row = attendance_service.get_row(storage, aarav["id"], today)
+    assert row["status"] == "half_day" and row["leave_type"] == "paid" and row["check_in"] and row["check_out"]
+
+
+def test_lv05_half_day_leave_after_a_morning_scan(storage: Storage, settings, aarav):
+    _fill(storage, aarav["id"], [date(2026, 9, 8)])
+    result = leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
+                                       from_date="2026-09-08", half_day=True)
+    row = attendance_service.get_row(storage, aarav["id"], "2026-09-08")
+    assert result["applied"] and row["status"] == "half_day" and row["check_in"] == "09:30:00"
+    leave_service.cancel_leave(storage, result["leave"]["id"])
+    row = attendance_service.get_row(storage, aarav["id"], "2026-09-08")
+    assert row["status"] == "present" and row["leave_type"] is None  # the worked day is kept
+
+
+def test_lv06_half_day_on_a_week_off_is_refused(storage: Storage, settings, aarav):
+    sunday = next(d for d in orgtime.days_in_period(SEPT) if orgtime.day_kind(storage, d) == "week_off")
+    with pytest.raises(employees_service.ValidationError):
+        leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
+                                  from_date=sunday.isoformat(), half_day=True)

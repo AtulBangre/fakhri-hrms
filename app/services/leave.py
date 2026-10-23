@@ -35,8 +35,11 @@ def stamp_attendance(
     """Write one leave record onto the attendance calendar.
 
     Returns ``(applied, skipped)``. Weekly offs and holidays are skipped (never
-    charged), and so is any day that already carries a real check-in — HR should
-    decide that case by hand rather than have the system erase a worked day.
+    charged). A *full* day that already carries a real check-in is skipped too —
+    HR should decide that case rather than have the system erase a worked day.
+    A *half* day on a worked day is the normal case (worked one half, on leave the
+    other), so it keeps the scan times and becomes a half day with the leave type.
+    Every stamped row carries ``leave_id`` so cancelling touches only its own days.
     """
     employee_id = leave["employee_id"]
     leave_id = leave["id"]
@@ -62,29 +65,35 @@ def stamp_attendance(
             continue
 
         existing = attendance_service.get_row(storage, employee_id, day)
-        if existing and existing.get("check_in") and existing.get("source") != "leave":
+        worked = bool(existing and existing.get("check_in") and existing.get("source") != "leave")
+        if worked and not half_day:
             skipped.append({"date": day.isoformat(), "why": "already has a check-in"})
             continue
 
         status = orgtime.STATUS_HALF_DAY if half_day else orgtime.STATUS_LEAVE
-        if existing:
+        if worked:
+            storage.execute(
+                "UPDATE attendance SET status = ?, leave_type = ?, leave_id = ?, updated_at = ? WHERE id = ?",
+                (status, leave["leave_type"], leave_id, now, existing["id"]),
+            )
+        elif existing:
             storage.execute(
                 """
-                UPDATE attendance SET status = ?, leave_type = ?, source = 'leave', note = ?,
+                UPDATE attendance SET status = ?, leave_type = ?, source = 'leave', note = ?, leave_id = ?,
                                       check_in = NULL, check_out = NULL, worked_minutes = NULL,
                                       updated_at = ?
                 WHERE id = ?
                 """,
-                (status, leave["leave_type"], note, now, existing["id"]),
+                (status, leave["leave_type"], note, leave_id, now, existing["id"]),
             )
         else:
             storage.execute(
                 """
-                INSERT INTO attendance (employee_id, work_date, status, leave_type, source, note,
+                INSERT INTO attendance (employee_id, work_date, status, leave_type, source, note, leave_id,
                                         created_at, updated_at)
-                VALUES (?,?,?,?, 'leave', ?,?,?)
+                VALUES (?,?,?,?, 'leave', ?,?,?,?)
                 """,
-                (employee_id, day.isoformat(), status, leave["leave_type"], note, now, now),
+                (employee_id, day.isoformat(), status, leave["leave_type"], note, leave_id, now, now),
             )
         applied.append({"date": day.isoformat(), "status": status})
 
@@ -92,13 +101,20 @@ def stamp_attendance(
 
 
 def unstamp_attendance(storage: Storage, leave: dict[str, Any]) -> int:
-    """Remove the attendance rows a leave record created (used on cancel)."""
-    cursor = storage.execute(
-        "DELETE FROM attendance WHERE employee_id = ? AND work_date BETWEEN ? AND ? "
-        "AND source = 'leave' AND note LIKE ?",
-        (leave["employee_id"], leave["from_date"], leave["to_date"], f"leave #{leave['id']}%"),
+    """Undo what a leave record wrote (used on cancel).
+
+    Rows the leave created are deleted; a worked day it was laid over (half-day
+    leave on a scanned day) keeps its scan and goes back to present.
+    """
+    removed = storage.execute(
+        "DELETE FROM attendance WHERE leave_id = ? AND check_in IS NULL", (leave["id"],)
+    ).rowcount or 0
+    storage.execute(
+        "UPDATE attendance SET status = ?, leave_type = NULL, leave_id = NULL, updated_at = ? "
+        "WHERE leave_id = ?",
+        (orgtime.STATUS_PRESENT, utcnow_iso(), leave["id"]),
     )
-    return cursor.rowcount or 0
+    return removed
 
 
 # --------------------------------------------------------------------- apply
@@ -106,6 +122,10 @@ def _chargeable_days(storage: Storage, start: date, end: date, half_day: bool) -
     if half_day:
         if start != end:
             raise employees_service.ValidationError("A half day applies to a single date.")
+        kind = orgtime.day_kind(storage, start)
+        if kind != "working":
+            label = "a weekly off" if kind == orgtime.STATUS_WEEK_OFF else "a holiday"
+            raise employees_service.ValidationError(f"{orgtime.human_date(start)} is {label} — no leave is needed.")
         return 0.5
     chargeable = orgtime.working_days(storage, start, end)
     if chargeable == 0:
@@ -129,8 +149,14 @@ def apply_leave(
     actor: str | None = None,
     status: str = "approved",
     requested_by: int | None = None,
+    allow_negative: bool = False,
 ) -> dict[str, Any]:
-    """Create a leave record (optionally pending) and, if approved, stamp it."""
+    """Create a leave record (optionally pending) and, if approved, stamp it.
+
+    Paid, sick and casual leave may not exceed the available balance (accrued −
+    taken − still pending) unless HR passes ``allow_negative``. Overlapping an
+    existing pending/approved leave is refused.
+    """
     employee = employees_service.require_employee(storage, employee_id)
     if leave_type not in orgtime.ALL_LEAVE_TYPES:
         raise employees_service.ValidationError(f"Unknown leave type '{leave_type}'.")
@@ -146,6 +172,10 @@ def apply_leave(
     days = float(days) if days is not None else charged
     if days <= 0:
         raise employees_service.ValidationError("Leave days must be greater than zero.")
+
+    _check_overlap(storage, employee_id, start, end)
+    if leave_type in orgtime.PAID_LEAVE_TYPES and not allow_negative:
+        _check_balance(storage, settings, employee_id, days)
 
     now = utcnow_iso()
     cursor = storage.execute(
@@ -165,22 +195,77 @@ def apply_leave(
     skipped: list[dict[str, Any]] = []
     if status == "approved":
         applied, skipped = stamp_attendance(storage, leave, actor=actor)
+        if not applied:
+            storage.execute("DELETE FROM leave_requests WHERE id = ?", (leave_id,))
+            raise employees_service.ValidationError(
+                "There is no day left to charge: " + ", ".join(f"{s['date']} ({s['why']})" for s in skipped) + "."
+            )
+        leave = _charge_applied(storage, leave, applied)
+        days = float(leave["days"])
 
     storage.audit(
         actor=actor,
         action="apply_leave" if status == "approved" else "request_leave",
         entity="employee",
         entity_id=employee_id,
-        detail=f"{leave_type} {start.isoformat()}..{end.isoformat()} days={days:g} [{status}]",
+        detail=f"{leave_type} {start.isoformat()}..{end.isoformat()} days={days:g} [{status}]"
+               + (" — balance override" if allow_negative and leave_type in orgtime.PAID_LEAVE_TYPES else ""),
     )
     leave["employee_name"] = employee["name"]
     leave["employee_code"] = employee["code"]
     return {"leave": leave, "applied": applied, "skipped": skipped}
 
 
+def storage_settings(storage: Storage) -> Settings:
+    return storage.settings
+
+
+def _check_overlap(storage: Storage, employee_id: int, start: date, end: date) -> None:
+    clash = storage.query_one(
+        "SELECT from_date, to_date, status FROM leave_requests WHERE employee_id = ? "
+        "AND status IN ('pending','approved') AND from_date <= ? AND to_date >= ? ORDER BY from_date LIMIT 1",
+        (employee_id, end.isoformat(), start.isoformat()),
+    )
+    if clash:
+        span = orgtime.human_date(clash["from_date"]) + (
+            "" if clash["from_date"] == clash["to_date"] else f" – {orgtime.human_date(clash['to_date'])}"
+        )
+        raise employees_service.ValidationError(
+            f"There is already {'a pending request' if clash['status'] == 'pending' else 'approved leave'} on {span}."
+        )
+
+
+def _check_balance(storage: Storage, settings: Settings, employee_id: int, days: float,
+                   *, ignore_pending_id: int | None = None) -> None:
+    info = balance(storage, settings, employee_id)
+    available = info["available"]
+    if ignore_pending_id is not None:
+        pending_self = storage.scalar(
+            "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type IN ('paid','sick','casual')",
+            (ignore_pending_id,), 0,
+        )
+        available += float(pending_self or 0)
+    if days > available + 1e-9:
+        raise employees_service.ValidationError(
+            f"Not enough leave balance: {days:g} day(s) requested, {max(available, 0):g} available "
+            f"({info['balance']:g} earned and unused, {info['pending_paid']:g} already requested)."
+        )
+
+
+def _charge_applied(storage: Storage, leave: dict[str, Any], applied: list[dict[str, Any]]) -> dict[str, Any]:
+    """Charge only the days that were actually stamped (worked days are skipped)."""
+    charged = 0.5 if float(leave["days"]) == 0.5 else float(len(applied))
+    if charged != float(leave["days"]):
+        storage.execute("UPDATE leave_requests SET days = ? WHERE id = ?", (charged, leave["id"]))
+    refreshed = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (leave["id"],))
+    assert refreshed is not None
+    return refreshed
+
+
 # -------------------------------------------------------------------- decide
 def approve_leave(
-    storage: Storage, *, leave_id: int, actor: str | None = None, force: bool = False
+    storage: Storage, *, leave_id: int, actor: str | None = None, force: bool = False,
+    allow_negative: bool = False,
 ) -> dict[str, Any]:
     """Approve a pending request and stamp it onto attendance.
 
@@ -196,7 +281,16 @@ def approve_leave(
     if leave["status"] == "approved" and not force:
         raise employees_service.ValidationError("That leave is already approved.")
 
+    if leave["leave_type"] in orgtime.PAID_LEAVE_TYPES and leave["status"] == "pending" and not allow_negative:
+        _check_balance(storage, storage_settings(storage), leave["employee_id"], float(leave["days"]),
+                       ignore_pending_id=leave_id)
     applied, skipped = stamp_attendance(storage, leave, actor=actor)
+    if not applied:
+        raise employees_service.ValidationError(
+            "Nothing to approve — every day is already worked or off: "
+            + ", ".join(f"{s['date']} ({s['why']})" for s in skipped) + ". Reject the request instead."
+        )
+    _charge_applied(storage, leave, applied)
     storage.execute(
         "UPDATE leave_requests SET status = 'approved', decided_at = ? WHERE id = ?",
         (utcnow_iso(), leave_id),
@@ -353,6 +447,13 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             (employee_id,),
         )
     )
+    pending_paid = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) AS n FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'pending' AND leave_type IN ('paid','sick','casual')",
+            (employee_id,),
+        )
+    )
     return {
         "accrual_per_month": accrual,
         "months_of_service": months,
@@ -361,6 +462,8 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         "used_unpaid": round(used_unpaid, 2),
         "pending": round(pending, 2),
         "balance": round(accrued - used_paid, 2),
+        "pending_paid": round(pending_paid, 2),
+        "available": round(accrued - used_paid - pending_paid, 2),
         "joined_on": employee.get("joined_on"),
         "as_of": as_of.isoformat(),
     }
