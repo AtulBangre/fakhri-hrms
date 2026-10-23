@@ -425,6 +425,25 @@ def list_claims(
     return rows
 
 
+def mark_claim_paid(storage: Storage, *, claim_id: int, actor: str | None = None) -> dict[str, Any]:
+    """Record an approved claim as reimbursed outside payroll (cash / bank transfer)."""
+    claim = get_claim(storage, claim_id)
+    if claim["status"] != "approved":
+        raise ValueError(f"Only an approved claim can be marked paid (this one is {claim['status']}).")
+    run = storage.query_one("SELECT status FROM payroll_runs WHERE id = ?", (claim.get("payroll_run_id"),)) \
+        if claim.get("payroll_run_id") else None
+    if run and run["status"] != "draft":
+        raise ValueError("This claim is already being paid through a finalised payroll run.")
+    storage.execute(
+        "UPDATE expense_claims SET status = 'paid', payroll_run_id = NULL, decided_by = COALESCE(decided_by, ?), "
+        "note = COALESCE(note, 'paid outside payroll') WHERE id = ?",
+        (actor, claim_id),
+    )
+    storage.audit(actor=actor, action="expense_paid", entity="employee", entity_id=claim["employee_id"],
+                  detail=f"{claim['amount']:.2f}")
+    return get_claim(storage, claim_id)
+
+
 def decide_claim(
     storage: Storage, *, claim_id: int, approve: bool, decided_by: str | None = None, note: str | None = None
 ) -> dict[str, Any]:

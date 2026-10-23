@@ -161,6 +161,53 @@ def tds_for_period(storage: Storage, employee_id: int, period: str) -> float:
     return max(0.0, (float(profile["confirmed_tds"]) - already) / remaining_months)
 
 
+#: Statutory limits used in "auto" mode (PAY-08).
+PF_RATE, PF_WAGE_CEILING = 0.12, 15_000.0
+ESI_RATE, ESI_GROSS_LIMIT = 0.0075, 21_000.0
+
+
+def statutory_deductions(salary: dict[str, Any], monthly_gross: float, earned_gross: float) -> tuple[float, float, float]:
+    """PF, ESI and professional tax for the month, following the *earned* wages.
+
+    ``fixed`` mode pro-rates the amounts on the salary structure by the share of
+    the month actually earned; ``auto`` mode computes 12% PF on earned basic (wage
+    ceiling ₹15,000) and 0.75% ESI on earned gross while gross is within ₹21,000.
+    Professional tax is a flat slab and is only charged when something was earned.
+    """
+    share = (earned_gross / monthly_gross) if monthly_gross else 0.0
+    professional_tax = float(salary.get("professional_tax") or 0) if earned_gross > 0 else 0.0
+    if salary.get("statutory_mode") == "auto":
+        basic = float(salary.get("basic") or 0) or monthly_gross * 0.5
+        pf = PF_RATE * min(basic * share, PF_WAGE_CEILING)
+        esi = ESI_RATE * earned_gross if monthly_gross <= ESI_GROSS_LIMIT else 0.0
+    else:
+        pf = float(salary.get("pf") or 0) * share
+        esi = float(salary.get("esi") or 0) * share
+    # never deduct more than was earned
+    pf = min(pf, earned_gross)
+    esi = min(esi, max(0.0, earned_gross - pf))
+    professional_tax = min(professional_tax, max(0.0, earned_gross - pf - esi))
+    return round(pf, 2), round(esi, 2), round(professional_tax, 2)
+
+
+def approved_claims(storage: Storage, employee_id: int, period: str) -> list[dict[str, Any]]:
+    """Approved, not-yet-paid expense claims dated up to the end of the period (PAY-14)."""
+    _, month_end = orgtime.month_bounds(period)
+    run = get_run(storage, period)
+    return storage.query(
+        "SELECT id, amount FROM expense_claims WHERE employee_id = ? AND status = 'approved' "
+        "AND expense_date <= ? AND (payroll_run_id IS NULL OR payroll_run_id = ?) ORDER BY id",
+        (employee_id, month_end.isoformat(), run["id"] if run else -1),
+    )
+
+
+def _settle(earned: float, bonus: float, reimbursement: float, deductions: float) -> dict[str, float]:
+    """Net pay rounded to the rupee, keeping the rounding so totals reconcile (PAY-09)."""
+    raw = earned + bonus + reimbursement - deductions
+    net = float(round(raw))
+    return {"net_pay": net, "rounding": round(net - raw, 2)}
+
+
 def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any], period: str) -> dict[str, Any]:
     """Pure calculation for one employee-month (no writes)."""
     basis_days = basis_days_for(storage, period)
@@ -183,13 +230,12 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
 
     earned_gross = max(0.0, base_gross - lop_days * per_day)
 
-    pf = float(salary.get("pf") or 0)
-    esi = float(salary.get("esi") or 0)
-    professional_tax = float(salary.get("professional_tax") or 0)
+    pf, esi, professional_tax = statutory_deductions(salary, monthly_gross, earned_gross)
     # Tax can only come out of pay that was actually earned this month.
     tds = min(tds_for_period(storage, employee["id"], period),
               max(0.0, earned_gross - pf - esi - professional_tax))
     total_deductions = pf + esi + professional_tax + tds
+    claims = approved_claims(storage, employee["id"], period)
 
     return {
         "period": period,
@@ -212,7 +258,9 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
         "professional_tax": round(professional_tax, 2),
         "tds": round(tds, 2),
         "total_deductions": round(total_deductions, 2),
-        "net_pay": round(earned_gross - total_deductions, 2),
+        "reimbursement": round(sum(float(c["amount"]) for c in claims), 2),
+        "claim_ids": [c["id"] for c in claims],
+        **_settle(earned_gross, 0.0, sum(float(c["amount"]) for c in claims), total_deductions),
         "worked_minutes": int(summary["worked_minutes"]),
         "salary_effective_from": salary.get("effective_from"),
     }
@@ -256,6 +304,10 @@ def generate_run(
                 }
             storage.execute_tx("DELETE FROM payslips WHERE run_id = ?", (run["id"],))
             storage.execute_tx(
+                "UPDATE expense_claims SET payroll_run_id = NULL WHERE payroll_run_id = ? AND status = 'approved'",
+                (run["id"],),
+            )
+            storage.execute_tx(
                 "UPDATE payroll_runs SET basis_days = ?, generated_at = ?, note = NULL WHERE id = ?",
                 (basis_days_for(storage, period), utcnow_iso(), run["id"]),
             )
@@ -276,8 +328,8 @@ def generate_run(
                 INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, paid_leave_days,
                                       lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
                                       professional_tax, tds, total_deductions, net_pay, created_at, updated_at,
-                                      bonus, advance, other_deduction, tds_override, note)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                      bonus, advance, other_deduction, tds_override, note, reimbursement, rounding)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
@@ -285,8 +337,15 @@ def generate_run(
                     calc["earned_gross"], calc["pf"], calc["esi"], calc["professional_tax"],
                     calc["tds"], calc["total_deductions"], calc["net_pay"], now, now,
                     calc["bonus"], calc["advance"], calc["other_deduction"], calc["tds_override"], calc["note"],
+                    calc["reimbursement"], calc["rounding"],
                 ),
             )
+            if calc["claim_ids"]:
+                marks = ",".join("?" for _ in calc["claim_ids"])
+                storage.execute_tx(
+                    f"UPDATE expense_claims SET payroll_run_id = ? WHERE id IN ({marks})",
+                    (run["id"], *calc["claim_ids"]),
+                )
 
         row = storage.query_one(
             """
@@ -318,11 +377,21 @@ def _apply_adjustments(calc: dict[str, Any], kept: dict[str, Any] | None) -> Non
     other = float(kept.get("other_deduction") or 0)
     override = kept.get("tds_override")
     tds = float(override) if override is not None else calc["tds"]
-    total = calc["pf"] + calc["esi"] + calc["professional_tax"] + tds + advance + other
+    note = kept.get("note")
+    statutory = calc["pf"] + calc["esi"] + calc["professional_tax"] + tds
+    available = calc["earned_gross"] + bonus + calc["reimbursement"] - statutory
+    if advance + other > max(0.0, available):
+        # attendance changed since HR typed these: recover only what this month can carry
+        excess = advance + other - max(0.0, available)
+        cut_other = min(other, excess)
+        other -= cut_other
+        advance = max(0.0, advance - (excess - cut_other))
+        note = ((note + " · ") if note else "") + "recovery reduced to fit this month's pay"
+    total = statutory + advance + other
     calc.update(
-        bonus=bonus, advance=advance, other_deduction=other, tds=round(tds, 2),
-        tds_override=override, note=kept.get("note"),
-        total_deductions=round(total, 2), net_pay=round(calc["earned_gross"] + bonus - total, 2),
+        bonus=bonus, advance=round(advance, 2), other_deduction=round(other, 2), tds=round(tds, 2),
+        tds_override=override, note=note, total_deductions=round(total, 2),
+        **_settle(calc["earned_gross"], bonus, calc["reimbursement"], total),
     )
 
 
@@ -371,15 +440,21 @@ def update_slip(
             raise employees_service.ValidationError(f"{label.replace('_', ' ').title()} cannot be negative.")
 
     total_deductions = slip["pf"] + slip["esi"] + slip["professional_tax"] + tds + advance + other_deduction
-    net_pay = slip["earned_gross"] + bonus - total_deductions
+    reimbursement = float(slip.get("reimbursement") or 0)
+    shortfall = total_deductions - (slip["earned_gross"] + bonus + reimbursement)
+    if shortfall > 0.005:
+        raise employees_service.ValidationError(
+            f"Deductions exceed earnings by ₹{shortfall:,.2f} — reduce the advance recovery or other deduction."
+        )
+    settled = _settle(slip["earned_gross"], bonus, reimbursement, total_deductions)
     storage.execute(
         """
         UPDATE payslips SET bonus = ?, advance = ?, other_deduction = ?, tds = ?, total_deductions = ?,
-                            net_pay = ?, note = ?, tds_override = ?, updated_at = ?
+                            net_pay = ?, rounding = ?, note = ?, tds_override = ?, updated_at = ?
         WHERE id = ?
         """,
-        (bonus, advance, other_deduction, round(tds, 2), round(total_deductions, 2), round(net_pay, 2), note,
-         tds_override, utcnow_iso(), slip_id),
+        (bonus, advance, other_deduction, round(tds, 2), round(total_deductions, 2), settled["net_pay"],
+         settled["rounding"], note, tds_override, utcnow_iso(), slip_id),
     )
     _recompute_totals(storage, slip["run_id"])
     storage.audit(actor=actor, action="update_payslip", entity="payslip", entity_id=slip_id,
@@ -404,6 +479,12 @@ def set_run_status(storage: Storage, period: str, status: str, *, actor: str | N
     storage.execute(
         f"UPDATE payroll_runs SET status = ?, {column} = ? WHERE id = ?", (status, utcnow_iso(), run["id"])
     )
+    if status in ("finalized", "paid"):
+        storage.execute(
+            "UPDATE expense_claims SET status = 'paid', note = COALESCE(note, ?) "
+            "WHERE payroll_run_id = ? AND status = 'approved'",
+            (f"reimbursed in {orgtime.month_label(period)} payroll", run["id"]),
+        )
     storage.audit(actor=actor, action=f"payroll_{status}", entity="payroll_run", entity_id=run["id"],
                   detail=period)
     refreshed = get_run(storage, period)
@@ -421,6 +502,9 @@ def reopen_run(storage: Storage, period: str, *, actor: str | None = None) -> di
     storage.execute(
         "UPDATE payroll_runs SET status = 'draft', finalized_at = NULL WHERE id = ?", (run["id"],)
     )
+    storage.execute(
+        "UPDATE expense_claims SET status = 'approved' WHERE payroll_run_id = ? AND status = 'paid'", (run["id"],)
+    )
     storage.audit(actor=actor, action="payroll_reopen", entity="payroll_run", entity_id=run["id"], detail=period)
     refreshed = get_run(storage, period)
     assert refreshed is not None
@@ -437,6 +521,7 @@ def delete_run(storage: Storage, period: str, *, actor: str | None = None) -> No
             if run["status"] == "paid" else "Reopen the run first; only a draft run can be deleted."
         )
     storage.execute("DELETE FROM payslips WHERE run_id = ?", (run["id"],))
+    storage.execute("UPDATE expense_claims SET payroll_run_id = NULL WHERE payroll_run_id = ?", (run["id"],))
     storage.execute("DELETE FROM payroll_runs WHERE id = ?", (run["id"],))
     storage.audit(actor=actor, action="delete_payroll", entity="payroll_run", entity_id=run["id"], detail=period)
 
@@ -506,7 +591,7 @@ def payroll_csv(storage: Storage, period: str) -> str:
     header = (
         "Employee Code,Employee Name,Department,Designation,Monthly Gross,Basis Days,Present Days,"
         "Paid Leave Days,LOP Days,Earned Gross,Bonus,Advance,Other Deduction,PF,ESI,Professional Tax,"
-        "TDS,Total Deductions,Net Pay,Note"
+        "TDS,Total Deductions,Reimbursement,Rounding,Net Pay,Note"
     )
     lines = [header]
     for slip in slips:
@@ -516,7 +601,8 @@ def payroll_csv(storage: Storage, period: str) -> str:
             f"{slip['paid_leave_days']:g}", f"{slip['lop_days']:g}", f"{slip['earned_gross']:.2f}",
             f"{slip['bonus']:.2f}", f"{slip['advance']:.2f}", f"{slip['other_deduction']:.2f}",
             f"{slip['pf']:.2f}", f"{slip['esi']:.2f}", f"{slip['professional_tax']:.2f}",
-            f"{float(slip.get('tds') or 0):.2f}", f"{slip['total_deductions']:.2f}", f"{slip['net_pay']:.2f}", (slip.get("note") or "").replace(",", ";"),
+            f"{float(slip.get('tds') or 0):.2f}", f"{slip['total_deductions']:.2f}",
+            f"{float(slip.get('reimbursement') or 0):.2f}", f"{float(slip.get('rounding') or 0):.2f}", f"{slip['net_pay']:.2f}", (slip.get("note") or "").replace(",", ";"),
         ]
         lines.append(",".join(_csv_safe(value) for value in fields))
     return "\n".join(lines) + "\n"

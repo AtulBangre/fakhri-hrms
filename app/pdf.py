@@ -163,7 +163,10 @@ def render_payslip(
     pdf.amount_row(f"Loss of pay ({_num(slip.get('lop_days'))} d)", "- " + _money(lop_deduction))
     pdf.amount_row("Earned gross", _money(slip.get("earned_gross")), bold=True, tint=True)
     pdf.amount_row("Bonus / incentive", _money(slip.get("bonus")))
-    total_earnings = float(slip.get("earned_gross") or 0) + float(slip.get("bonus") or 0)
+    reimbursement = float(slip.get("reimbursement") or 0)
+    if reimbursement:
+        pdf.amount_row("Expense reimbursement", _money(reimbursement))
+    total_earnings = float(slip.get("earned_gross") or 0) + float(slip.get("bonus") or 0) + reimbursement
     pdf.amount_row("Total earnings", _money(total_earnings), bold=True)
     left_end = pdf.get_y()
 

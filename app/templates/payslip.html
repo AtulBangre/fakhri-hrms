@@ -60,7 +60,8 @@
             <tr><td>Loss of pay ({{ slip.lop_days | number }} days)</td><td class="num">− {{ lop_amount | money }}</td></tr>
             <tr class="total-row"><td>Earned gross</td><td class="num">{{ slip.earned_gross | money }}</td></tr>
             <tr><td>Bonus / incentive</td><td class="num">{{ slip.bonus | money }}</td></tr>
-            <tr class="total-row"><td>Total earnings</td><td class="num">{{ (slip.earned_gross + slip.bonus) | money }}</td></tr>
+            {% if slip.reimbursement %}<tr><td>Expense reimbursement</td><td class="num">{{ slip.reimbursement | money }}</td></tr>{% endif %}
+            <tr class="total-row"><td>Total earnings</td><td class="num">{{ (slip.earned_gross + slip.bonus + (slip.reimbursement or 0)) | money }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -87,7 +88,7 @@
       </div>
       <div class="small muted" style="max-width:340px">
         {% if slip.note %}<div><strong>Note:</strong> {{ slip.note }}</div>{% endif %}
-        <div>Net pay = earned gross + bonus − total deductions.</div>
+        <div>Net pay = earned gross + bonus{% if slip.reimbursement %} + reimbursement{% endif %} − total deductions{% if slip.rounding %}, rounded to the rupee ({{ '%+.2f' | format(slip.rounding) }}){% endif %}.</div>
       </div>
     </div>
 

@@ -107,7 +107,8 @@ def test_pay06_recalculation_keeps_adjustments(storage: Storage, settings, aarav
     again = next(s for s in payroll.list_slips(storage, "2026-01") if s["employee_id"] == aarav["id"])
     assert (again["bonus"], again["advance"], again["other_deduction"], again["tds"], again["note"]) == \
         (5000, 1000, 200, 700, "Diwali bonus")
-    assert again["net_pay"] == pytest.approx(again["earned_gross"] + 5000 - again["total_deductions"])
+    assert again["net_pay"] == pytest.approx(again["earned_gross"] + 5000 - again["total_deductions"]
+                                             + again["rounding"])
     # an explicit reset starts clean
     payroll.generate_run(storage, settings, "2026-01", reset_adjustments=True)
     clean = next(s for s in payroll.list_slips(storage, "2026-01") if s["employee_id"] == aarav["id"])
@@ -310,3 +311,89 @@ def test_lv06_half_day_on_a_week_off_is_refused(storage: Storage, settings, aara
     with pytest.raises(employees_service.ValidationError):
         leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
                                   from_date=sunday.isoformat(), half_day=True)
+
+
+# ---------------------------------------------------------- payroll (step 5)
+from app.services import records  # noqa: E402
+
+AUG = "2026-08"
+
+
+def _finalise(storage, settings, period):
+    payroll.generate_run(storage, settings, period)
+    payroll.set_run_status(storage, period, "finalized")
+
+
+def test_pay10_finalised_month_is_locked(hr_client: TestClient, storage: Storage, settings, aarav):
+    _finalise(storage, settings, AUG)
+    blocked = (
+        lambda: attendance_service.mark_manual(storage, employee_id=aarav["id"], work_date="2026-08-05", status="absent"),
+        lambda: attendance_service.clear_day(storage, employee_id=aarav["id"], work_date="2026-08-05"),
+        lambda: leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="unpaid",
+                                          from_date="2026-08-06"),
+        lambda: leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="unpaid",
+                                          from_date="2026-07-30", to_date="2026-08-03", status="pending"),
+    )
+    for action in blocked:
+        with pytest.raises(employees_service.ValidationError, match="finalised"):
+            action()
+    token = csrf_of(hr_client, "/settings")
+    response = hr_client.post("/attendance/holidays", data={"_csrf": token, "day": "2026-08-15", "name": "I-Day"},
+                              follow_redirects=False)
+    assert "err=" in response.headers["location"]
+    # reopening unlocks it again
+    payroll.reopen_run(storage, AUG)
+    attendance_service.mark_manual(storage, employee_id=aarav["id"], work_date="2026-08-05", status="absent")
+
+
+def test_pay11_employees_only_see_final_payslips(ess_client: TestClient, storage: Storage, settings, ess_credentials):
+    employee_id = ess_credentials["employee"]["id"]
+    payroll.generate_run(storage, settings, AUG)
+    slip = next(s for s in payroll.list_slips(storage, AUG) if s["employee_id"] == employee_id)
+    assert f"/me/payslips/{slip['id']}" not in ess_client.get("/me/payslips").text
+    assert ess_client.get(f"/me/payslips/{slip['id']}", follow_redirects=False).status_code == 303
+    assert ess_client.get(f"/me/payslips/{slip['id']}.pdf", follow_redirects=False).status_code == 303
+    payroll.set_run_status(storage, AUG, "finalized")
+    assert f"/me/payslips/{slip['id']}" in ess_client.get("/me/payslips").text
+
+
+def test_pay14_approved_expenses_are_reimbursed_through_payroll(storage: Storage, settings, aarav):
+    claim = records.submit_claim(storage, settings, employee_id=aarav["id"], amount=1250,
+                                 expense_date="2026-08-10", category="travel")
+    records.decide_claim(storage, claim_id=claim["id"], approve=True, decided_by="hr")
+    payroll.generate_run(storage, settings, AUG)
+    slip = next(s for s in payroll.list_slips(storage, AUG) if s["employee_id"] == aarav["id"])
+    assert slip["reimbursement"] == 1250
+    assert slip["net_pay"] == pytest.approx(slip["earned_gross"] + slip["bonus"] + 1250 - slip["total_deductions"]
+                                            + slip["rounding"])
+    payroll.set_run_status(storage, AUG, "finalized")
+    assert records.get_claim(storage, claim["id"])["status"] == "paid"
+
+
+def test_pay14_claims_can_be_marked_paid_by_hand(storage: Storage, settings, aarav):
+    claim = records.submit_claim(storage, settings, employee_id=aarav["id"], amount=500,
+                                 expense_date="2026-08-10", category="food")
+    records.decide_claim(storage, claim_id=claim["id"], approve=True, decided_by="hr")
+    records.mark_claim_paid(storage, claim_id=claim["id"], actor="hr")
+    assert records.get_claim(storage, claim["id"])["status"] == "paid"
+
+
+def test_pay08_pf_and_esi_follow_earned_wages(storage: Storage, settings):
+    e = _employee(storage, "Statutory", gross=18000)
+    employees_service.set_salary(storage, e["id"], monthly_gross=18000, basic=9000, pf=1080, esi=135,
+                                 effective_from="2025-01-01")
+    days = _working_days(storage, SEPT)
+    _fill(storage, e["id"], days[10:])            # 10 working days absent
+    calc = payroll.compute_slip(storage, settings, e, SEPT)
+    share = calc["earned_gross"] / 18000
+    assert share < 1
+    assert calc["pf"] == pytest.approx(1080 * share, abs=0.01)
+    assert calc["esi"] == pytest.approx(135 * share, abs=0.01)
+
+
+def test_pay09_net_pay_never_negative(storage: Storage, settings, aarav):
+    payroll.generate_run(storage, settings, AUG)
+    slip = next(s for s in payroll.list_slips(storage, AUG) if s["employee_id"] == aarav["id"])
+    with pytest.raises(employees_service.ValidationError, match="exceed"):
+        payroll.update_slip(storage, slip["id"], advance=slip["earned_gross"] + 10_000)
+    assert float(slip["net_pay"]).is_integer()  # rounded to the rupee

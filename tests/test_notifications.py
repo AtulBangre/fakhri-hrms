@@ -260,6 +260,7 @@ def test_employee_can_download_only_their_own_payslip_pdf(
     ess_client: TestClient, storage, settings, staff
 ):
     payroll.generate_run(storage, settings, "2026-04")
+    payroll.set_run_status(storage, "2026-04", "finalized")  # employees only see final payslips
     mine = [s for s in payroll.list_slips(storage, "2026-04") if s["employee_id"] == staff[0]["id"]][0]
     other = [s for s in payroll.list_slips(storage, "2026-04") if s["employee_id"] == staff[1]["id"]][0]
 

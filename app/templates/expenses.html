@@ -65,6 +65,12 @@
                   <button class="btn btn-sm btn-danger" type="submit">Reject</button>
                 </form>
               </div>
+            {% elif row.status == 'approved' %}
+              <span class="small muted">{{ 'in a payroll draft' if row.payroll_run_id else 'next payroll' }}</span>
+              <form method="post" action="/expenses/{{ row.id }}/paid" data-confirm="Mark this claim as paid outside payroll?">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <button class="btn btn-sm" type="submit">Mark paid</button>
+              </form>
             {% endif %}
           </td>
         </tr>

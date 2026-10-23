@@ -309,8 +309,14 @@ def decide_expense(
     note: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
-    if decision not in ("approve", "reject"):
+    if decision not in ("approve", "reject", "paid"):
         return redirect("/expenses", err="Unknown decision.")
+    if decision == "paid":
+        try:
+            records.mark_claim_paid(storage, claim_id=claim_id, actor=user.username)
+        except ValueError as exc:
+            return redirect("/expenses", err=str(exc))
+        return redirect("/expenses", ok="Claim marked paid.")
     try:
         records.decide_claim(
             storage, claim_id=claim_id, approve=decision == "approve",

@@ -127,6 +127,12 @@
                 <input id="esi" name="esi" type="number" min="0" step="10" value="{{ f.get('esi') or '' }}"></div>
               <div class="field"><label for="professional_tax">Professional tax</label>
                 <input id="professional_tax" name="professional_tax" type="number" min="0" step="10" value="{{ f.get('professional_tax') or '200' }}"></div>
+              <div class="field"><label for="statutory_mode">PF / ESI</label>
+                <select id="statutory_mode" name="statutory_mode">
+                  <option value="auto" {{ 'selected' if (f.get('statutory_mode') or 'auto') == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
+                  <option value="fixed" {{ 'selected' if (f.get('statutory_mode') or 'auto') != 'auto' }}>Use the amounts above</option>
+                </select>
+                <div class="hint">Either way PF/ESI are reduced in loss-of-pay months.</div></div>
             </div>
           </div>
         </div>

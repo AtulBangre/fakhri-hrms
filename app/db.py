@@ -628,6 +628,14 @@ class Storage:
         "payslips": [
             ("tds", "REAL NOT NULL DEFAULT 0"),
             ("tds_override", "REAL"),
+            ("reimbursement", "REAL NOT NULL DEFAULT 0"),
+            ("rounding", "REAL NOT NULL DEFAULT 0"),
+        ],
+        "salary_revisions": [
+            ("statutory_mode", "TEXT NOT NULL DEFAULT 'fixed'"),
+        ],
+        "expense_claims": [
+            ("payroll_run_id", "INTEGER"),
         ],
         "attendance": [
             ("leave_id", "INTEGER"),

@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from ..config import Settings
 from ..db import Storage, utcnow_iso
 from . import employees as employees_service
-from . import orgtime
+from . import locks, orgtime
 
 
 @dataclass(slots=True)
@@ -365,6 +365,13 @@ def mark_by_face(
     now_clock = orgtime.hhmmss(moment)
     existing = get_row(storage, employee["id"], day)
 
+    if locks.locked_status(storage, orgtime.period_of(day)):
+        return MarkOutcome(
+            ok=False, action="blocked", kind="warning",
+            message="This month's payroll is already finalised — ask HR to record attendance.",
+            employee=employee,
+        )
+
     if employee.get("status") != "active":
         return MarkOutcome(
             ok=False, action="inactive", kind="warning",
@@ -511,6 +518,7 @@ def mark_manual(
     """HR override / correction for any employee-day."""
     employee = employees_service.require_employee(storage, employee_id)
     day = orgtime.parse_date(work_date)
+    locks.assert_period_open(storage, day)
     if status not in orgtime.ALL_STATUSES:
         raise employees_service.ValidationError(f"Unknown status '{status}'.")
     if leave_type not in orgtime.ALL_LEAVE_TYPES:
@@ -571,6 +579,7 @@ def mark_manual(
 
 
 def clear_day(storage: Storage, *, employee_id: int, work_date: str, actor: str | None = None) -> None:
+    locks.assert_period_open(storage, work_date)
     storage.execute(
         "DELETE FROM attendance WHERE employee_id = ? AND work_date = ?", (employee_id, work_date[:10])
     )

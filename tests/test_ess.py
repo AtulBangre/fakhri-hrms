@@ -218,6 +218,7 @@ def test_employee_cannot_open_someone_elses_payslip(
 
 def test_employee_can_open_their_own_payslip(ess_client: TestClient, ess_credentials, staff, storage, settings):
     payroll.generate_run(storage, settings, "2026-01")
+    payroll.set_run_status(storage, "2026-01", "finalized")  # employees only see final payslips
     mine = [s for s in payroll.list_slips(storage, "2026-01") if s["employee_id"] == staff[0]["id"]][0]
     page = ess_client.get(f"/me/payslips/{mine['id']}")
     assert page.status_code == 200

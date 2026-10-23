@@ -587,8 +587,10 @@ def test_compute_slip_maths(storage: Storage, settings, aarav):
     assert calc["lop_days"] == 4.5
     assert calc["per_day_rate"] == pytest.approx(1000.0)
     assert calc["earned_gross"] == pytest.approx(26500.0)
-    assert calc["total_deductions"] == pytest.approx(2000.0)
-    assert calc["net_pay"] == pytest.approx(24500.0)
+    # PF follows earned wages (PAY-08): 1800 × 26500 / 31000; PT stays flat
+    assert calc["pf"] == pytest.approx(1538.71)
+    assert calc["total_deductions"] == pytest.approx(1738.71)
+    assert calc["net_pay"] == 24761  # rounded to the rupee (PAY-09)
 
 
 def test_payroll_basis_can_be_fixed_26_days(storage: Storage, settings, aarav):
@@ -652,7 +654,7 @@ def test_adjustments_change_net_pay_and_totals(storage: Storage, settings, staff
         storage, slip["id"], bonus=5000, advance=2000, other_deduction=500, note="festival bonus"
     )
     assert updated["net_pay"] == pytest.approx(slip["earned_gross"] + 5000 - slip["pf"] - slip["esi"]
-                                              - slip["professional_tax"] - 2500)
+                                              - slip["professional_tax"] - 2500 + updated["rounding"])
     assert updated["note"] == "festival bonus"
     run = payroll.get_run(storage, "2026-01")
     assert run["total_net"] == pytest.approx(sum(s["net_pay"] for s in payroll.list_slips(storage, "2026-01")))

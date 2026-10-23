@@ -32,6 +32,12 @@ from ..services import orgtime, payroll, regularization
 router = APIRouter(prefix="/me", tags=["self-service"])
 
 
+def _is_final(storage, period: str) -> bool:
+    """Employees only ever see finalised or paid payslips — drafts can still change."""
+    run = payroll.get_run(storage, period)
+    return bool(run and run["status"] in ("finalized", "paid"))
+
+
 def _me(storage, user: SessionUser) -> dict:
     employee = employees_service.get_employee(storage, int(user.employee_id or 0))
     if employee is None:
@@ -56,7 +62,9 @@ def dashboard(
     balance = leave_service.balance(storage, settings, employee["id"])
 
     slips = storage.query(
-        "SELECT * FROM payslips WHERE employee_id = ? ORDER BY period DESC LIMIT 3", (employee["id"],)
+        "SELECT p.* FROM payslips p JOIN payroll_runs r ON r.id = p.run_id "
+        "WHERE p.employee_id = ? AND r.status IN ('finalized','paid') ORDER BY p.period DESC LIMIT 3",
+        (employee["id"],)
     )
     latest_slip = slips[0] if slips else None
 
@@ -208,7 +216,7 @@ def my_payslips(
         """
         SELECT p.*, r.status AS run_status FROM payslips p
         JOIN payroll_runs r ON r.id = p.run_id
-        WHERE p.employee_id = ? ORDER BY p.period DESC
+        WHERE p.employee_id = ? AND r.status IN ('finalized','paid') ORDER BY p.period DESC
         """,
         (employee["id"],),
     )
@@ -227,7 +235,8 @@ def my_payslip_pdf(
 ):
     """Download my own payslip as a PDF."""
     slip = payroll.get_slip(storage, slip_id)
-    if slip is None or slip["employee_id"] != int(user.employee_id or 0):
+    if (slip is None or slip["employee_id"] != int(user.employee_id or 0)
+            or not _is_final(storage, slip["period"])):
         return redirect("/me/payslips", err="That payslip was not found in your account.")
     data = render_payslip(
         slip, settings=settings,
@@ -250,7 +259,8 @@ def my_payslip(
 ):
     slip = payroll.get_slip(storage, slip_id)
     # A payslip is a private document: someone else's id must look like it does not exist.
-    if slip is None or slip["employee_id"] != int(user.employee_id or 0):
+    if (slip is None or slip["employee_id"] != int(user.employee_id or 0)
+            or not _is_final(storage, slip["period"])):
         return redirect("/me/payslips", err="That payslip was not found in your account.")
     run = payroll.get_run(storage, slip["period"])
     return render(

@@ -72,7 +72,7 @@ def test_payroll_deducts_confirmed_tds(storage: Storage, settings, aarav):
     payroll.generate_run(storage, settings, "2026-01")
     slip = next(s for s in payroll.list_slips(storage, "2026-01") if s["employee_id"] == aarav["id"])
     assert slip["tds"] == pytest.approx(4_000)
-    assert slip["net_pay"] == pytest.approx(slip["earned_gross"] - slip["total_deductions"])
+    assert slip["net_pay"] == pytest.approx(slip["earned_gross"] - slip["total_deductions"] + slip["rounding"])
 
     # February spreads what is left over the remaining two months
     assert payroll.compute_slip(storage, settings, aarav, "2026-02")["tds"] == pytest.approx(4_000)
@@ -193,6 +193,7 @@ def test_ess_payslip_pdf_button_uses_the_employee_route(
     ess_client: TestClient, storage: Storage, settings, ess_credentials
 ):
     payroll.generate_run(storage, settings, "2026-01")
+    payroll.set_run_status(storage, "2026-01", "finalized")  # employees only see final payslips
     slip = next(s for s in payroll.list_slips(storage, "2026-01")
                 if s["employee_id"] == ess_credentials["employee"]["id"])
     page = ess_client.get(f"/me/payslips/{slip['id']}")

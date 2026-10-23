@@ -96,6 +96,7 @@ def create(
     pf: str = Form("0"),
     esi: str = Form("0"),
     professional_tax: str = Form("0"),
+    statutory_mode: str = Form("auto"),
     notes: str = Form(""),
 ):
     from ..auth import verify_form_csrf
@@ -107,6 +108,7 @@ def create(
         "monthly_gross": _as_float(monthly_gross), "basic": _as_float(basic), "hra": _as_float(hra),
         "other_allowances": _as_float(other_allowances), "pf": _as_float(pf), "esi": _as_float(esi),
         "professional_tax": _as_float(professional_tax), "notes": notes, "_actor": user.username,
+        "statutory_mode": statutory_mode,
     }
     try:
         employee_id = employees_service.create_employee(storage, data)
@@ -173,6 +175,7 @@ def detail(
         "pf": latest.get("pf", 0) or 0,
         "esi": latest.get("esi", 0) or 0,
         "professional_tax": latest.get("professional_tax", 0) or 0,
+        "statutory_mode": latest.get("statutory_mode") or "fixed",
     }
     return render(
         request,
@@ -249,6 +252,7 @@ def set_salary(
     pf: str = Form("0"),
     esi: str = Form("0"),
     professional_tax: str = Form("0"),
+    statutory_mode: str = Form("fixed"),
     effective_from: str = Form(""),
     note: str = Form(""),
 ):
@@ -261,6 +265,7 @@ def set_salary(
             hra=_as_float(hra), other_allowances=_as_float(other_allowances), pf=_as_float(pf),
             esi=_as_float(esi), professional_tax=_as_float(professional_tax),
             effective_from=effective_from or None, note=note or None, actor=user.username,
+            statutory_mode=statutory_mode,
         )
     except employees_service.ValidationError as exc:
         return redirect(f"/employees/{employee_id}", err=str(exc))

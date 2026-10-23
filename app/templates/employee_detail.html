@@ -66,6 +66,12 @@
             <div class="field"><label for="pf">PF</label><input id="pf" name="pf" type="number" min="0" step="10" value="{{ salary_defaults.pf | plain }}"></div>
             <div class="field"><label for="esi">ESI</label><input id="esi" name="esi" type="number" min="0" step="10" value="{{ salary_defaults.esi | plain }}"></div>
             <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="10" value="{{ salary_defaults.professional_tax | plain }}"></div>
+            <div class="field"><label for="statutory_mode">PF / ESI</label>
+                <select id="statutory_mode" name="statutory_mode">
+                  <option value="auto" {{ 'selected' if salary_defaults.statutory_mode == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
+                  <option value="fixed" {{ 'selected' if salary_defaults.statutory_mode != 'auto' }}>Use the amounts above</option>
+                </select>
+                <div class="hint">Either way PF/ESI are reduced in loss-of-pay months.</div></div>
           </div>
           <button class="btn btn-primary" type="submit">Save new structure</button>
           <span class="small muted">Old structures stay in history and are used for past payroll months.</span>

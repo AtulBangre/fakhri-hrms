@@ -180,6 +180,7 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
             effective_from=data.get("joined_on") or orgtime.today_str(storage.settings),
             note="Initial salary on joining",
             actor=data.get("_actor"),
+            statutory_mode=data.get("statutory_mode") or "fixed",
         )
     return employee_id
 
@@ -271,21 +272,25 @@ def set_salary(
     effective_from: str | None = None,
     note: str | None = None,
     actor: str | None = None,
+    statutory_mode: str = "fixed",
 ) -> dict[str, Any]:
     require_employee(storage, employee_id)
     if monthly_gross < 0:
         raise ValidationError("Monthly salary cannot be negative.")
+    if statutory_mode not in ("fixed", "auto"):
+        raise ValidationError("PF/ESI mode must be 'fixed' or 'auto'.")
     effective_from = _clean_date(effective_from) or orgtime.today_str(storage.settings)
     now = utcnow_iso()
 
     storage.execute(
         """
         INSERT INTO salary_revisions (employee_id, monthly_gross, basic, hra, other_allowances, pf, esi,
-                                      professional_tax, effective_from, note, created_by, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                                      professional_tax, effective_from, note, created_by, created_at,
+                                      statutory_mode)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (employee_id, monthly_gross, basic, hra, other_allowances, pf, esi, professional_tax,
-         effective_from, note, None, now),
+         effective_from, note, None, now, statutory_mode),
     )
     storage.execute(
         "UPDATE employees SET monthly_gross = ?, updated_at = ? WHERE id = ?",

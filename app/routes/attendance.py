@@ -9,7 +9,7 @@ from ..auth import SessionUser, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
-from ..services import orgtime
+from ..services import locks, orgtime
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 
@@ -102,7 +102,10 @@ def clear(
     return_day: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
-    attendance_service.clear_day(storage, employee_id=employee_id, work_date=work_date, actor=user.username)
+    try:
+        attendance_service.clear_day(storage, employee_id=employee_id, work_date=work_date, actor=user.username)
+    except employees_service.ValidationError as exc:
+        return redirect("/attendance", day=return_day or work_date, err=str(exc))
     return redirect("/attendance", day=return_day or work_date, ok="Entry removed.")
 
 
@@ -161,6 +164,11 @@ def summary_csv(
     )
 
 
+def _local(path: str) -> str:
+    """Only redirect back to one of our own pages."""
+    return path if path.startswith("/") and not path.startswith("//") else "/attendance"
+
+
 @router.post("/holidays")
 def add_holiday(
     request: Request,
@@ -174,13 +182,19 @@ def add_holiday(
     verify_form_csrf(user, csrf)
     from ..db import utcnow_iso
 
+    return_to = _local(return_to)
     try:
-        storage.execute(
-            "INSERT INTO holidays (day, name, created_at) VALUES (?,?,?)",
-            (orgtime.parse_date(day).isoformat(), name.strip(), utcnow_iso()),
-        )
-    except Exception:  # noqa: BLE001 - duplicate day
+        holiday = orgtime.parse_date(day)
+        locks.assert_period_open(storage, holiday)
+    except ValueError as exc:
+        return redirect(return_to, err=str(exc) if isinstance(exc, employees_service.ValidationError)
+                        else "Pick a valid date.")
+    if storage.query_one("SELECT id FROM holidays WHERE day = ?", (holiday.isoformat(),)):
         return redirect(return_to, err=f"{day} is already a holiday.")
+    storage.execute(
+        "INSERT INTO holidays (day, name, created_at) VALUES (?,?,?)",
+        (holiday.isoformat(), name.strip(), utcnow_iso()),
+    )
     storage.audit(actor=user.username, action="add_holiday", entity="holiday", detail=f"{day} {name}")
     return redirect(return_to, ok=f"Holiday added: {name} on {day}.")
 
@@ -195,6 +209,13 @@ def delete_holiday(
     return_to: str = Form("/attendance"),
 ):
     verify_form_csrf(user, csrf)
+    return_to = _local(return_to)
+    row = storage.query_one("SELECT day FROM holidays WHERE id = ?", (holiday_id,))
+    if row:
+        try:
+            locks.assert_period_open(storage, row["day"])
+        except employees_service.ValidationError as exc:
+            return redirect(return_to, err=str(exc))
     storage.execute("DELETE FROM holidays WHERE id = ?", (holiday_id,))
     storage.audit(actor=user.username, action="delete_holiday", entity="holiday", entity_id=holiday_id)
     return redirect(return_to, ok="Holiday removed.")

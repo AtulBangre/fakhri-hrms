@@ -23,7 +23,7 @@ from ..config import Settings
 from ..db import Storage, utcnow_iso
 from . import attendance as attendance_service
 from . import employees as employees_service
-from . import orgtime
+from . import locks, orgtime
 
 STATUSES = ("pending", "approved", "rejected", "cancelled")
 
@@ -173,6 +173,7 @@ def apply_leave(
     if days <= 0:
         raise employees_service.ValidationError("Leave days must be greater than zero.")
 
+    locks.assert_period_open(storage, start, end)
     _check_overlap(storage, employee_id, start, end)
     if leave_type in orgtime.PAID_LEAVE_TYPES and not allow_negative:
         _check_balance(storage, settings, employee_id, days)
@@ -281,6 +282,7 @@ def approve_leave(
     if leave["status"] == "approved" and not force:
         raise employees_service.ValidationError("That leave is already approved.")
 
+    locks.assert_period_open(storage, leave["from_date"], leave["to_date"])
     if leave["leave_type"] in orgtime.PAID_LEAVE_TYPES and leave["status"] == "pending" and not allow_negative:
         _check_balance(storage, storage_settings(storage), leave["employee_id"], float(leave["days"]),
                        ignore_pending_id=leave_id)
@@ -337,6 +339,7 @@ def cancel_leave(storage: Storage, leave_id: int, *, actor: str | None = None) -
         return leave
 
     if leave["status"] == "approved":
+        locks.assert_period_open(storage, leave["from_date"], leave["to_date"])
         unstamp_attendance(storage, leave)
     storage.execute(
         "UPDATE leave_requests SET status = 'cancelled', decided_at = ? WHERE id = ?",
