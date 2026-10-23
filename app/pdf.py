@@ -173,6 +173,9 @@ def render_payslip(
     pdf.amount_row("Provident fund (PF)", _money(slip.get("pf")))
     pdf.amount_row("ESI", _money(slip.get("esi")))
     pdf.amount_row("Professional tax", _money(slip.get("professional_tax")))
+    tds = float(slip.get("tds") or 0)
+    if tds > 0:
+        pdf.amount_row("Income tax (TDS)", _money(tds))
     pdf.amount_row("Salary advance", _money(slip.get("advance")))
     pdf.amount_row("Other deductions", _money(slip.get("other_deduction")))
     pdf.amount_row("Total deductions", _money(slip.get("total_deductions")), bold=True)

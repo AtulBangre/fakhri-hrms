@@ -125,12 +125,14 @@ def request_reset(
     from .. import auth
 
     user = auth.get_user_by_username(storage, username)
+    generic_msg = "If that account exists, a reset code has been sent."
     if user is None or not user["active"]:
-        return None, "If that account exists, a reset code has been sent."
+        return None, generic_msg
 
     email = _email_for(storage, user)
     if not email:
-        return None, "That account has no email address on file. Please ask HR to reset your password."
+        storage.audit(actor=user["username"], action="otp_failed_no_email", entity="user", entity_id=user["id"])
+        return None, generic_msg
 
     try:
         code = issue_otp(storage, settings, user)
@@ -148,7 +150,7 @@ def request_reset(
         minutes=settings.otp_ttl_minutes,
     )
     storage.audit(actor=user["username"], action="otp_requested", entity="user", entity_id=user["id"])
-    return user["username"], "If that account exists, a reset code has been sent."
+    return user["username"], generic_msg
 
 
 def _email_for(storage: Storage, user: dict[str, Any]) -> str | None:

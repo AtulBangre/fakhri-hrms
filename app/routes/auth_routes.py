@@ -7,6 +7,8 @@ import logging
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import RedirectResponse
 
+from urllib.parse import urlsplit
+
 from ..auth import (
     ROLE_EMPLOYEE,
     ROLE_KIOSK,
@@ -20,6 +22,16 @@ from ..deps import get_session, get_settings_dep, get_storage, redirect, render
 
 logger = logging.getLogger("hrms.auth")
 router = APIRouter(tags=["auth"])
+
+
+def is_safe_redirect(url: str | None) -> bool:
+    """Ensure the target is a safe local path (rejecting protocol-relative and external URLs)."""
+    if not url or not url.startswith("/"):
+        return False
+    if url.startswith(("//", "/\\")):
+        return False
+    parsed = urlsplit(url)
+    return not parsed.netloc and not parsed.scheme
 
 
 @router.get("/login")
@@ -75,7 +87,7 @@ def login_submit(
         detail=user["role"], ip=request.client.host if request.client else None,
     )
 
-    if next.startswith("/"):
+    if is_safe_redirect(next):
         target = next
     elif user["role"] == ROLE_KIOSK:
         target = "/kiosk"

@@ -26,14 +26,9 @@ def forgot_password_submit(
     settings=Depends(get_settings_dep),
 ):
     """Always answers the same way, whether or not the account exists."""
-    account, message = account_service.request_reset(storage, settings, username.strip().lower())
-    if account:
-        return redirect("/reset-password", ok=message, u=account)
-    # no account / no email — same wording, but stay on the form so nothing leaks
-    return render(
-        request, "forgot_password.html", active="login", user=None,
-        ok_message=message, username_value=username,
-    )
+    clean_user = username.strip().lower()
+    _account, message = account_service.request_reset(storage, settings, clean_user)
+    return redirect("/reset-password", ok=message, u=clean_user)
 
 
 @router.get("/reset-password")

@@ -234,7 +234,7 @@ def _notify_punch(storage, settings, employee: dict, outcome) -> None:
     if outcome.action not in ("check_in", "check_out"):
         return
     is_in = outcome.action == "check_in"
-    if is_in and not settings.notify_punch_in:
+    if is_in and not settings.notify_punch_in and not (outcome.late_minutes and settings.notify_late):
         return
 
     template = "punch_in" if is_in else "check_out"
@@ -246,19 +246,21 @@ def _notify_punch(storage, settings, employee: dict, outcome) -> None:
         "shift_start": storage.get_setting("shift_start", "09:30"),
         "worked": orgtime.format_minutes(outcome.worked_minutes),
     }
-    if settings.notify_email_enabled and employee.get("email"):
+    # Decide whether to email: send on check-out, on normal punch-in (if enabled),
+    # or on late punch-in (if either punch-in or late notifications are enabled).
+    should_email = False
+    if is_in:
+        should_email = settings.notify_punch_in or (bool(outcome.late_minutes) and settings.notify_late)
+    else:
+        should_email = True
+
+    if settings.notify_email_enabled and employee.get("email") and should_email:
+        category = "late_alert" if (is_in and outcome.late_minutes) else f"attendance_{template}"
         notify.queue_email(
             storage, employee["email"], template, settings=settings,
-            category=f"attendance_{template}", **ctx,
+            category=category, **ctx,
         )
     if settings.notify_whatsapp_attendance and employee.get("phone"):
         notify.queue_whatsapp(
             storage, employee["phone"], template, settings=settings, **ctx
         )
-    # an explicit late alert, independent of the punch-in confirmation
-    if is_in and outcome.late_minutes and settings.notify_late and settings.notify_email_enabled:
-        if employee.get("email"):
-            notify.queue_email(
-                storage, employee["email"], "punch_in", settings=settings,
-                category="late_alert", **ctx,
-            )

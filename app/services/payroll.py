@@ -147,44 +147,57 @@ def generate_run(
     except (ValueError, TypeError) as exc:
         raise employees_service.ValidationError("Period must look like 2026-10.") from exc
 
-    run = get_run(storage, period)
-    if run:
-        _require_draft(run)
-        storage.execute("DELETE FROM payslips WHERE run_id = ?", (run["id"],))
-        storage.execute(
-            "UPDATE payroll_runs SET basis_days = ?, generated_at = ?, note = NULL WHERE id = ?",
-            (basis_days_for(storage, period), utcnow_iso(), run["id"]),
-        )
-    else:
-        cursor = storage.execute(
-            "INSERT INTO payroll_runs (period, status, basis_days, generated_at) VALUES (?, 'draft', ?, ?)",
-            (period, basis_days_for(storage, period), utcnow_iso()),
-        )
-        run = {"id": int(cursor.lastrowid), "period": period, "status": "draft",
-               "basis_days": basis_days_for(storage, period)}
-
     clause = "" if include_inactive else "WHERE status = 'active'"
     staff = storage.query(f"SELECT * FROM employees {clause} ORDER BY name COLLATE NOCASE")
 
-    now = utcnow_iso()
-    for employee in staff:
-        calc = compute_slip(storage, settings, employee, period)
-        storage.execute(
+    with storage.transaction():
+        run = get_run(storage, period)
+        if run:
+            _require_draft(run)
+            storage.execute_tx("DELETE FROM payslips WHERE run_id = ?", (run["id"],))
+            storage.execute_tx(
+                "UPDATE payroll_runs SET basis_days = ?, generated_at = ?, note = NULL WHERE id = ?",
+                (basis_days_for(storage, period), utcnow_iso(), run["id"]),
+            )
+        else:
+            cursor = storage.execute_tx(
+                "INSERT INTO payroll_runs (period, status, basis_days, generated_at) VALUES (?, 'draft', ?, ?)",
+                (period, basis_days_for(storage, period), utcnow_iso()),
+            )
+            run = {"id": int(cursor.lastrowid), "period": period, "status": "draft",
+                   "basis_days": basis_days_for(storage, period)}
+
+        now = utcnow_iso()
+        for employee in staff:
+            calc = compute_slip(storage, settings, employee, period)
+            storage.execute_tx(
+                """
+                INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, paid_leave_days,
+                                      lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
+                                      professional_tax, total_deductions, net_pay, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
+                    calc["paid_leave_days"], calc["lop_days"], calc["monthly_gross"], calc["per_day_rate"],
+                    calc["earned_gross"], calc["pf"], calc["esi"], calc["professional_tax"],
+                    calc["total_deductions"], calc["net_pay"], now, now,
+                ),
+            )
+
+        row = storage.query_one(
             """
-            INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, paid_leave_days,
-                                  lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
-                                  professional_tax, total_deductions, net_pay, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            SELECT COALESCE(SUM(earned_gross),0) AS gross, COALESCE(SUM(total_deductions),0) AS deductions,
+                   COALESCE(SUM(net_pay),0) AS net, COUNT(*) AS n
+            FROM payslips WHERE run_id = ?
             """,
-            (
-                run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
-                calc["paid_leave_days"], calc["lop_days"], calc["monthly_gross"], calc["per_day_rate"],
-                calc["earned_gross"], calc["pf"], calc["esi"], calc["professional_tax"],
-                calc["total_deductions"], calc["net_pay"], now, now,
-            ),
+            (run["id"],),
+        ) or {}
+        storage.execute_tx(
+            "UPDATE payroll_runs SET total_gross = ?, total_deductions = ?, total_net = ? WHERE id = ?",
+            (round(row.get("gross", 0), 2), round(row.get("deductions", 0), 2), round(row.get("net", 0), 2), run["id"]),
         )
 
-    _recompute_totals(storage, run["id"])
     storage.audit(actor=actor, action="generate_payroll", entity="payroll_run", entity_id=run["id"],
                   detail=f"{period}: {len(staff)} payslip(s)")
     refreshed = get_run(storage, period)

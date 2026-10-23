@@ -17,6 +17,7 @@ of pretending to work.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 import httpx
@@ -66,7 +67,7 @@ class EnrolmentResult:
 
 
 class FaceService:
-    """Thin, well-behaved HTTP client for the Face API."""
+    """Thin, well-behaved HTTP client for the Face API with connection pooling."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -74,14 +75,24 @@ class FaceService:
         self.collection = settings.face_collection
         self.timeout = settings.face_timeout
         self._collection_ready = False
+        self._pool = httpx.Client(base_url=self.base_url, headers=self._headers, timeout=self.timeout)
+
+    def close(self) -> None:
+        """Close the persistent connection pool."""
+        if hasattr(self, "_pool") and not self._pool.is_closed:
+            self._pool.close()
 
     # ------------------------------------------------------------- internals
     @property
     def _headers(self) -> dict[str, str]:
         return {"X-API-Key": self.settings.faceapi_key} if self.settings.faceapi_key else {}
 
-    def _client(self) -> httpx.Client:
-        return httpx.Client(base_url=self.base_url, headers=self._headers, timeout=self.timeout)
+    @contextmanager
+    def _client(self):
+        """Yield the pooled HTTP client without tearing down connections on every call."""
+        if self._pool.is_closed:
+            self._pool = httpx.Client(base_url=self.base_url, headers=self._headers, timeout=self.timeout)
+        yield self._pool
 
     @staticmethod
     def _error_from_response(response: httpx.Response) -> FaceServiceError:

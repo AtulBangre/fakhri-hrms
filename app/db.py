@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -547,6 +548,27 @@ class Storage:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    @contextmanager
+    def transaction(self):
+        """Context manager for atomic multi-statement transactions.
+
+        Usage:
+            with storage.transaction():
+                storage.execute_tx("...")
+        """
+        with self._lock:
+            try:
+                yield self
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def execute_tx(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
+        """Execute a statement without committing (used within a transaction block)."""
+        with self._lock:
+            return self._conn.execute(sql, tuple(params))
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         with self._lock:

@@ -79,7 +79,10 @@ def download_document(
     from ..auth import current_user
 
     session = current_user(request)
-    row = records.get_document(storage, document_id)
+    try:
+        row = records.get_document(storage, document_id)
+    except ValueError:
+        return redirect("/documents" if session.is_hr else "/me/documents", err="Document not found.")
     if not session.is_hr and session.employee_id != row["employee_id"]:
         return redirect("/me/documents", err="That document is not yours.")
     try:
@@ -328,15 +331,18 @@ def claim_receipt(
     from ..auth import current_user
 
     session = current_user(request)
-    claim = records.get_claim(storage, claim_id)
+    try:
+        claim = records.get_claim(storage, claim_id)
+    except ValueError:
+        return redirect("/expenses" if session.is_hr else "/me/expenses", err="Claim not found.")
     if not session.is_hr and session.employee_id != claim["employee_id"]:
         return redirect("/me/expenses", err="That receipt is not yours.")
     if not claim["receipt_name"]:
-        return redirect("/expenses", err="No receipt was attached to this claim.")
+        return redirect("/expenses" if session.is_hr else "/me/expenses", err="No receipt was attached to this claim.")
     try:
         path = path_for(settings, "receipts", claim["receipt_name"])
     except UploadError as exc:
-        return redirect("/expenses", err=str(exc))
+        return redirect("/expenses" if session.is_hr else "/me/expenses", err=str(exc))
     return FileResponse(path, media_type=claim["receipt_mime"] or "application/octet-stream",
                         filename=f"receipt-{claim_id}")
 

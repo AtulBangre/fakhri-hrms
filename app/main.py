@@ -80,6 +80,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if hasattr(app.state.face, "close"):
+            app.state.face.close()
         app.state.notifier.stop()
         app.state.storage.close()
         logger.info("HRMS stopped")

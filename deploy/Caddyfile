@@ -32,8 +32,8 @@ hrms.example.com {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "SAMEORIGIN"
 		Referrer-Policy "same-origin"
-		# The camera is the whole point of the kiosk page.
-		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		# The camera is for the gate scanner; geolocation is for field attendance.
+		Permissions-Policy "camera=(self), microphone=(), geolocation=(self)"
 		-Server
 	}
 

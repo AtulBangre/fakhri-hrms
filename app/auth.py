@@ -300,7 +300,19 @@ def create_user(
 
 
 def get_user_by_username(storage: Storage, username: str) -> dict[str, Any] | None:
-    return storage.query_one("SELECT * FROM users WHERE username = ?", (username.strip().lower(),))
+    clean = username.strip().lower()
+    user = storage.query_one("SELECT * FROM users WHERE username = ?", (clean,))
+    if user:
+        return user
+    return storage.query_one(
+        """
+        SELECT u.* FROM users u
+        JOIN employees e ON e.id = u.employee_id
+        WHERE LOWER(COALESCE(e.email, '')) = ? OR LOWER(COALESCE(e.code, '')) = ?
+        ORDER BY u.id LIMIT 1
+        """,
+        (clean, clean),
+    )
 
 
 def get_user(storage: Storage, user_id: int) -> dict[str, Any] | None:

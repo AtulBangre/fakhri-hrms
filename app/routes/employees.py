@@ -16,6 +16,7 @@ from ..services import orgtime
 router = APIRouter(prefix="/employees", tags=["employees"])
 
 ALLOWED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp", "image/bmp")
+MAX_FACE_IMAGE_BYTES = 8 * 1024 * 1024  # 8 MB
 
 
 def _as_float(value: str | None) -> float:
@@ -268,9 +269,11 @@ def enrol_face(
     from ..auth import verify_form_csrf
 
     verify_form_csrf(user, csrf)
-    payload = image.file.read()
+    payload = image.file.read(MAX_FACE_IMAGE_BYTES + 1)
     if not payload:
         return redirect(f"/employees/{employee_id}", err="Empty capture — try again in better light.")
+    if len(payload) > MAX_FACE_IMAGE_BYTES:
+        return redirect(f"/employees/{employee_id}", err=f"Image too large ({len(payload) / 1_048_576:.1f} MB); limit is 8 MB.")
     if image.content_type and image.content_type not in ALLOWED_IMAGE_TYPES:
         return redirect(f"/employees/{employee_id}", err=f"Unsupported image type {image.content_type}.")
 

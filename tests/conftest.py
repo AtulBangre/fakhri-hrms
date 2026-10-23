@@ -136,6 +136,9 @@ class FakeFaceService:
             faces_in_probe=0, gallery_size=len(self.enrolled), message="No face detected in the frame.",
         )
 
+    def close(self) -> None:
+        pass
+
 
 @pytest.fixture
 def fake_face() -> FakeFaceService:

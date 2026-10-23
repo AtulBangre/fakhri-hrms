@@ -321,9 +321,15 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
     accrual = storage.get_float("pl_accrual_per_month", 1.5)
 
     joined = orgtime.parse_date(employee["joined_on"]) if employee.get("joined_on") else as_of.replace(day=1)
-    months = max(0, (as_of.year - joined.year) * 12 + (as_of.month - joined.month))
-    if as_of.day >= joined.day:
-        months += 1  # the current month counts once its joining day has passed
+    if as_of < joined:
+        months = 0
+    else:
+        months = (as_of.year - joined.year) * 12 + (as_of.month - joined.month)
+        import calendar
+        max_day = calendar.monthrange(as_of.year, as_of.month)[1]
+        effective_join_day = min(joined.day, max_day)
+        if as_of.day >= effective_join_day:
+            months += 1  # the current month counts once its joining day has passed
     accrued = round(months * accrual, 2)
 
     used_paid = float(

@@ -228,8 +228,8 @@ def email_payslips(
         if only_missing:
             previous = storage.query_one(
                 "SELECT id FROM notifications WHERE category='payslip' AND recipient=? "
-                "AND meta IS NULL AND body LIKE ? LIMIT 1",
-                (address, f"%{months}%"),
+                "AND (meta LIKE ? OR body LIKE ?) LIMIT 1",
+                (address, f'%"slip_id":{slip["id"]}%', f"%{months}%"),
             )
             if previous:
                 already += 1
