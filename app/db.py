@@ -622,6 +622,7 @@ class Storage:
         "users": [
             ("email", "TEXT"),
             ("phone", "TEXT"),
+            ("session_version", "INTEGER NOT NULL DEFAULT 0"),
         ],
         "payslips": [
             ("tds", "REAL NOT NULL DEFAULT 0"),

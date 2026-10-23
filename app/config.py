@@ -87,7 +87,7 @@ class Settings:
     secret_key: str = field(default_factory=lambda: _env("HRMS_SECRET_KEY", ""))
     session_cookie: str = "hrms_session"
     hr_session_hours: int = field(default_factory=lambda: int(_env("HRMS_SESSION_HOURS", "12")))
-    kiosk_session_days: int = field(default_factory=lambda: int(_env("HRMS_KIOSK_SESSION_DAYS", "30")))
+    kiosk_session_days: int = field(default_factory=lambda: int(_env("HRMS_KIOSK_SESSION_DAYS", "7")))
     secure_cookies: bool = field(default_factory=lambda: _env_bool("HRMS_SECURE_COOKIES", False))
 
     # --- misc -------------------------------------------------------------

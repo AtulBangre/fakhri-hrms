@@ -170,7 +170,7 @@ def complete_reset(
     from .. import auth
 
     user = auth.get_user_by_username(storage, username)
-    if user is None:
+    if user is None or not user["active"]:
         return False, "Incorrect code or account."
     if len(new_password) < 8:
         return False, "Password must be at least 8 characters."
@@ -179,8 +179,8 @@ def complete_reset(
     if not ok:
         return False, reason
 
+    # never re-enable a login here: a disabled account stays disabled
     auth.change_password(storage, user["id"], new_password)
-    storage.execute("UPDATE users SET active = 1 WHERE id = ?", (user["id"],))
     storage.audit(actor=user["username"], action="password_reset", entity="user", entity_id=user["id"])
     return True, "Password changed — you can sign in now."
 

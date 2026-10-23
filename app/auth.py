@@ -80,6 +80,7 @@ class SessionUser:
     device_label: str | None = None
     employee_id: int | None = None
     exp: int = 0
+    session_version: int = 0
 
     @property
     def is_hr(self) -> bool:
@@ -123,6 +124,7 @@ def create_session_token(user: dict[str, Any], settings: Settings, *, lifetime_s
         "eid": user.get("employee_id"),
         "csrf": csrf,
         "exp": int(time.time()) + int(lifetime_seconds),
+        "sv": int(user.get("session_version") or 0),
     }
     encoded = _b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     token = f"{encoded}.{_sign(encoded, settings.secret_key)}"
@@ -135,6 +137,7 @@ def create_session_token(user: dict[str, Any], settings: Settings, *, lifetime_s
         employee_id=payload.get("eid"),
         csrf=csrf,
         exp=payload["exp"],
+        session_version=payload["sv"],
     )
     return token, session
 
@@ -160,6 +163,7 @@ def read_session_token(token: str | None, settings: Settings) -> SessionUser | N
         employee_id=payload.get("eid"),
         csrf=payload.get("csrf", ""),
         exp=int(payload["exp"]),
+        session_version=int(payload.get("sv", 0)),
     )
 
 
@@ -193,8 +197,27 @@ def _wants_html(request: Request) -> bool:
 
 
 def get_session(request: Request) -> SessionUser | None:
+    """The signed-in user, or ``None``.
+
+    The cookie is signed, but a signature alone cannot be revoked — so every
+    request also checks the user row: the login must still exist, be active and
+    carry the same ``session_version`` the cookie was issued with. Disabling a
+    login, deleting it or changing its password bumps the version and ends every
+    session at once (one primary-key lookup per request).
+    """
+    if hasattr(request.state, "session_checked"):
+        return request.state.session_checked
     settings: Settings = request.app.state.settings
-    return read_session_token(request.cookies.get(settings.session_cookie), settings)
+    session = read_session_token(request.cookies.get(settings.session_cookie), settings)
+    if session is not None:
+        storage = getattr(request.app.state, "storage", None)
+        row = storage.query_one(
+            "SELECT active, session_version FROM users WHERE id = ?", (session.id,)
+        ) if storage is not None else None
+        if row is None or not row["active"] or int(row["session_version"] or 0) != session.session_version:
+            session = None
+    request.state.session_checked = session
+    return session
 
 
 def current_user(request: Request) -> SessionUser:
@@ -336,15 +359,31 @@ def authenticate(storage: Storage, username: str, password: str) -> dict[str, An
     return user
 
 
+def revoke_sessions(storage: Storage, user_id: int) -> None:
+    """Sign a user out everywhere: every cookie issued so far stops working."""
+    storage.execute(
+        "UPDATE users SET session_version = session_version + 1 WHERE id = ?", (user_id,)
+    )
+
+
 def change_password(storage: Storage, user_id: int, new_password: str) -> None:
     password_hash, salt = hash_password(new_password)
     storage.execute(
-        "UPDATE users SET password_hash = ?, salt = ? WHERE id = ?", (password_hash, salt, user_id)
+        "UPDATE users SET password_hash = ?, salt = ?, session_version = session_version + 1 WHERE id = ?",
+        (password_hash, salt, user_id),
     )
 
 
 def set_user_active(storage: Storage, user_id: int, active: bool) -> None:
-    storage.execute("UPDATE users SET active = ? WHERE id = ?", (1 if active else 0, user_id))
+    storage.execute(
+        "UPDATE users SET active = ?, session_version = session_version + 1 WHERE id = ?",
+        (1 if active else 0, user_id),
+    )
+    if not active:
+        # a reset code issued before the account was disabled must not work afterwards
+        storage.execute(
+            "UPDATE otp_codes SET used_at = ? WHERE user_id = ? AND used_at IS NULL", (utcnow_iso(), user_id)
+        )
 
 
 def delete_user(storage: Storage, user_id: int) -> None:

@@ -84,6 +84,11 @@
                       <input type="hidden" name="active" value="{{ '0' if item.active else '1' }}">
                       <button class="btn btn-sm" type="submit">{{ 'Disable' if item.active else 'Enable' }} login</button>
                     </form>
+                    <form method="post" action="/settings/users/{{ item.id }}/signout" class="mb-2"
+                          data-confirm="Sign '{{ item.username }}' out on every device?">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <button class="btn btn-sm" type="submit">Sign out everywhere</button>
+                    </form>
                     <form method="post" action="/settings/users/{{ item.id }}/delete"
                           data-confirm="Delete the login '{{ item.username }}'?">
                       <input type="hidden" name="_csrf" value="{{ csrf_token }}">

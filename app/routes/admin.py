@@ -184,6 +184,22 @@ def toggle_user(
     return redirect("/settings", ok="User updated.")
 
 
+@router.post("/users/{user_id}/signout")
+def sign_out_everywhere(
+    request: Request,
+    user_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+):
+    verify_form_csrf(user, csrf)
+    auth.revoke_sessions(storage, user_id)
+    storage.audit(actor=user.username, action="revoke_sessions", entity="user", entity_id=user_id)
+    if user_id == user.id:
+        return redirect("/login", ok="Signed out on every device.")
+    return redirect("/settings", ok="That login was signed out on every device.")
+
+
 @router.post("/users/{user_id}/delete")
 def remove_user(
     request: Request,
