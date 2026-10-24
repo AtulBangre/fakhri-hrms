@@ -131,8 +131,8 @@ def month_rows(storage: Storage, period: str, *, department: str | None = None) 
     params: list = [f"{period}-01", f"{period}-31"]
     clause = ""
     if department:
-        clause = "AND e.department = ?"
-        params.append(department)
+        clause = "AND e.department = ? COLLATE NOCASE"
+        params.append(department.strip())
     return storage.query(
         f"""
         SELECT a.*, e.code, e.name, e.department
@@ -372,6 +372,18 @@ def mark_by_face(
             employee=employee,
         )
 
+    left = storage.query_one(
+        "SELECT last_working_day FROM employee_exits WHERE employee_id = ? AND status IN ('approved','settled') "
+        "AND last_working_day < ? ORDER BY id DESC LIMIT 1",
+        (employee["id"], day.isoformat()),
+    )
+    if left:
+        return MarkOutcome(
+            ok=False, action="blocked", kind="warning",
+            message=f"{employee['name']}'s last working day was {orgtime.human_date(left['last_working_day'])}.",
+            employee=employee,
+        )
+
     if employee.get("status") != "active":
         return MarkOutcome(
             ok=False, action="inactive", kind="warning",
@@ -551,12 +563,14 @@ def mark_manual(
 
     now = utcnow_iso()
     existing = get_row(storage, employee_id, day)
+    if existing and existing.get("leave_id"):
+        _release_leave_day(storage, existing, actor=actor)
     if existing:
         storage.execute(
             """
             UPDATE attendance SET status = ?, check_in = ?, check_out = ?, late_minutes = ?,
                                   worked_minutes = ?, leave_type = ?, source = 'manual', note = ?,
-                                  updated_at = ?
+                                  leave_id = NULL, updated_at = ?
             WHERE id = ?
             """,
             (status, check_in, check_out, late, worked, leave_type, note, now, existing["id"]),
@@ -578,8 +592,27 @@ def mark_manual(
     return row
 
 
+def _release_leave_day(storage: Storage, row: dict, *, actor: str | None = None) -> None:
+    """A leave day is being overwritten: give that day back to the balance (LV-07)."""
+    leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (row["leave_id"],))
+    if leave is None or leave["status"] != "approved":
+        return
+    charged = 0.5 if row["status"] == orgtime.STATUS_HALF_DAY else 1.0
+    remaining = round(float(leave["days"]) - charged, 2)
+    if remaining <= 0:
+        storage.execute("UPDATE leave_requests SET status = 'cancelled', decided_at = ? WHERE id = ?",
+                        (utcnow_iso(), leave["id"]))
+    else:
+        storage.execute("UPDATE leave_requests SET days = ? WHERE id = ?", (remaining, leave["id"]))
+    storage.audit(actor=actor, action="leave_day_released", entity="employee", entity_id=row["employee_id"],
+                  detail=f"leave #{leave['id']} {row['work_date']} → {remaining:g} day(s) left")
+
+
 def clear_day(storage: Storage, *, employee_id: int, work_date: str, actor: str | None = None) -> None:
     locks.assert_period_open(storage, work_date)
+    existing = get_row(storage, employee_id, work_date)
+    if existing and existing.get("leave_id"):
+        _release_leave_day(storage, existing, actor=actor)
     storage.execute(
         "DELETE FROM attendance WHERE employee_id = ? AND work_date = ?", (employee_id, work_date[:10])
     )
@@ -674,8 +707,8 @@ def monthly_register(
     start, end = orgtime.month_bounds(period)
     status_filter = "WHERE e.status = 'active'" if not include_inactive else "WHERE 1=1"
     if department:
-        status_filter += " AND e.department = ?"
-        params: list = [department]
+        status_filter += " AND e.department = ? COLLATE NOCASE"
+        params: list = [department.strip()]
     else:
         params = []
     staff = storage.query(

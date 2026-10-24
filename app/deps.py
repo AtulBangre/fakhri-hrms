@@ -159,7 +159,6 @@ templates.env.globals.update(
     asset_version=ASSET_VERSION,
     STATUS_LABELS=orgtime.STATUS_LABELS,
     LEAVE_LABELS=orgtime.LEAVE_LABELS,
-    today_iso=lambda: date.today().isoformat(),
     icon=icon,
 )
 

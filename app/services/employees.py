@@ -56,8 +56,8 @@ def _employee_filters(q: str | None, department: str | None, status: str) -> tup
         clauses.append("status = ?")
         params.append(status)
     if department:
-        clauses.append("department = ?")
-        params.append(department)
+        clauses.append("department = ? COLLATE NOCASE")
+        params.append(department.strip())
     if q:
         clauses.append("(name LIKE ? OR code LIKE ? OR email LIKE ? OR phone LIKE ? OR designation LIKE ?)")
         like = f"%{q}%"
@@ -112,6 +112,19 @@ def require_employee(storage: Storage, employee_id: int) -> dict[str, Any]:
     if employee is None:
         raise ValidationError(f"Employee #{employee_id} not found.")
     return employee
+
+
+def normalise_department(storage: Storage, value: str | None) -> str | None:
+    """``'  sales '`` → ``'Sales'`` when "Sales" already exists (ATT-04)."""
+    text = " ".join((value or "").split())
+    if not text:
+        return None
+    existing = storage.query_one(
+        "SELECT department FROM employees WHERE department = ? COLLATE NOCASE "
+        "GROUP BY department ORDER BY COUNT(*) DESC LIMIT 1",
+        (text,),
+    )
+    return existing["department"] if existing else text
 
 
 def departments(storage: Storage) -> list[str]:
@@ -173,7 +186,7 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
         """,
         (
             code, name, (data.get("email") or "").strip() or None, (data.get("phone") or "").strip() or None,
-            (data.get("department") or "").strip() or None, (data.get("designation") or "").strip() or None,
+            normalise_department(storage, data.get("department")), (data.get("designation") or "").strip() or None,
             _clean_date(data.get("joined_on")), employment_type,
             data.get("status") or "active", gross, (data.get("notes") or "").strip() or None, now, now,
         ),
@@ -235,6 +248,8 @@ def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) ->
             text = (value or "").strip() or None if isinstance(value, str) or value is None else value
             if field == "ifsc" and isinstance(text, str):
                 text = text.upper()
+            if field == "department":
+                text = normalise_department(storage, text)
             updates[field] = text
 
     if "joined_on" in data:

@@ -7,7 +7,7 @@
   <div class="titles">
     <h1>{{ row.name }}</h1>
     <div class="sub">{{ row.code }}{% if row.designation %} · {{ row.designation }}{% endif %} · {{ row.cycle_name }}
-      · <span class="chip {{ {'self_review':'chip-muted','manager_review':'chip-warn','completed':'chip-ok'}.get(row.status) }}">{{ row.status_label }}</span></div>
+      · <span class="chip {{ {'self_review':'chip-muted','manager_review':'chip-warn','completed':'chip-ok','withdrawn':'chip-ghost'}.get(row.status) }}">{{ row.status_label }}</span></div>
   </div>
   <div class="page-actions">
     <a class="btn" href="/appraisals/cycles/{{ row.cycle_id }}">{{ icon('chevron-left') }} Cycle</a>
@@ -15,6 +15,10 @@
     {% if row.cycle_status == 'open' and row.status != 'self_review' %}
       <form method="post" action="/appraisals/{{ row.id }}/reopen" data-confirm="Send back to the employee for self review?">
         <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn" type="submit">Return to employee</button></form>
+    {% endif %}
+    {% if row.cycle_status == 'open' and row.status not in ('completed', 'withdrawn') %}
+      <form method="post" action="/appraisals/{{ row.id }}/withdraw" data-confirm="Mark this review not applicable? It will be left out of the cycle.">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-ghost" type="submit">Not applicable</button></form>
     {% endif %}
   </div>
 </div>

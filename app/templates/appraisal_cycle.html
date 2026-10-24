@@ -52,7 +52,7 @@
         {% for row in rows %}
           <tr>
             <td data-label="Employee"><a href="/appraisals/{{ row.id }}"><strong>{{ row.name }}</strong></a><span class="sub">{{ row.code }}{% if row.designation %} · {{ row.designation }}{% endif %}</span></td>
-            <td data-label="Status"><span class="chip {{ {'self_review':'chip-muted','manager_review':'chip-warn','completed':'chip-ok'}.get(row.status) }}">{{ row.status_label }}</span></td>
+            <td data-label="Status"><span class="chip {{ {'self_review':'chip-muted','manager_review':'chip-warn','completed':'chip-ok','withdrawn':'chip-ghost'}.get(row.status) }}">{{ row.status_label }}</span></td>
             <td data-label="Self" class="num">{{ row.self_score if row.self_score is not none else '—' }}</td>
             <td data-label="HR score" class="num">{{ row.manager_score if row.manager_score is not none else '—' }}</td>
             <td data-label="Final" class="num"><strong>{{ row.final_rating if row.final_rating is not none else '—' }}</strong></td>

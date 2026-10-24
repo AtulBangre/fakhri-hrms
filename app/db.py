@@ -512,6 +512,7 @@ class Storage:
             self._rebuild_users_if_needed()
             self._add_missing_columns()
             self._backfill_leave_ids()
+            self._merge_department_variants()
             # Must exist on both paths (fresh database and migrated one).
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_users_employee ON users(employee_id)"
@@ -640,6 +641,10 @@ class Storage:
             ("reimbursement", "REAL NOT NULL DEFAULT 0"),
             ("rounding", "REAL NOT NULL DEFAULT 0"),
         ],
+        "notifications": [
+            ("next_attempt_at", "TEXT"),
+            ("claimed_at", "TEXT"),
+        ],
         "salary_revisions": [
             ("statutory_mode", "TEXT NOT NULL DEFAULT 'fixed'"),
         ],
@@ -661,6 +666,27 @@ class Storage:
             ("face_key", "TEXT"),
         ],
     }
+
+    def _merge_department_variants(self) -> None:
+        """'Sales', 'sales ' and 'SALES' are one department: keep the most used spelling."""
+        rows = self._conn.execute(
+            "SELECT department, COUNT(*) AS n FROM employees WHERE department IS NOT NULL GROUP BY department"
+        ).fetchall()
+        groups: dict[str, list[tuple[str, int]]] = {}
+        for row in rows:
+            key = " ".join((row["department"] or "").split()).lower()
+            groups.setdefault(key, []).append((row["department"], row["n"]))
+        changed = False
+        for key, spellings in groups.items():
+            if not key:
+                continue
+            best = " ".join(max(spellings, key=lambda item: item[1])[0].split())
+            for spelling, _n in spellings:
+                if spelling != best:
+                    self._conn.execute("UPDATE employees SET department = ? WHERE department = ?", (best, spelling))
+                    changed = True
+        if changed:
+            self._conn.commit()
 
     def _backfill_leave_ids(self) -> None:
         """Link old leave-stamped attendance rows to their leave (they only had a note)."""

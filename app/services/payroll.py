@@ -26,6 +26,7 @@ confirmed in October is still fully recovered by March.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 from ..config import Settings
@@ -126,6 +127,10 @@ def salary_for_period(storage: Storage, employee_id: int, period: str) -> dict[s
         (employee_id, month_end.isoformat()),
     )
     if revision:
+        month_start, _ = orgtime.month_bounds(period)
+        if revision["effective_from"] > month_start.isoformat():
+            # A raise that starts mid-month: weight each structure by its own days (PAY-12).
+            return _blend_revisions(storage, employee_id, revision, period)
         return revision
     employee = employees_service.require_employee(storage, employee_id)
     return {
@@ -208,6 +213,35 @@ def _settle(earned: float, bonus: float, reimbursement: float, deductions: float
     return {"net_pay": net, "rounding": round(net - raw, 2)}
 
 
+def _blend_revisions(storage: Storage, employee_id: int, latest: dict[str, Any], period: str) -> dict[str, Any]:
+    month_start, month_end = orgtime.month_bounds(period)
+    month_days = (month_end - month_start).days + 1
+    revisions = storage.query(
+        "SELECT * FROM salary_revisions WHERE employee_id = ? AND effective_from <= ? "
+        "ORDER BY effective_from, id",
+        (employee_id, month_end.isoformat()),
+    )
+    # one structure per day: the latest revision effective on or before it
+    weights: dict[int, int] = {}
+    by_id = {rev["id"]: rev for rev in revisions}
+    for offset in range(month_days):
+        day = (month_start + timedelta(days=offset)).isoformat()
+        active = [rev for rev in revisions if rev["effective_from"] <= day]
+        if active:
+            weights[active[-1]["id"]] = weights.get(active[-1]["id"], 0) + 1
+    covered = sum(weights.values())
+    if covered == 0 or len(weights) == 1:
+        return latest
+    blended = dict(latest)
+    for field in ("monthly_gross", "basic", "hra", "other_allowances", "pf", "esi"):
+        blended[field] = sum(float(by_id[rid][field] or 0) * days for rid, days in weights.items()) / covered
+    blended["split_note"] = ", ".join(
+        f"{orgtime.human_date(by_id[rid]['effective_from'])}: {days} day(s) at {float(by_id[rid]['monthly_gross']):,.0f}"
+        for rid, days in weights.items()
+    )
+    return blended
+
+
 def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any], period: str) -> dict[str, Any]:
     """Pure calculation for one employee-month (no writes)."""
     basis_days = basis_days_for(storage, period)
@@ -288,6 +322,15 @@ def generate_run(
 
     clause = "" if include_inactive else "WHERE status = 'active'"
     staff = storage.query(f"SELECT * FROM employees {clause} ORDER BY name COLLATE NOCASE")
+    # Someone settled through F&F before this month started is never paid again (EXIT-02).
+    month_start = orgtime.month_bounds(period)[0].isoformat()
+    settled = {
+        row["employee_id"] for row in storage.query(
+            "SELECT employee_id FROM employee_exits WHERE status = 'settled' AND last_working_day < ?",
+            (month_start,),
+        )
+    }
+    staff = [person for person in staff if person["id"] not in settled]
 
     with storage.transaction():
         run = get_run(storage, period)

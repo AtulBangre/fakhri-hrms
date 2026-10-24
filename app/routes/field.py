@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from ..auth import SessionUser, require_employee, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
+from ..uploads import read_capped
 from ..services import employees as employees_service
 from ..services import field as field_service
 from ..services import orgtime
@@ -117,10 +118,9 @@ def field_check_api(
     verify_form_csrf(user, csrf)
     employee = employees_service.require_employee(storage, int(user.employee_id or 0))
     payload = None
-    if selfie is not None and selfie.filename:
-        payload = (selfie.file.read(), selfie.filename)
-
     try:
+        if selfie is not None and selfie.filename:
+            payload = (read_capped(selfie.file), selfie.filename)
         result = field_service.check_in(
             storage, settings, employee=employee, lat=float(lat), lng=float(lng),
             accuracy=float(accuracy) if accuracy.strip() else None,

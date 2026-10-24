@@ -27,6 +27,7 @@ import re
 import smtplib
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 from html import escape
@@ -506,16 +507,20 @@ def send_one(storage: Storage, settings: Settings, notification: dict[str, Any])
             raise SendError(f"unknown channel '{channel}'")
 
         storage.execute(
-            "UPDATE notifications SET status='sent', attempts=?, sent_at=?, error=NULL WHERE id=?",
+            "UPDATE notifications SET status='sent', attempts=?, sent_at=?, error=NULL, next_attempt_at=NULL "
+            "WHERE id=?",
             (attempts, utcnow_iso(), notification["id"]),
         )
         logger.info("notification #%s sent (%s) — %s", notification["id"], channel, receipt)
         return {"ok": True, "receipt": receipt}
     except (SendError, ValueError, OSError) as exc:
-        final = attempts >= 3
+        final = attempts >= len(RETRY_BACKOFF_MINUTES) + 1
+        retry_at = None if final else (
+            datetime.now(timezone.utc) + timedelta(minutes=RETRY_BACKOFF_MINUTES[attempts - 1])
+        ).isoformat()
         storage.execute(
-            "UPDATE notifications SET status=?, attempts=?, error=? WHERE id=?",
-            ("failed" if final else "pending", attempts, str(exc)[:400], notification["id"]),
+            "UPDATE notifications SET status=?, attempts=?, error=?, next_attempt_at=? WHERE id=?",
+            ("failed" if final else "pending", attempts, str(exc)[:400], retry_at, notification["id"]),
         )
         logger.warning("notification #%s failed (attempt %s): %s", notification["id"], attempts, exc)
         return {"ok": False, "error": str(exc), "will_retry": not final}
@@ -534,13 +539,42 @@ def _write_console(settings: Settings, row: dict[str, Any], channel: str) -> str
     return f"written to {path.relative_to(settings.data_dir)}"
 
 
+#: Three attempts: wait 1 minute, then 5, then the message is marked "failed".
+RETRY_BACKOFF_MINUTES = (1, 5)
+#: A message left in "sending" this long (process crashed mid-send) is retried.
+STALE_SENDING_MINUTES = 10
+
+
+def claim(storage: Storage, notification_id: int) -> bool:
+    """Atomically take one pending message for sending (NTF-01).
+
+    The worker thread and a manual "send now" may look at the same row; only the
+    caller whose UPDATE actually flips ``pending → sending`` sends it.
+    """
+    cursor = storage.execute(
+        "UPDATE notifications SET status='sending', claimed_at=? WHERE id=? AND status='pending'",
+        (utcnow_iso(), notification_id),
+    )
+    return (cursor.rowcount or 0) == 1
+
+
 def dispatch(storage: Storage, settings: Settings, *, limit: int = 25) -> list[dict[str, Any]]:
-    """Send up to ``limit`` pending messages. Safe to call from anywhere."""
+    """Send up to ``limit`` due messages. Safe to call from anywhere, concurrently."""
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    stale = (now - timedelta(minutes=STALE_SENDING_MINUTES)).isoformat()
+    storage.execute(
+        "UPDATE notifications SET status='pending' WHERE status='sending' AND claimed_at < ?",
+        (stale.replace("+00:00", "Z"),),
+    )
     rows = storage.query(
-        "SELECT * FROM notifications WHERE status='pending' ORDER BY id LIMIT ?", (limit,)
+        "SELECT * FROM notifications WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) "
+        "ORDER BY id LIMIT ?",
+        (now.isoformat(), limit),
     )
     results = []
     for row in rows:
+        if not claim(storage, row["id"]):
+            continue  # someone else is sending it
         results.append({**row, **send_one(storage, settings, row)})
     return results
 
@@ -563,7 +597,7 @@ def recent(storage: Storage, *, limit: int = 50, status: str | None = None) -> l
 
 def retry_failed(storage: Storage) -> int:
     cursor = storage.execute(
-        "UPDATE notifications SET status='pending', attempts=0, error=NULL WHERE status='failed'"
+        "UPDATE notifications SET status='pending', attempts=0, error=NULL, next_attempt_at=NULL WHERE status='failed'"
     )
     return cursor.rowcount or 0
 

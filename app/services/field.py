@@ -163,6 +163,23 @@ def check_in(
         delete_file(settings, "selfies", selfie_name)
         raise
 
+    # A reading less precise than the fence itself cannot prove where someone is (ATT-05).
+    if inside and accuracy is not None and float(accuracy) > float(location["radius_m"]):
+        storage.execute("UPDATE field_checks SET inside = 0, note = COALESCE(note, 'weak gps') WHERE id = ?", (row_id,))
+        return {
+            "ok": False, "inside": False, "distance_m": round(distance, 1), "location": location,
+            "message": f"GPS signal too weak (±{float(accuracy):.0f} m) — move outdoors or near a window and retry.",
+            "check_id": row_id,
+        }
+    if inside and kind == "check_out":
+        today_row = attendance_service.get_row(storage, employee["id"], now.date())
+        if not today_row or not today_row.get("check_in"):
+            return {
+                "ok": False, "inside": True, "distance_m": round(distance, 1), "location": location,
+                "message": "You haven't checked in today — choose Check in first.",
+                "check_id": row_id,
+            }
+
     if not inside:
         storage.audit(actor=actor, action="field_check_outside", entity="employee", entity_id=employee["id"],
                       detail=f"{distance:.0f}m from {location['name']}")

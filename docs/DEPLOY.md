@@ -228,7 +228,7 @@ dashboard.
 | Symptom | Fix |
 |---|---|
 | Scans queue in the morning | the Face API is the bottleneck: raise its `--workers` (≈ vCPU) and check `FACEAPI_MAX_IMAGE_SIDE` (the kiosk sends ~720 px frames already) |
-| HR pages slow | raise HRMS `--workers`; SQLite writes are serialised but tiny |
+| HR pages slow | raise HRMS `--workers`; SQLite writes are serialised but tiny. Safe with several workers: each runs the notification sender, but a message is claimed atomically before sending, so nothing goes out twice |
 | Register/payroll page slow with 300+ employees | it renders a full month matrix; use the CSV export and the department filter |
 | More than one HRMS instance | you must move state to Postgres — `app/db.py` is the only file that talks SQL; sessions are already stateless |
 | Face service on another host | set `HRMS_FACEAPI_URL` and, if it is public, `FACEAPI_AUTH_ENABLED=true` plus `HRMS_FACEAPI_KEY` (create one with `faceapi/cli.py keys create --plan personal`) |

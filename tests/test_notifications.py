@@ -92,6 +92,8 @@ def test_failed_message_is_retried_then_marked_failed(storage, settings):
     )
     for _ in range(3):
         notify.dispatch(storage, settings)
+        # skip the back-off wait so the next attempt is due now
+        storage.execute("UPDATE notifications SET next_attempt_at = NULL WHERE id = ?", (row_id,))
     row = storage.query_one("SELECT * FROM notifications WHERE id = ?", (row_id,))
     assert row["status"] == "failed"
     assert row["attempts"] == 3

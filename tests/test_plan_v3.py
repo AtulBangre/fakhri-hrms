@@ -498,3 +498,121 @@ def test_exit01_fnf_pays_every_unpaid_month(storage: Storage, settings):
     fnf = exits_service.compute_fnf(storage, settings, row)
     labels = [line["label"] for line in fnf["earnings"]]
     assert "Salary August 2026" in labels and "Salary September 2026" in labels
+
+
+# --------------------------------------------------------------- hardening (step 7)
+import io  # noqa: E402
+
+from app import notify, uploads  # noqa: E402
+
+
+def test_pay12_mid_month_raise_is_split_by_days(storage: Storage, settings):
+    e = _employee(storage, "Raise Mid Month")
+    employees_service.set_salary(storage, e["id"], monthly_gross=60000, effective_from="2026-09-16")
+    _fill(storage, e["id"], _working_days(storage, SEPT))
+    calc = payroll.compute_slip(storage, settings, e, SEPT)
+    assert calc["monthly_gross"] == pytest.approx(30000 * 15 / 30 + 60000 * 15 / 30)
+
+
+def test_lv07_overwriting_a_leave_day_gives_it_back(storage: Storage, settings, aarav):
+    result = leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
+                                       from_date="2026-09-07", to_date="2026-09-08")
+    attendance_service.mark_manual(storage, employee_id=aarav["id"], work_date="2026-09-08", status="present",
+                                   check_in="09:30", check_out="18:30")
+    leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (result["leave"]["id"],))
+    assert leave["days"] == 1
+    attendance_service.mark_manual(storage, employee_id=aarav["id"], work_date="2026-09-07", status="present",
+                                   check_in="09:30", check_out="18:30")
+    leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (result["leave"]["id"],))
+    assert leave["status"] == "cancelled"
+
+
+def test_att04_department_spellings_are_merged(storage: Storage):
+    a = employees_service.create_employee(storage, {"name": "A", "department": "Sales"})
+    b = employees_service.create_employee(storage, {"name": "B", "department": "  sales  "})
+    assert employees_service.get_employee(storage, b)["department"] == "Sales"
+    employees_service.update_employee(storage, a, {"department": "SALES"})
+    assert employees_service.departments(storage) == ["Sales"]
+
+
+def test_att05_field_checkout_needs_a_checkin_and_good_gps(storage: Storage, settings, aarav):
+    from app.services import field
+    field.add_location(storage, name="Office", lat=22.7, lng=75.8, radius_m=200)
+    result = field.check_in(storage, settings, employee=aarav, lat=22.7, lng=75.8, kind="check_out")
+    assert not result["ok"] and "checked in" in result["message"]
+    result = field.check_in(storage, settings, employee=aarav, lat=22.7, lng=75.8, accuracy=5000)
+    assert not result["ok"] and "GPS" in result["message"]
+
+
+def test_att06_no_scans_after_the_last_working_day(storage: Storage, settings, aarav):
+    yesterday = orgtime.today(settings) - timedelta(days=1)
+    exits_service.record_exit(storage, settings, employee_id=aarav["id"], exit_type="resignation",
+                              resignation_date=(yesterday - timedelta(days=30)).isoformat(),
+                              last_working_day=yesterday.isoformat())
+    outcome = attendance_service.mark_by_face(storage, settings, employees_service.get_employee(storage, aarav["id"]))
+    assert not outcome.ok and "last working day" in outcome.message
+
+
+def test_sec06_uploads_are_capped_while_reading():
+    with pytest.raises(uploads.UploadError, match="too large"):
+        uploads.read_capped(io.BytesIO(b"x" * 2000), limit=1000)
+    assert uploads.read_capped(io.BytesIO(b"abc"), limit=1000) == b"abc"
+
+
+def test_sec07_security_headers_and_hidden_docs(client: TestClient):
+    response = client.get("/login")
+    assert response.headers["X-Frame-Options"] in ("DENY", "SAMEORIGIN")
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert "frame-ancestors" in response.headers["Content-Security-Policy"]
+    assert client.get("/api/docs").status_code == 404
+
+
+def test_exit02_settled_leaver_is_not_paid_again(storage: Storage, settings):
+    e = _employee(storage, "Gone")
+    row = exits_service.record_exit(storage, settings, employee_id=e["id"], exit_type="resignation",
+                                    resignation_date="2026-07-01", last_working_day="2026-07-31")
+    for item in exits_service.checklist(storage, row["id"]):
+        exits_service.toggle_item(storage, item["id"], done=True)
+    exits_service.settle(storage, settings, row["id"])
+    payroll.generate_run(storage, settings, AUG, include_inactive=True)
+    assert all(s["employee_id"] != e["id"] for s in payroll.list_slips(storage, AUG))
+
+
+def test_apr01_exited_employee_does_not_block_closing(storage: Storage, settings):
+    from app.services import appraisal as appraisal_service
+    stays, leaves = _employee(storage, "Stays"), _employee(storage, "Leaves")
+    cycle = appraisal_service.create_cycle(storage, name="H2", period_start="2026-04-01",
+                                           period_end="2026-09-30", goals_template="Delivery")
+    appraisal_service.launch_cycle(storage, cycle["id"])
+    today = orgtime.today(settings).isoformat()
+    row = exits_service.record_exit(storage, settings, employee_id=leaves["id"], exit_type="termination",
+                                    resignation_date=today, last_working_day=today)
+    for item in exits_service.checklist(storage, row["id"]):
+        exits_service.toggle_item(storage, item["id"], done=True)
+    exits_service.settle(storage, settings, row["id"])
+    mine = next(a for a in appraisal_service.cycle_appraisals(storage, cycle["id"]) if a["employee_id"] == stays["id"])
+    full = appraisal_service.get_appraisal(storage, mine["id"])
+    appraisal_service.review(storage, mine["id"], scores={g["id"]: 4 for g in full["goals"]}, notes={},
+                             comment=None, complete=True)
+    others = [a for a in appraisal_service.cycle_appraisals(storage, cycle["id"])
+              if a["status"] not in ("completed", "withdrawn")]
+    for item in others:
+        appraisal_service.withdraw(storage, item["id"])
+    appraisal_service.close_cycle(storage, cycle["id"])
+
+
+def test_ntf01_a_message_is_claimed_once(storage: Storage, settings):
+    row_id = notify.queue(storage, channel="email", recipient="a@example.com", subject="s", body="<p>b</p>",
+                          settings=settings)
+    assert notify.claim(storage, row_id) is True
+    assert notify.claim(storage, row_id) is False  # a second sender skips it
+
+
+def test_ntf01_failures_back_off(storage: Storage, settings, monkeypatch):
+    row_id = notify.queue(storage, channel="email", recipient="a@example.com", subject="s", body="<p>b</p>",
+                          settings=settings)
+    monkeypatch.setattr(notify, "_send_email", lambda *a, **k: (_ for _ in ()).throw(notify.SendError("boom")))
+    notify.dispatch(storage, settings)
+    row = storage.query_one("SELECT * FROM notifications WHERE id = ?", (row_id,))
+    assert row["status"] == "pending" and row["next_attempt_at"]
+    assert notify.dispatch(storage, settings) == []  # not due yet

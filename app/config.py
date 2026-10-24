@@ -93,6 +93,8 @@ class Settings:
     # --- misc -------------------------------------------------------------
     public_base_url: str = field(default_factory=lambda: _env("HRMS_PUBLIC_BASE_URL", "http://127.0.0.1:8100"))
     log_level: str = field(default_factory=lambda: _env("HRMS_LOG_LEVEL", "INFO"))
+    #: Interactive API docs at /api/docs — off unless explicitly enabled (SEC-07).
+    api_docs: bool = field(default_factory=lambda: _env_bool("HRMS_API_DOCS", False))
     default_hr_username: str = field(default_factory=lambda: _env("HRMS_DEFAULT_HR_USER", "hr"))
     default_hr_password: str = field(default_factory=lambda: _env("HRMS_DEFAULT_HR_PASSWORD", ""))
     default_kiosk_username: str = field(default_factory=lambda: _env("HRMS_DEFAULT_KIOSK_USER", "gate"))
@@ -200,7 +202,8 @@ SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
     ("pl_accrual_per_month", "1.5", "Paid leave accrual / month", "number",
      "Leave balance = months of service x this value - paid leave taken."),
     ("week_off_days", "6", "Weekly off days", "weekdays",
-     "Tick every day that is always off — e.g. Saturday + Sunday for a 5-day week."),
+     "Tick every day that is always off — e.g. Saturday + Sunday for a 5-day week. Changes apply to draft "
+     "and future months; finalised payroll months keep their figures."),
     ("saturday_off_weeks", "", "Alternate Saturdays off", "text",
      "Only if Saturday is a working day: which Saturdays of the month are off, e.g. 2,4. Leave empty for none."),
     ("late_marks_per_half_lop", "3", "Late marks per half-day LOP", "number",

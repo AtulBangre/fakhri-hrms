@@ -180,6 +180,22 @@ def add_goal(
     return redirect(f"/appraisals/{appraisal_id}", ok="Goal added.")
 
 
+@router.post("/appraisals/{appraisal_id}/withdraw")
+def withdraw(
+    request: Request,
+    appraisal_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+):
+    verify_form_csrf(user, csrf)
+    try:
+        appraisal.withdraw(storage, appraisal_id, actor=user.username)
+    except appraisal.ValidationError as exc:
+        return redirect(f"/appraisals/{appraisal_id}", err=str(exc))
+    return redirect(f"/appraisals/{appraisal_id}", ok="Marked not applicable — it no longer blocks closing the cycle.")
+
+
 @router.post("/appraisals/{appraisal_id}/reopen")
 def reopen(
     request: Request,

@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 
 from ..auth import SessionUser, require_hr_or_kiosk
 from ..deps import get_face, get_settings_dep, get_storage, render
+from ..uploads import UploadError, read_capped
 from ..face import FaceServiceError, FaceServiceUnavailable
 from .. import notify
 from ..services import attendance as attendance_service
@@ -72,7 +73,14 @@ def kiosk_scan(
     image: UploadFile = File(...),
 ):
     """Identify the person in a captured frame and mark attendance."""
-    payload = image.file.read()
+    try:
+        payload = read_capped(image.file, limit=MAX_FRAME_BYTES)
+    except UploadError:
+        return JSONResponse(
+            {"ok": False, "action": "frame_too_large", "kind": "error",
+             "message": "Frame too large — reduce the camera resolution."},
+            status_code=413,
+        )
     device = device_label_for(user)
 
     if not payload:

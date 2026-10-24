@@ -43,6 +43,25 @@ class StoredFile:
     sha256: str
 
 
+def read_capped(fileobj, limit: int = MAX_BYTES, chunk: int = 256 * 1024) -> bytes:
+    """Read an upload in chunks and stop as soon as it passes ``limit`` (SEC-06).
+
+    Reading the whole body first and checking afterwards lets one request fill
+    the server's memory; this never holds more than ``limit + chunk`` bytes.
+    """
+    parts: list[bytes] = []
+    total = 0
+    while True:
+        piece = fileobj.read(chunk)
+        if not piece:
+            break
+        total += len(piece)
+        if total > limit:
+            raise UploadError(f"The file is too large; the limit is {limit / 1_048_576:.0f} MB.")
+        parts.append(piece)
+    return b"".join(parts)
+
+
 def sniff(data: bytes) -> tuple[str, str] | None:
     """Return ``(mime, extension)`` for an allowed payload, else None."""
     if not data:

@@ -130,13 +130,22 @@ The two round buttons are all the controls: **Flip** (front / rear camera) and
 
 Click **Apply leave**. The attendance calendar is updated immediately, and
 weekly offs or holidays inside the range are **skipped** — the confirmation tells
-you exactly which dates were skipped and which were charged.
+you exactly which dates were skipped and which were charged. Only charged days
+reduce the balance; a day the person actually worked is never charged.
 
 * **Leave balance** (bottom table): accrued = months of service × 1.5 (adjustable
   in Settings) − paid leave taken. Unpaid leave is shown separately and does not
   touch the balance.
-* To undo: **Cancel** on the leave row. The attendance days it created are
-  removed; a day that already had a real check-in is left alone.
+* **Paid, sick and casual leave cannot exceed what is available** (earned and
+  unused, minus requests still waiting). Tick *Allow beyond the leave balance*
+  to override — the override is recorded in the audit log.
+* **Overlapping leave is refused** — cancel or edit the existing leave first.
+* **Half day**: the person works one half. If they scan at the gate that day the
+  scan times are kept and the day stays a *paid* half day.
+* To undo: **Cancel** on the leave row. Only the days that leave created are
+  removed; a worked day it was laid over goes back to present.
+* Overwriting a leave day by hand (or approving a correction for it) gives that
+  day back to the balance.
 * **Holidays**: add them here (or in Settings) so they are not counted as working
   days anywhere.
 
@@ -254,15 +263,33 @@ links to the daily board) until the run is finalised.
 
 * **Generate payroll** computes one payslip per active employee:
   `per day = monthly gross ÷ basis days` (calendar days, or a fixed 26 — set in
-  Settings), then `earned gross = gross − LOP days × per day`.
+  Settings), then `earned gross = gross × days employed ÷ days in month − LOP days × per day`.
+  * **LOP days** = absent + unpaid leave + ½ for every half day without paid leave
+    + the late-mark penalty.
+  * **Joined or left mid-month** — only the days from joining to the last working
+    day are paid (the register shows the other days as `–`).
+  * **A raise that starts mid-month** is paid at the old rate up to the day
+    before and at the new rate from that day.
+  * **PF / ESI** follow the wages actually earned: either the amounts on the
+    salary structure, pro-rated, or — with *PF / ESI: Calculate* — 12 % of basic
+    (₹15,000 ceiling) and 0.75 % ESI while gross is within ₹21,000.
+  * **Approved expense claims** are added to the next payslip as a reimbursement
+    and are marked paid when the run is finalised (or use *Mark paid* on the claim).
+  * Net pay is rounded to the rupee.
+* **A month that has not started cannot be generated.** The running month can be
+  drafted (it shows *Provisional*), but it can only be finalised from its last day
+  — change *Finalise payroll from day* in Settings if you pay earlier.
 * **Adjust** any payslip for **bonus / incentive**, **salary advance recovered**,
   **other deduction** and **income tax (TDS)**, plus a note that prints on the
-  payslip. Net pay updates immediately.
+  payslip. Net pay updates immediately and can never go below zero.
+  **Recalculate draft** keeps these adjustments; tick *Reset adjustments* to start clean.
+* Once a month is **finalised**, its attendance, leave and holidays are locked.
+  Reopen the run to correct anything. Employees only see finalised payslips.
 * **TDS** is filled in automatically from the employee's tax profile — see 5b.
 * **Finalise** locks the numbers (no more recalculation) — do this once HR and
   the accountant agree.
 * **Mark as paid** freezes the run for good. If you find a mistake after
-  finalising but before paying, use **Reopen**.
+  finalising but before paying, use **Reopen**. Only a draft run can be deleted.
 * **⬇️ Bank CSV** exports one row per employee — the file an accountant or the
   bank upload needs.
 * Each row has a **Payslip** link: a clean printable page (print or *Save as
@@ -283,7 +310,8 @@ what payroll has deducted so far.
    employee's tax page).
 3. Open an employee and **Confirm TDS** with your CA's annual figure, or use
    **Import CA's TDS schedule** with one `code,annual_tds[,taxable_income]`
-   line per employee.
+   line per employee. Write amounts as `150000` or quote them (`"1,50,000"`).
+   You see a preview first; the sheet is applied all-or-nothing.
 4. Every payroll run then deducts *(confirmed − already deducted this FY) ÷
    months left*, so a figure confirmed mid-year is still fully recovered by March.
 5. **Form 16** (Part B annexure) prints from the employee's tax page — and from
@@ -319,6 +347,17 @@ is reachable. The dashboard shows a live green/red dot for the face service and
 for each gate kiosk (offline after ~75 s without a check-in).
 
 ---
+
+## 6b. Logins and security
+
+* After **5 wrong passwords in 10 minutes** a username is locked for 10 minutes.
+* Disabling a login, changing its password, or marking the employee **inactive**
+  signs that person out everywhere immediately. *Sign out everywhere* (Settings →
+  Logins → Manage) does the same on demand. Gate devices stay signed in for 7 days.
+* Give every HR login an **email address** (Settings → Logins → Manage): leave,
+  correction, profile-change and resignation alerts go to all of them.
+* An employee who is on a finalised payslip cannot be deleted — mark them
+  inactive instead. Deleting removes their files and face template.
 
 ## 7. Everyone leaves eventually — exits and full & final
 

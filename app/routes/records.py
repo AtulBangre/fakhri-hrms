@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from ..auth import SessionUser, require_employee, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
-from ..uploads import UploadError, human_size, path_for
+from ..uploads import UploadError, human_size, path_for, read_capped
 from ..services import employees as employees_service
 from ..services import orgtime
 from ..services import records
@@ -58,7 +58,7 @@ def upload_document(
     verify_form_csrf(user, csrf)
     try:
         records.add_document(
-            storage, settings, employee_id=employee_id, data=file.file.read(),
+            storage, settings, employee_id=employee_id, data=read_capped(file.file),
             original_name=file.filename, category=category, title=title or None,
             notes=notes or None, uploaded_by=user.username,
         )
@@ -153,7 +153,7 @@ def upload_my_document(
     employee_id = int(user.employee_id or 0)
     try:
         records.add_document(
-            storage, settings, employee_id=employee_id, data=file.file.read(),
+            storage, settings, employee_id=employee_id, data=read_capped(file.file),
             original_name=file.filename, category=category, title=title or None,
             uploaded_by=user.username,
         )
@@ -388,7 +388,7 @@ def submit_expense(
     employee_id = int(user.employee_id or 0)
     payload = None
     if receipt is not None and receipt.filename:
-        payload = (receipt.file.read(), receipt.filename)
+        payload = (read_capped(receipt.file), receipt.filename)
     try:
         records.submit_claim(
             storage, settings, employee_id=employee_id, amount=_as_float(amount),

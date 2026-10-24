@@ -422,6 +422,23 @@ def compute_fnf(storage: Storage, settings: Settings, exit_row: dict[str, Any]) 
     }
 
 
+def _email_statement(storage: Storage, settings: Settings, row: dict[str, Any], fnf: dict[str, Any]) -> None:
+    """The employee's portal login closes at settlement, so the statement goes by email (EXIT-03)."""
+    employee = employees_service.get_employee(storage, row["employee_id"]) or {}
+    if not employee.get("email"):
+        return
+    lines = [f"{line['label']}: ₹{line['amount']:,.2f}" for line in fnf["earnings"]]
+    lines += [f"Less {line['label']}: ₹{line['amount']:,.2f}" for line in fnf["deductions"]]
+    verdict = "payable to you" if fnf["net"] >= 0 else "recoverable from you"
+    notify.queue_email(
+        storage, employee["email"], "hr_alert", settings=settings, category="fnf",
+        subject=f"Your full & final settlement — ₹{abs(fnf['net']):,.2f}",
+        message=(f"Hi {employee.get('name', '')}, your full & final settlement (last working day "
+                 f"{orgtime.human_date(fnf['last_working_day'])}) is complete. " + " · ".join(lines)
+                 + f". Net {verdict}: ₹{abs(fnf['net']):,.2f}. Please keep this email for your records."),
+    )
+
+
 def settle(storage: Storage, settings: Settings, exit_id: int, *, actor: str | None = None) -> dict[str, Any]:
     row = get(storage, exit_id)
     if row["status"] != "approved":
@@ -447,4 +464,7 @@ def settle(storage: Storage, settings: Settings, exit_id: int, *, actor: str | N
         storage.execute_tx("UPDATE users SET active = 0 WHERE employee_id = ?", (row["employee_id"],))
     storage.audit(actor=actor, action="fnf_settled", entity="employee", entity_id=row["employee_id"],
                   detail=f"net {statement['net']:.2f}")
+    from . import appraisal as appraisal_service
+    appraisal_service.withdraw_open_for(storage, row["employee_id"], actor=actor)
+    _email_statement(storage, settings, row, statement)
     return get(storage, exit_id)

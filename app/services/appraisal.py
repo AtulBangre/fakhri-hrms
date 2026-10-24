@@ -32,6 +32,7 @@ STATUS_LABELS = {
     "self_review": "Awaiting self review",
     "manager_review": "Awaiting HR review",
     "completed": "Completed",
+    "withdrawn": "Not applicable",
 }
 
 
@@ -159,7 +160,8 @@ def close_cycle(storage: Storage, cycle_id: int, *, actor: str | None = None) ->
     if cycle["status"] != "open":
         raise ValidationError("Only an open cycle can be closed.")
     open_reviews = int(storage.scalar(
-        "SELECT COUNT(*) AS n FROM appraisals WHERE cycle_id = ? AND status != 'completed'", (cycle_id,)
+        "SELECT COUNT(*) AS n FROM appraisals WHERE cycle_id = ? AND status NOT IN ('completed','withdrawn')",
+        (cycle_id,),
     ))
     if open_reviews:
         raise ValidationError(f"{open_reviews} review(s) are not completed yet.")
@@ -311,6 +313,25 @@ def review(storage: Storage, appraisal_id: int, *, scores: dict[int, Any], notes
         storage.audit(actor=actor, action="appraisal_completed", entity="employee", entity_id=row["employee_id"],
                       detail=f"{row['cycle_name']}: {final}")
     return get_appraisal(storage, appraisal_id)
+
+
+def withdraw(storage: Storage, appraisal_id: int, *, actor: str | None = None) -> None:
+    """Mark a review "not applicable" (the person left, went on long leave …) — APR-01."""
+    row = get_appraisal(storage, appraisal_id)
+    if row["status"] == "completed":
+        raise ValidationError("A completed review cannot be withdrawn.")
+    storage.execute("UPDATE appraisals SET status = 'withdrawn' WHERE id = ?", (appraisal_id,))
+    storage.audit(actor=actor, action="appraisal_withdrawn", entity="employee", entity_id=row["employee_id"])
+
+
+def withdraw_open_for(storage: Storage, employee_id: int, *, actor: str | None = None) -> int:
+    """Withdraw every unfinished review in open cycles (used when an exit is settled)."""
+    cursor = storage.execute(
+        "UPDATE appraisals SET status = 'withdrawn' WHERE employee_id = ? AND status NOT IN ('completed','withdrawn') "
+        "AND cycle_id IN (SELECT id FROM appraisal_cycles WHERE status = 'open')",
+        (employee_id,),
+    )
+    return cursor.rowcount or 0
 
 
 def reopen(storage: Storage, appraisal_id: int, *, actor: str | None = None) -> None:

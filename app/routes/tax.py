@@ -19,7 +19,7 @@ from ..auth import SessionUser, current_user, require_employee, require_hr, veri
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..services import employees as employees_service
 from ..services import tax
-from ..uploads import UploadError, path_for
+from ..uploads import UploadError, path_for, read_capped
 
 router = APIRouter(tags=["tax"])
 
@@ -42,7 +42,7 @@ def _fy(settings, fy: str | None) -> str:
 async def _read_upload(file: UploadFile | None) -> tuple[bytes, str] | None:
     if file is None or not file.filename:
         return None
-    data = await file.read()
+    data = read_capped(file.file)
     return (data, file.filename) if data else None
 
 
@@ -96,7 +96,10 @@ async def import_schedule(
     fy = _fy(settings, fy)
     text = csv_text
     if file is not None and file.filename:
-        raw = await file.read()
+        try:
+            raw = read_capped(file.file, limit=2 * 1024 * 1024)
+        except UploadError as exc:
+            return redirect("/tax", fy=fy, err=str(exc))
         try:
             text = raw.decode("utf-8-sig")
         except UnicodeDecodeError:

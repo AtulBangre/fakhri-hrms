@@ -243,10 +243,11 @@ def email_payslips(
             skipped += 1
             continue
         if only_missing:
+            # match this exact payslip only — not any old email that mentions the month (NTF-02)
             previous = storage.query_one(
                 "SELECT id FROM notifications WHERE category='payslip' AND recipient=? "
-                "AND (meta LIKE ? OR body LIKE ?) LIMIT 1",
-                (address, f'%"slip_id":{slip["id"]}%', f"%{months}%"),
+                "AND (meta LIKE ? OR meta LIKE ?) LIMIT 1",
+                (address, f'%"slip_id":{slip["id"]}}}%', f'%"slip_id":{slip["id"]},%'),
             )
             if previous:
                 already += 1

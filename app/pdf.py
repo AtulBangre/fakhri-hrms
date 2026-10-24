@@ -9,11 +9,11 @@ attendance counts) is exact.
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from fpdf import FPDF
 
+from .services import orgtime
 from .config import BRAND, Settings
 
 #: 0x87 0x08 0x08 → the brand maroon, as an RGB tuple
@@ -213,7 +213,7 @@ def render_payslip(
         _text(
             "Net pay = earned gross + bonus - total deductions. "
             "This is a computer-generated payslip from the HRMS; errors and omissions excepted. "
-            f"Generated on {date.today().strftime('%d %b %Y')}."
+            f"Generated on {orgtime.today(settings).strftime('%d %b %Y')}."
         ),
     )
     pdf.ln(8)

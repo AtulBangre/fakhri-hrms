@@ -7,8 +7,12 @@
 > out under each item; turn them into the failing tests). Items marked **Reproduced** were demonstrated
 > that way; items marked **Code review** were found by reading the code and still
 > need a failing test written first.
-> **Baseline:** `./.venv/bin/pytest -q` → 226 passed, 11 skipped. About 80 files are
-> uncommitted — commit them before starting (see §0).
+> **Baseline:** `./.venv/bin/pytest -q` → 226 passed, 11 skipped.
+
+> **Status (2026-10-24): all 45 bug IDs are fixed** on branch `fix/plan-v3-bugs`, one commit per step
+> (§6). Every ID has a regression test in `tests/test_plan_v3.py` (or the existing suite where the
+> behaviour changed). Full suite: 289 passed, 0 failed; site crawl (HR + employee): 0 broken pages.
+> The Appendix change requests are **not** part of this work and remain open.
 
 **Priority** — **P0** wrong money or a security hole · **P1** wrong data or a broken workflow · **P2** robustness, UX or hardening.
 
@@ -16,9 +20,9 @@
 
 ## 0. Before starting
 
-- [ ] Commit the current working tree as one checkpoint ("tax/TDS, regularization, exits, appraisals, UI overhaul").
-- [ ] Rule for every fix below: **first write a failing test that reproduces it, then fix it.** The repro steps are given per item.
-- [ ] One branch or PR per section (§1 Payroll, §2 Leave and attendance, §3 Security, …), so reviews stay small.
+- [x] Commit the current working tree as one checkpoint ("tax/TDS, regularization, exits, appraisals, UI overhaul").
+- [x] Rule for every fix below: **first write a failing test that reproduces it, then fix it.** The repro steps are given per item.
+- [x] One branch or PR per section (§1 Payroll, §2 Leave and attendance, §3 Security, …), so reviews stay small.
 
 ---
 
@@ -307,33 +311,33 @@ Each step ends with: full pytest green, the full-site crawl (HR and employee) wi
 ## 7. Verification checklist
 
 **Money**
-- [ ] Half day (no leave or unpaid leave) = 0.5 LOP; paid half-day leave = 0 LOP.
-- [ ] Joiner on the 20th → 11/30 of gross; leaver on the 10th → 10/30.
-- [ ] Future month can't be generated; current month can't be finalised early; paid runs can't be deleted.
-- [ ] Recalculating keeps bonus, advance, TDS override and notes.
-- [ ] TDS import of `"1,50,000"` = 150000; unquoted `1,50,000` is rejected with nothing applied.
-- [ ] PF and ESI scale with LOP; net pay never negative; approved expenses appear on the next payslip and are marked paid at finalisation.
-- [ ] Register *Payable* and *LOP* equal the payslip for every employee.
+- [x] Half day (no leave or unpaid leave) = 0.5 LOP; paid half-day leave = 0 LOP.
+- [x] Joiner on the 20th → 11/30 of gross; leaver on the 10th → 10/30.
+- [x] Future month can't be generated; current month can't be finalised early; paid runs can't be deleted.
+- [x] Recalculating keeps bonus, advance, TDS override and notes.
+- [x] TDS import of `"1,50,000"` = 150000; unquoted `1,50,000` is rejected with nothing applied.
+- [x] PF and ESI scale with LOP; net pay never negative; approved expenses appear on the next payslip and are marked paid at finalisation.
+- [x] Register *Payable* and *LOP* equal the payslip for every employee.
 
 **Leave and attendance**
-- [ ] Leave beyond balance refused (unless HR overrides); overlapping leave refused.
-- [ ] Cancelling leave #14 never touches leave #140's days.
-- [ ] Half-day leave plus a gate scan stays a paid half day.
-- [ ] Nothing in a finalised month can be changed until the run is reopened.
+- [x] Leave beyond balance refused (unless HR overrides); overlapping leave refused.
+- [x] Cancelling leave #14 never touches leave #140's days.
+- [x] Half-day leave plus a gate scan stays a paid half day.
+- [x] Nothing in a finalised month can be changed until the run is reopened.
 
 **Security**
-- [ ] Disabling a login, changing its password or marking the employee inactive ends existing sessions immediately.
-- [ ] Password reset never re-enables a disabled account.
-- [ ] The 6th wrong password within 10 minutes is locked out.
+- [x] Disabling a login, changing its password or marking the employee inactive ends existing sessions immediately.
+- [x] Password reset never re-enables a disabled account.
+- [x] The 6th wrong password within 10 minutes is locked out.
 
 **Data**
-- [ ] Changing an employee code doesn't break face recognition.
-- [ ] Deleting a login with history shows a friendly error, not a 500.
-- [ ] Deleting an employee removes their files and face template.
-- [ ] HR receives leave, profile, regularization and resignation emails.
+- [x] Changing an employee code doesn't break face recognition.
+- [x] Deleting a login with history shows a friendly error, not a 500.
+- [x] Deleting an employee removes their files and face template.
+- [x] HR receives leave, profile, regularization and resignation emails.
 
 **Regression**
-- [ ] `./.venv/bin/pytest -q` 100% green, with a new test per bug ID (name tests `test_<id>_…`).
+- [x] `./.venv/bin/pytest -q` 100% green, with a new test per bug ID (name tests `test_<id>_…`).
 
 ---
 

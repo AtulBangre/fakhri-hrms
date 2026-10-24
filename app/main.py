@@ -34,6 +34,21 @@ from .routes import (
 
 logger = logging.getLogger("hrms")
 
+#: Inline handlers (print, auto-submit) need 'unsafe-inline' for scripts; framing,
+#: plugins and third-party connections are shut off entirely.
+SECURITY_HEADERS = {
+    "X-Frame-Options": "SAMEORIGIN",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "Permissions-Policy": "camera=(self), microphone=(), geolocation=(self)",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; "
+        "base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+    ),
+}
+
 
 def _configure_logging(settings: Settings) -> None:
     logging.basicConfig(
@@ -98,9 +113,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Attendance (face recognition), employees, leave and payroll.\n\n"
             "Two roles: **hr** (everything) and **kiosk** (attendance marking only)."
         ),
-        docs_url="/api/docs",
+        docs_url="/api/docs" if settings.api_docs else None,
         redoc_url=None,
-        openapi_url="/api/openapi.json",
+        openapi_url="/api/openapi.json" if settings.api_docs else None,
         lifespan=lifespan,
     )
     app.state.settings = settings
@@ -113,6 +128,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         started = time.perf_counter()
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
+        # Same policy the Caddy proxy sets, so a deployment without it is covered too (SEC-07).
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
         response.headers["X-Processing-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
 
         # Cache policy. Assets are linked with ?v=<content hash>, so an unchanged
