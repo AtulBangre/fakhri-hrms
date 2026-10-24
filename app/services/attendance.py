@@ -44,6 +44,8 @@ class MarkOutcome:
     status: str | None = None
     check_in: str | None = None
     check_out: str | None = None
+    late_fine: float = 0.0
+    late_half_day: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -53,6 +55,8 @@ class MarkOutcome:
             "message": self.message,
             "similarity": self.similarity,
             "late_minutes": self.late_minutes,
+            "late_fine": self.late_fine,
+            "late_half_day": self.late_half_day,
             "worked_minutes": self.worked_minutes,
             "status": self.status,
             "check_in": self.check_in,
@@ -96,7 +100,7 @@ def daily_rows(storage: Storage, settings: Settings, day: date | None = None) ->
         """
         SELECT e.id AS employee_id, e.code, e.name, e.department, e.designation, e.face_id,
                a.id AS attendance_id, a.status, a.check_in, a.check_out, a.late_minutes,
-               a.worked_minutes, a.leave_type, a.source, a.device_label, a.note
+               a.worked_minutes, a.leave_type, a.source, a.device_label, a.note, a.late_fine
         FROM employees e
         LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = ?
         WHERE e.status = 'active'
@@ -231,7 +235,8 @@ def employee_range_summary(storage: Storage, employee_id: int, start: date, limi
     today = today or limit
     window = employment_window(storage, employee, start, limit)
     tally = {key: 0 for key in DAY_CLASSES}
-    summary = {"period": orgtime.period_of(start), "late_marks": 0, "late_minutes": 0, "worked_minutes": 0,
+    summary = {"period": orgtime.period_of(start), "late_marks": 0, "late_minutes": 0, "late_fines": 0.0,
+               "worked_minutes": 0,
                "days": 0, "employed_days": (window[1] - window[0]).days + 1 if window else 0}
     counted_until = min(limit, today)
     rows = {
@@ -250,8 +255,10 @@ def employee_range_summary(storage: Storage, employee_id: int, start: date, limi
             if row.get("late_minutes"):
                 summary["late_marks"] += 1
                 summary["late_minutes"] += int(row["late_minutes"])
+            summary["late_fines"] += float(row.get("late_fine") or 0)
             if row.get("worked_minutes"):
                 summary["worked_minutes"] += int(row["worked_minutes"])
+    summary["late_fines"] = round(summary["late_fines"], 2)
     summary.update(tally)
     # backwards-compatible names used by templates
     summary["half_days"] = tally["half_paid"] + tally["half_unpaid"]
@@ -470,50 +477,61 @@ def mark_by_face(
             )
 
         # Row exists without a check-in (e.g. HR marked absent, then the person showed up).
-        late = orgtime.late_minutes_for(storage, moment)
+        assessed = orgtime.late_assessment(storage, moment)
+        status_in = orgtime.STATUS_HALF_DAY if assessed["half_day"] else orgtime.STATUS_PRESENT
         note = "face scan overrode a manual entry"
         storage.execute(
             """
-            UPDATE attendance SET check_in = ?, status = ?, late_minutes = ?, source = ?,
+            UPDATE attendance SET check_in = ?, status = ?, late_minutes = ?, late_fine = ?, source = ?,
                                   device_label = ?, note = ?, updated_at = ?
             WHERE id = ?
             """,
-            (now_clock, orgtime.STATUS_PRESENT, late, source, device_label, note, utcnow_iso(), existing["id"]),
+            (now_clock, status_in, assessed["late_minutes"], assessed["fine"], source, device_label, note,
+             utcnow_iso(), existing["id"]),
         )
         updated = get_row(storage, employee["id"], day)
         return MarkOutcome(
             ok=True, action="check_in", kind="success",
             message=f"{employee['name']} checked in at {orgtime.format_clock(now_clock)}",
             employee=employee, attendance=updated, similarity=similarity,
-            status=orgtime.STATUS_PRESENT, check_in=now_clock, late_minutes=late,
+            status=status_in, check_in=now_clock, late_minutes=assessed["late_minutes"],
+            late_fine=assessed["fine"], late_half_day=assessed["half_day"],
         )
 
     # First scan of the day.
-    late = orgtime.late_minutes_for(storage, moment)
     kind = orgtime.day_kind(storage, day)
     note = None
+    assessed = {"late_minutes": 0, "fine": 0.0, "half_day": False}
     if kind == orgtime.STATUS_WEEK_OFF:
         note = "worked on a weekly off"
     elif kind == orgtime.STATUS_HOLIDAY:
         note = "worked on a holiday"
+    else:
+        assessed = orgtime.late_assessment(storage, moment)  # no late rules on an off day
+    late = assessed["late_minutes"]
+    status_in = orgtime.STATUS_HALF_DAY if assessed["half_day"] else orgtime.STATUS_PRESENT
+    if assessed["half_day"]:
+        note = "late arrival — half day"
 
     now = utcnow_iso()
     storage.execute(
         """
-        INSERT INTO attendance (employee_id, work_date, status, check_in, late_minutes, source,
+        INSERT INTO attendance (employee_id, work_date, status, check_in, late_minutes, late_fine, source,
                                 device_label, note, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
         """,
-        (employee["id"], day.isoformat(), orgtime.STATUS_PRESENT, now_clock, late, source,
+        (employee["id"], day.isoformat(), status_in, now_clock, late, assessed["fine"], source,
          device_label, note, now, now),
     )
     created = get_row(storage, employee["id"], day)
     return MarkOutcome(
         ok=True, action="check_in", kind="success",
         message=f"{employee['name']} checked in at {orgtime.format_clock(now_clock)}"
-                + (f" — {late} min late" if late else ""),
+                + (f" — {late} min late" if late else "")
+                + (" (half day)" if assessed["half_day"] else ""),
         employee=employee, attendance=created, similarity=similarity,
-        status=orgtime.STATUS_PRESENT, check_in=now_clock, late_minutes=late,
+        status=status_in, check_in=now_clock, late_minutes=late,
+        late_fine=assessed["fine"], late_half_day=assessed["half_day"],
     )
 
 
@@ -563,10 +581,12 @@ def mark_manual(
         check_out = parsed.strftime("%H:%M:%S")
 
     worked = orgtime.minutes_between(check_in, check_out) if (check_in and check_out) else None
-    late = 0
-    if check_in and status == orgtime.STATUS_PRESENT:
-        moment = datetime.combine(day, orgtime.parse_clock(check_in))
-        late = orgtime.late_minutes_for(storage, moment)
+    late, fine = 0, 0.0
+    if check_in and status == orgtime.STATUS_PRESENT and orgtime.day_kind(storage, day) == "working":
+        assessed = orgtime.late_assessment(storage, datetime.combine(day, orgtime.parse_clock(check_in)))
+        late, fine = assessed["late_minutes"], assessed["fine"]
+        if assessed["half_day"]:
+            status = orgtime.STATUS_HALF_DAY  # late-arrival policy: a half day, no fine
 
     now = utcnow_iso()
     existing = get_row(storage, employee_id, day)
@@ -580,21 +600,21 @@ def mark_manual(
     if existing:
         storage.execute(
             """
-            UPDATE attendance SET status = ?, check_in = ?, check_out = ?, late_minutes = ?,
+            UPDATE attendance SET status = ?, check_in = ?, check_out = ?, late_minutes = ?, late_fine = ?,
                                   worked_minutes = ?, leave_type = ?, source = 'manual', note = ?,
                                   leave_id = NULL, updated_at = ?
             WHERE id = ?
             """,
-            (status, check_in, check_out, late, worked, leave_type, note, now, existing["id"]),
+            (status, check_in, check_out, late, fine, worked, leave_type, note, now, existing["id"]),
         )
     else:
         storage.execute(
             """
-            INSERT INTO attendance (employee_id, work_date, status, check_in, check_out, late_minutes,
+            INSERT INTO attendance (employee_id, work_date, status, check_in, check_out, late_minutes, late_fine,
                                     worked_minutes, leave_type, source, note, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?, 'manual', ?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?, 'manual', ?,?,?)
             """,
-            (employee_id, day.isoformat(), status, check_in, check_out, late, worked, leave_type,
+            (employee_id, day.isoformat(), status, check_in, check_out, late, fine, worked, leave_type,
              note, now, now),
         )
     storage.audit(actor=actor, action="mark_attendance", entity="employee", entity_id=employee_id,
@@ -759,7 +779,7 @@ def monthly_register(
         )
 
     register_rows = []
-    marks_per_half_lop = storage.get_int("late_marks_per_half_lop", 0)
+    marks_per_half_lop = orgtime.late_marks_rule(storage)
     for person in staff:
         window = employment_window(storage, person, start, end)
         tally = {key: 0 for key in DAY_CLASSES}
@@ -854,7 +874,7 @@ def _cell_title(record: dict) -> str:
     if record.get("check_out"):
         bits.append(f"out {orgtime.format_clock(record['check_out'])}")
     if record.get("late_minutes"):
-        bits.append(f"late {record['late_minutes']}m")
+        bits.append(f"late {record['late_minutes']}m" + (f" · fine ₹{record['late_fine']:g}" if record.get("late_fine") else ""))
     if record.get("worked_minutes"):
         bits.append(orgtime.format_minutes(record["worked_minutes"]))
     if record.get("leave_type"):

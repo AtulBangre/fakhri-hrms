@@ -183,6 +183,9 @@ def render_payslip(
     tds = float(slip.get("tds") or 0)
     if tds > 0:
         pdf.amount_row("Income tax (TDS)", _money(tds))
+    late_fine = float(slip.get("late_fine") or 0)
+    if late_fine > 0:
+        pdf.amount_row("Late arrival fines", _money(late_fine))
     pdf.amount_row("Salary advance", _money(slip.get("advance")))
     pdf.amount_row("Other deductions", _money(slip.get("other_deduction")))
     pdf.amount_row("Total deductions", _money(slip.get("total_deductions")), bold=True)

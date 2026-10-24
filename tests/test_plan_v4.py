@@ -131,3 +131,72 @@ def test_f3_hr_sets_the_override_on_the_edit_form(hr_client: TestClient, storage
         "_csrf": token, "name": staff[0]["name"], "code": staff[0]["code"], "joined_on": staff[0]["joined_on"],
         "status": "active", "self_punch_mode": "geofence_only"})
     assert employees_service.get_employee(storage, staff[0]["id"])["self_punch_mode"] == "geofence_only"
+
+
+# ------------------------------------------------------------ Feature 4
+def _at(hh, mm, day=date(2026, 9, 7)):
+    return datetime.combine(day, datetime.min.time()).replace(hour=hh, minute=mm)
+
+
+@pytest.mark.parametrize("hhmm, late, fine, half", [
+    ((9, 40), 0, 0, False),      # inside grace (09:30 + 15)
+    ((9, 55), 10, 50, False),    # slab 1: up to 15 min past grace
+    ((10, 0), 15, 50, False),    # slab 1 edge
+    ((10, 10), 25, 100, False),  # slab 2
+    ((10, 29), 44, 100, False),  # still slab 2
+    ((10, 30), 45, 0, True),     # 60 min after shift start → half day, no fine
+])
+def test_f4_slabs_and_half_day(storage: Storage, hhmm, late, fine, half):
+    assessed = orgtime.late_assessment(storage, _at(*hhmm))
+    assert (assessed["late_minutes"], assessed["fine"], assessed["half_day"]) == (late, fine, half)
+
+
+def test_f4_policy_none_and_count_only(storage: Storage):
+    storage.set_setting("late_policy_mode", "none")
+    assert orgtime.late_assessment(storage, _at(11, 0)) | {} == {"late_minutes": 75, "fine": 0.0,
+                                                                 "half_day": False, "policy": "none"}
+    storage.set_setting("late_policy_mode", "lop_count_only")
+    assessed = orgtime.late_assessment(storage, _at(10, 5))
+    assert assessed["fine"] == 0 and assessed["half_day"] is False
+    assert orgtime.late_marks_rule(storage) == 3
+    storage.set_setting("late_policy_mode", "tiered_fine_only")
+    assert orgtime.late_marks_rule(storage) == 0
+
+
+def test_f4_gate_scan_records_fine_and_half_day(storage: Storage, settings, staff):
+    day = date(2026, 9, 7)
+    fine = attendance_service.mark_by_face(storage, settings, staff[0], moment=_at(9, 55, day))
+    assert fine.late_fine == 50 and attendance_service.get_row(storage, staff[0]["id"], day)["late_fine"] == 50
+    half = attendance_service.mark_by_face(storage, settings, staff[1], moment=_at(10, 45, day))
+    row = attendance_service.get_row(storage, staff[1]["id"], day)
+    assert half.late_half_day and row["status"] == "half_day" and row["late_fine"] == 0
+
+
+def test_f4_manual_entry_follows_the_policy(storage: Storage, staff):
+    row = attendance_service.mark_manual(storage, employee_id=staff[0]["id"], work_date="2026-09-08",
+                                         status="present", check_in="10:10", check_out="18:30")
+    assert row["late_fine"] == 100 and row["status"] == "present"
+    row = attendance_service.mark_manual(storage, employee_id=staff[0]["id"], work_date="2026-09-09",
+                                         status="present", check_in="11:00", check_out="18:30")
+    assert row["status"] == "half_day" and row["late_fine"] == 0
+
+
+def test_f4_payslip_deducts_fines(storage: Storage, settings, staff):
+    e = staff[0]
+    for d in [d for d in orgtime.days_in_period("2026-09") if orgtime.day_kind(storage, d) == "working"]:
+        attendance_service.mark_manual(storage, employee_id=e["id"], work_date=d.isoformat(), status="present",
+                                       check_in="09:30", check_out="18:30")
+    attendance_service.mark_manual(storage, employee_id=e["id"], work_date="2026-09-08", status="present",
+                                   check_in="09:55", check_out="18:30")    # ₹50
+    attendance_service.mark_manual(storage, employee_id=e["id"], work_date="2026-09-09", status="present",
+                                   check_in="10:20", check_out="18:30")    # ₹100
+    calc = payroll.compute_slip(storage, settings, employees_service.get_employee(storage, e["id"]), "2026-09")
+    assert calc["late_fine"] == 150 and calc["lop_days"] == 0
+    payroll.generate_run(storage, settings, "2026-09")
+    slip = next(s for s in payroll.list_slips(storage, "2026-09") if s["employee_id"] == e["id"])
+    assert slip["late_fine"] == 150
+    assert slip["total_deductions"] == pytest.approx(slip["pf"] + slip["esi"] + slip["professional_tax"] + 150)
+    assert "Late Fines" in payroll.payroll_csv(storage, "2026-09").splitlines()[0]
+    # an HR adjustment keeps the fine in the total
+    updated = payroll.update_slip(storage, slip["id"], bonus=500)
+    assert updated["total_deductions"] == pytest.approx(slip["total_deductions"])

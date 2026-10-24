@@ -108,7 +108,7 @@
           <td data-label="In">{{ row.check_in_label }}</td>
           <td data-label="Out">{{ row.check_out_label }}</td>
           <td data-label="Worked">{{ row.worked_label }}</td>
-          <td data-label="Late">{% if row.late_minutes %}<span class="chip chip-warn">{{ row.late_minutes }}m</span>{% else %}—{% endif %}</td>
+          <td data-label="Late">{% if row.late_minutes %}<span class="chip chip-warn">{{ row.late_minutes }}m{% if row.late_fine %} · ₹{{ row.late_fine | plain }}{% endif %}</span>{% else %}—{% endif %}</td>
           <td data-label="Source">
             {% if row.source_label %}<span class="chip chip-muted">{{ row.source_label }}</span>{% else %}—{% endif %}
             {% if row.user_note %}<span class="sub muted">{{ row.user_note }}</span>{% endif %}

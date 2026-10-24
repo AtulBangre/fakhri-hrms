@@ -605,6 +605,7 @@ def test_payroll_basis_can_be_fixed_26_days(storage: Storage, settings, aarav):
 def test_late_marks_can_cost_half_a_day(storage: Storage, settings, aarav):
     employees_service.set_salary(storage, aarav["id"], monthly_gross=31000, effective_from="2025-04-01")
     storage.set_setting("late_marks_per_half_lop", "3")
+    storage.set_setting("late_policy_mode", "lop_count_only")  # the count rule (plan v4 policies)
     for day in (5, 6, 7):  # three late arrivals
         attendance_service.mark_manual(
             storage, employee_id=aarav["id"], work_date=f"2026-01-{day:02d}", status="present",

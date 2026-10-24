@@ -134,6 +134,7 @@ def my_attendance(
                 "check_out": orgtime.format_clock(record["check_out"]) if record else "—",
                 "worked": orgtime.format_minutes(record["worked_minutes"]) if record else "—",
                 "late_minutes": record["late_minutes"] if record else 0,
+                "late_fine": record.get("late_fine") if record else 0,
                 "leave_type": orgtime.LEAVE_LABELS.get(record["leave_type"], "") if record else "",
                 "note": orgtime.user_note(record) if record else None,
                 "source": orgtime.source_label(record) if record and cls != "not_employed" else None,

@@ -79,7 +79,7 @@
           <td data-label="In" class="num-cell">{{ day.check_in }}</td>
           <td data-label="Out" class="num-cell">{{ day.check_out }}</td>
           <td data-label="Worked" class="nowrap">{{ day.worked }}
-            {% if day.late_minutes %}<span class="chip chip-warn">{{ day.late_minutes }}m late</span>{% endif %}</td>
+            {% if day.late_minutes %}<span class="chip chip-warn">{{ day.late_minutes }}m late{% if day.late_fine %} · ₹{{ day.late_fine | plain }} fine{% endif %}</span>{% endif %}</td>
           <td data-label="Marked by / note" class="small">
             {% if day.note %}{{ day.note }}{% elif day.source %}<span class="muted">{{ day.source }}</span>{% else %}<span class="muted">—</span>{% endif %}
           </td>

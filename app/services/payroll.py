@@ -12,8 +12,9 @@ Attendance drives everything: any unmarked working day in the past counts as
 absent (see ``attendance.effective_status``), which is why HR must close the
 month's exceptions before finalising a run.
 
-Late marks can optionally cost money: with ``late_marks_per_half_lop = 3``, every
-third late mark adds half a day of loss of pay. Set it to 0 to switch the rule off.
+Lateness follows ``late_policy_mode``: tiered fines per late day (a payslip
+deduction line), an automatic half day for very late arrivals, and/or the older
+"every N late marks = half a day of LOP" rule (``lop_count_only`` / ``hybrid_both``).
 
 Salary components come from ``salary_revisions`` — the row effective for the
 period is used, so a mid-month raise is picked up the month it starts.
@@ -251,7 +252,7 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
     per_day = monthly_gross / basis_days if basis_days else 0.0
 
     figures = attendance_service.pay_figures(
-        summary, int(summary["late_marks"]), storage.get_int("late_marks_per_half_lop", 0)
+        summary, int(summary["late_marks"]), orgtime.late_marks_rule(storage)
     )
     present_days = figures["present_days"]
     paid_leave_days = figures["paid_leave_days"]
@@ -268,7 +269,9 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
     # Tax can only come out of pay that was actually earned this month.
     tds = min(tds_for_period(storage, employee["id"], period),
               max(0.0, earned_gross - pf - esi - professional_tax))
-    total_deductions = pf + esi + professional_tax + tds
+    # late-arrival fines (Feature 4), never more than the month can carry
+    late_fine = min(float(summary.get("late_fines") or 0), max(0.0, earned_gross - pf - esi - professional_tax - tds))
+    total_deductions = pf + esi + professional_tax + tds + late_fine
     claims = approved_claims(storage, employee["id"], period)
 
     return {
@@ -291,6 +294,7 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
         "esi": round(esi, 2),
         "professional_tax": round(professional_tax, 2),
         "tds": round(tds, 2),
+        "late_fine": round(late_fine, 2),
         "total_deductions": round(total_deductions, 2),
         "reimbursement": round(sum(float(c["amount"]) for c in claims), 2),
         "claim_ids": [c["id"] for c in claims],
@@ -371,8 +375,9 @@ def generate_run(
                 INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, paid_leave_days,
                                       lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
                                       professional_tax, tds, total_deductions, net_pay, created_at, updated_at,
-                                      bonus, advance, other_deduction, tds_override, note, reimbursement, rounding)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                      bonus, advance, other_deduction, tds_override, note, reimbursement, rounding,
+                                      late_fine)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
@@ -380,7 +385,7 @@ def generate_run(
                     calc["earned_gross"], calc["pf"], calc["esi"], calc["professional_tax"],
                     calc["tds"], calc["total_deductions"], calc["net_pay"], now, now,
                     calc["bonus"], calc["advance"], calc["other_deduction"], calc["tds_override"], calc["note"],
-                    calc["reimbursement"], calc["rounding"],
+                    calc["reimbursement"], calc["rounding"], calc["late_fine"],
                 ),
             )
             if calc["claim_ids"]:
@@ -421,7 +426,7 @@ def _apply_adjustments(calc: dict[str, Any], kept: dict[str, Any] | None) -> Non
     override = kept.get("tds_override")
     tds = float(override) if override is not None else calc["tds"]
     note = kept.get("note")
-    statutory = calc["pf"] + calc["esi"] + calc["professional_tax"] + tds
+    statutory = calc["pf"] + calc["esi"] + calc["professional_tax"] + tds + calc.get("late_fine", 0.0)
     available = calc["earned_gross"] + bonus + calc["reimbursement"] - statutory
     if advance + other > max(0.0, available):
         # attendance changed since HR typed these: recover only what this month can carry
@@ -482,7 +487,8 @@ def update_slip(
         if value < 0:
             raise employees_service.ValidationError(f"{label.replace('_', ' ').title()} cannot be negative.")
 
-    total_deductions = slip["pf"] + slip["esi"] + slip["professional_tax"] + tds + advance + other_deduction
+    total_deductions = (slip["pf"] + slip["esi"] + slip["professional_tax"] + tds + advance + other_deduction
+                        + float(slip.get("late_fine") or 0))
     reimbursement = float(slip.get("reimbursement") or 0)
     shortfall = total_deductions - (slip["earned_gross"] + bonus + reimbursement)
     if shortfall > 0.005:
@@ -634,7 +640,7 @@ def payroll_csv(storage: Storage, period: str) -> str:
     header = (
         "Employee Code,Employee Name,Department,Designation,Monthly Gross,Basis Days,Present Days,"
         "Paid Leave Days,LOP Days,Earned Gross,Bonus,Advance,Other Deduction,PF,ESI,Professional Tax,"
-        "TDS,Total Deductions,Reimbursement,Rounding,Net Pay,Note"
+        "TDS,Late Fines,Total Deductions,Reimbursement,Rounding,Net Pay,Note"
     )
     lines = [header]
     for slip in slips:
@@ -644,7 +650,8 @@ def payroll_csv(storage: Storage, period: str) -> str:
             f"{slip['paid_leave_days']:g}", f"{slip['lop_days']:g}", f"{slip['earned_gross']:.2f}",
             f"{slip['bonus']:.2f}", f"{slip['advance']:.2f}", f"{slip['other_deduction']:.2f}",
             f"{slip['pf']:.2f}", f"{slip['esi']:.2f}", f"{slip['professional_tax']:.2f}",
-            f"{float(slip.get('tds') or 0):.2f}", f"{slip['total_deductions']:.2f}",
+            f"{float(slip.get('tds') or 0):.2f}", f"{float(slip.get('late_fine') or 0):.2f}",
+            f"{slip['total_deductions']:.2f}",
             f"{float(slip.get('reimbursement') or 0):.2f}", f"{float(slip.get('rounding') or 0):.2f}", f"{slip['net_pay']:.2f}", (slip.get("note") or "").replace(",", ";"),
         ]
         lines.append(",".join(_csv_safe(value) for value in fields))

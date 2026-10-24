@@ -343,6 +343,44 @@ def late_minutes_for(storage: Storage, moment: datetime) -> int:
     return max(0, delta)
 
 
+LATE_POLICIES = ("none", "lop_count_only", "tiered_fine_only", "hybrid_both")
+
+
+def late_policy(storage: Storage) -> str:
+    mode = storage.get_setting("late_policy_mode", "tiered_fine_only")
+    return mode if mode in LATE_POLICIES else "tiered_fine_only"
+
+
+def late_assessment(storage: Storage, moment: datetime) -> dict:
+    """Late minutes, fine and automatic half day for a check-in at ``moment`` (Feature 4).
+
+    * ``late_minutes`` counts from shift start + grace (as before).
+    * Fines: slab 1 up to ``late_slab_1_minutes`` late, slab 2 for anything later.
+    * Arriving ``auto_half_day_late_minutes`` or more after **shift start** turns the
+      day into a half day (0.5 LOP) instead of a fine.
+    * Policy ``none`` records lateness but has no consequence; ``lop_count_only``
+      keeps the old "every N late marks" rule only (applied in payroll).
+    """
+    policy = late_policy(storage)
+    arrival = moment.hour * 60 + moment.minute
+    start = shift_start_minutes(storage)
+    late = max(0, arrival - (start + storage.get_int("late_grace_minutes", 15)))
+    cutoff = storage.get_int("auto_half_day_late_minutes", 60)
+    half_day = policy != "none" and cutoff > 0 and arrival >= start + cutoff
+    fine = 0.0
+    if late and not half_day and policy in ("tiered_fine_only", "hybrid_both"):
+        slab_1 = storage.get_int("late_slab_1_minutes", 15)
+        fine = storage.get_float("late_slab_1_penalty", 50) if late <= slab_1 else storage.get_float("late_slab_2_penalty", 100)
+    return {"late_minutes": late, "fine": round(max(0.0, fine), 2), "half_day": half_day, "policy": policy}
+
+
+def late_marks_rule(storage: Storage) -> int:
+    """The "every N late marks = half a day" rule, only in the policies that use it."""
+    if late_policy(storage) not in ("lop_count_only", "hybrid_both"):
+        return 0
+    return storage.get_int("late_marks_per_half_lop", 0)
+
+
 def human_date(day: date | str) -> str:
     parsed = parse_date(day)
     return parsed.strftime("%d %b %Y")

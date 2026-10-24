@@ -649,6 +649,7 @@ class Storage:
             ("tds", "REAL NOT NULL DEFAULT 0"),
             ("tds_override", "REAL"),
             ("reimbursement", "REAL NOT NULL DEFAULT 0"),
+            ("late_fine", "REAL NOT NULL DEFAULT 0"),
             ("rounding", "REAL NOT NULL DEFAULT 0"),
         ],
         "notifications": [
@@ -663,6 +664,7 @@ class Storage:
         ],
         "attendance": [
             ("leave_id", "INTEGER"),
+            ("late_fine", "REAL NOT NULL DEFAULT 0"),
         ],
         "employees": [
             ("address", "TEXT"),
