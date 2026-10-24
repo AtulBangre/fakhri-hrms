@@ -110,7 +110,12 @@ class Settings:
     smtp_user: str = field(default_factory=lambda: _env("HRMS_SMTP_USER", ""))
     smtp_password: str = field(default_factory=lambda: _env("HRMS_SMTP_PASSWORD", ""))
     smtp_from: str = field(default_factory=lambda: _env("HRMS_SMTP_FROM", ""))
-    smtp_tls: str = field(default_factory=lambda: _env("HRMS_SMTP_TLS", "starttls"))  # starttls|ssl|none
+    smtp_tls: str = field(
+        default_factory=lambda: (
+            _env("HRMS_SMTP_TLS")
+            or ("ssl" if int(_env("HRMS_SMTP_PORT", "587") or "587") == 465 else "starttls")
+        )
+    )  # starttls|ssl|none
     smtp_timeout: float = field(default_factory=lambda: float(_env("HRMS_SMTP_TIMEOUT", "20")))
 
     #: WhatsApp / SMS provider: console | twilio | meta (meta = WhatsApp only)

@@ -17,6 +17,7 @@ import argparse
 import json
 import sys
 from datetime import date, timedelta
+from pathlib import Path
 
 from app import __version__, auth
 from app.config import BRAND, Settings, get_settings
@@ -163,9 +164,47 @@ def cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
     created = auth.ensure_default_users(storage, settings)
     storage.close()
 
+    import socket
+    lan_ip = None
+    try:
+        s_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s_sock.connect(("8.8.8.8", 80))
+        lan_ip = s_sock.getsockname()[0]
+        s_sock.close()
+    except Exception:
+        pass
+
+    ssl_keyfile = getattr(args, "ssl_keyfile", None)
+    ssl_certfile = getattr(args, "ssl_certfile", None)
+    if getattr(args, "ssl", False) and not (ssl_keyfile and ssl_certfile):
+        cert_dir = Path(settings.data_dir)
+        cert_dir.mkdir(parents=True, exist_ok=True)
+        key_path = cert_dir / "key.pem"
+        cert_path = cert_dir / "cert.pem"
+        if not (key_path.exists() and cert_path.exists()):
+            import subprocess
+            alt = f"IP:{lan_ip},IP:127.0.0.1,DNS:localhost" if lan_ip else "IP:127.0.0.1,DNS:localhost"
+            subprocess.run([
+                "openssl", "req", "-x509", "-nodes", "-days", "365",
+                "-newkey", "rsa:2048",
+                "-keyout", str(key_path),
+                "-out", str(cert_path),
+                "-subj", f"/CN={lan_ip or 'localhost'}",
+                "-addext", f"subjectAltName={alt}",
+            ], check=True, capture_output=True)
+        ssl_keyfile = str(key_path)
+        ssl_certfile = str(cert_path)
+
+    proto = "https" if ssl_keyfile and ssl_certfile else "http"
+    host_display = '127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host
     print(colour(f"{settings.app_name} v{__version__}", BOLD))
-    print(f"  HR console : http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{args.port}/dashboard")
-    print(f"  Gate kiosk : http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{args.port}/kiosk")
+    print(f"  Local (this Mac) : {proto}://{host_display}:{args.port}/dashboard")
+    if lan_ip and lan_ip != "127.0.0.1":
+        print(f"  Mobile / Laptop  : {proto}://{lan_ip}:{args.port}/dashboard")
+        print(f"  Gate Tablet      : {proto}://{lan_ip}:{args.port}/kiosk")
+        print(f"  Employee Portal  : {proto}://{lan_ip}:{args.port}/me")
+    else:
+        print(f"  Gate kiosk       : {proto}://{host_display}:{args.port}/kiosk")
     for role, username, password in created:
         print(colour(f"  NEW {role.upper()} LOGIN: {username} / {password}", GREEN))
     print(colour("  Ctrl+C to stop", DIM))
@@ -177,6 +216,8 @@ def cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
         reload=args.reload,
         workers=None if args.reload else args.workers,
         log_level=settings.log_level.lower(),
+        ssl_keyfile=ssl_keyfile,
+        ssl_certfile=ssl_certfile,
     )
     return 0
 
@@ -361,6 +402,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8100)
     serve.add_argument("--workers", type=int, default=1)
     serve.add_argument("--reload", action="store_true")
+    serve.add_argument("--ssl", action="store_true", help="run with HTTPS using local SSL certificate")
+    serve.add_argument("--ssl-keyfile", default=None, help="SSL private key file")
+    serve.add_argument("--ssl-certfile", default=None, help="SSL certificate file")
     serve.set_defaults(func=cmd_serve)
 
     users = sub.add_parser("users", help="manage logins")

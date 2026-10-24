@@ -34,6 +34,7 @@ def settings(tmp_path: Path) -> Settings:
         default_hr_password=HR_PASSWORD,
         default_kiosk_username=KIOSK_USERNAME,
         default_kiosk_password=KIOSK_PASSWORD,
+        smtp_host="",
     )
     config.load_or_create_secret()
     return config
