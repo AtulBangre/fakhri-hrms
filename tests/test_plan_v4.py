@@ -200,3 +200,46 @@ def test_f4_payslip_deducts_fines(storage: Storage, settings, staff):
     # an HR adjustment keeps the fine in the total
     updated = payroll.update_slip(storage, slip["id"], bonus=500)
     assert updated["total_deductions"] == pytest.approx(slip["total_deductions"])
+
+
+# ------------------------------------------------------------ Feature 2
+def _kiosk_scan(client: TestClient, fake_face, staff, assets):
+    from tests.test_web import KIOSK_PASSWORD, KIOSK_USERNAME
+
+    fake_face.identify_result = IdentificationResult(
+        matched=True, external_id=staff[0]["code"], similarity=0.88, face_id="face_1", threshold=0.363,
+        faces_in_probe=1, gallery_size=3,
+    )
+    client.post("/login", data={"username": KIOSK_USERNAME, "password": KIOSK_PASSWORD})
+    token = csrf_of(client, "/kiosk")
+    return client.post("/api/kiosk/scan", data={"_csrf": token},
+                       files={"image": ("scan.jpg", assets["person_a_1"], "image/jpeg")})
+
+
+def test_f2_full_confirmation_returns_the_card(client, storage, staff, fake_face, assets, hr_user, kiosk_user):
+    body = _kiosk_scan(client, fake_face, staff, assets).json()
+    card = body["card"]
+    assert card["punch"] == "IN"
+    assert card["name"] == staff[0]["name"] and card["code"] == staff[0]["code"]
+    assert card["initials"] == "".join(p[0] for p in staff[0]["name"].split()[:2]).upper()
+    assert card["time"].endswith(("AM", "PM")) and card["date"]
+
+
+def test_f2_anonymous_confirmation_hides_the_person(client, storage, staff, fake_face, assets, hr_user, kiosk_user):
+    storage.set_setting("kiosk_confirmation", "anonymous")
+    body = _kiosk_scan(client, fake_face, staff, assets).json()
+    assert body["action"] == "check_in"
+    assert body["employee"] is None and "card" not in body
+    assert staff[0]["name"] not in str(body)
+
+
+def test_f2_scan_mode_reaches_the_page_without_names(client, storage, staff, hr_user, kiosk_user):
+    from tests.test_web import KIOSK_PASSWORD, KIOSK_USERNAME
+
+    client.post("/login", data={"username": KIOSK_USERNAME, "password": KIOSK_PASSWORD})
+    page = client.get("/kiosk").text
+    assert 'scanMode: "tap"' in page and "Tap the screen to mark attendance" in page
+    storage.set_setting("kiosk_scan_mode", "continuous")
+    page = client.get("/kiosk").text
+    assert 'scanMode: "continuous"' in page
+    assert all(member["name"] not in page for member in staff)

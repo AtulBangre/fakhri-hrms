@@ -48,11 +48,25 @@
         <div class="flash-time" id="flashTime">09:30</div>
       </div>
 
+      {# tap mode: one tap starts the camera, scans and stops it again #}
+      <div class="kiosk-hud" id="hud" hidden><i></i><span id="hudTxt">Verifying identity…</span></div>
+
       <button type="button" class="kiosk-start" id="startBtn">
         <span class="ico">📷</span>
-        <strong>Tap to start</strong>
-        <small>then stand in the oval</small>
+        <strong>{{ 'Tap the screen to mark attendance' if scan_mode == 'tap' else 'Tap to start' }}</strong>
+        <small>then look into the oval</small>
       </button>
+
+      {# confirmation card: filled in by kiosk.js from the scan response, never by the server page #}
+      <div class="kiosk-card" id="card" hidden>
+        <div class="card-tick" aria-hidden="true">✓</div>
+        <div class="card-punch" id="cardPunch">IN</div>
+        <div class="card-avatar" id="cardAvatar" aria-hidden="true"></div>
+        <div class="card-name" id="cardName"></div>
+        <div class="card-meta" id="cardMeta"></div>
+        <div class="card-when" id="cardWhen"></div>
+        <div class="card-late" id="cardLate" hidden></div>
+      </div>
 
       <div class="kiosk-live" id="liveDot" hidden><i></i> live</div>
     </div>
@@ -74,6 +88,7 @@
       markUrl: "/api/kiosk/scan",
       csrf: "{{ csrf_token }}",
       showName: {{ 'true' if show_name else 'false' }},
+      scanMode: "{{ 'continuous' if scan_mode == 'continuous' else 'tap' }}",
       faceHealthy: {{ 'true' if health.ok else 'false' }},
       faceRequired: {{ 'true' if settings.face_required_for_kiosk else 'false' }}
     };

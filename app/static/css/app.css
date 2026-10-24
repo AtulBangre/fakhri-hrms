@@ -517,6 +517,9 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
   touch-action: manipulation;
 }
 
+/* the overlays below set their own display, which would otherwise beat [hidden] */
+.kiosk-body [hidden] { display: none !important; }
+
 /* -- top bar ---------------------------------------------------------------- */
 .kiosk-bar {
   flex: none;
@@ -643,6 +646,70 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
 .kiosk-flash.warn .flash-txt { color: #fcd34d; }
 .kiosk-flash.bad  .flash-ico { background: rgba(239, 68, 68, .25); border-color: #f87171; color: #fca5a5; }
 .kiosk-flash.bad  .flash-txt { color: #fca5a5; }
+
+/* -- confirmation card (full mode) ----------------------------------------- */
+.kiosk-card {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .35rem;
+  padding: 1.5rem 1rem calc(1.5rem + env(safe-area-inset-bottom));
+  background: radial-gradient(circle at 50% 30%, #0f3d2e 0%, #06140f 70%);
+  text-align: center;
+  z-index: 4;
+  animation: kiosk-pop .18s ease-out;
+}
+.kiosk-card .card-tick {
+  width: 64px; height: 64px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 2.1rem; font-weight: 700; line-height: 1;
+  background: rgba(16, 185, 129, .22); border: 3px solid #34d399; color: #6ee7b7;
+}
+.kiosk-card .card-punch {
+  font-family: var(--font-heading);
+  font-size: 3rem; font-weight: 700; line-height: 1.05; letter-spacing: .04em;
+  color: #6ee7b7;
+}
+.kiosk-card.out .card-punch { color: #93c5fd; }
+.kiosk-card .card-avatar {
+  width: 92px; height: 92px; border-radius: 50%;
+  margin-top: .6rem;
+  display: grid; place-items: center;
+  font-family: var(--font-heading); font-size: 2.1rem; font-weight: 600;
+  background: var(--primary); border: 3px solid rgba(255, 255, 255, .35); color: #fff;
+}
+.kiosk-card .card-name {
+  font-family: var(--font-heading);
+  font-size: 1.6rem; font-weight: 600; margin-top: .25rem;
+}
+.kiosk-card .card-meta { font-size: .95rem; color: rgba(255, 255, 255, .75); }
+.kiosk-card .card-when {
+  margin-top: .5rem;
+  font-size: 1.1rem; font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, .9);
+}
+.kiosk-card .card-late {
+  margin-top: .45rem;
+  padding: .3rem .85rem; border-radius: 999px;
+  background: rgba(245, 158, 11, .2); border: 1px solid #fbbf24; color: #fcd34d;
+  font-size: .9rem; font-weight: 600;
+}
+
+/* -- "verifying" HUD (tap mode) --------------------------------------------- */
+.kiosk-hud {
+  position: absolute; left: 50%; bottom: 1.2rem;
+  transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .5rem 1rem; border-radius: 999px;
+  background: rgba(0, 0, 0, .65);
+  font-size: .95rem; white-space: nowrap;
+  z-index: 3;
+}
+.kiosk-hud i {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .3); border-top-color: #fff;
+  animation: kiosk-spin .8s linear infinite;
+}
+@keyframes kiosk-spin { to { transform: rotate(360deg); } }
 
 /* -- tap-to-start ---------------------------------------------------------- */
 .kiosk-start {

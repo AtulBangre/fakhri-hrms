@@ -235,6 +235,11 @@ SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
     ("allow_employee_self_punch", "disabled", "Employee self-punch (mobile)", "select:disabled|geofence_only|always_allowed",
      "disabled = gate kiosk only · geofence_only = within an allowed location · always_allowed = from anywhere "
      "(location still recorded). Can be overridden per employee."),
+    ("kiosk_scan_mode", "tap", "Gate scanner mode", "select:tap|continuous",
+     "tap = camera off until someone taps the screen (saves the tablet's battery) · continuous = always "
+     "scanning, for the morning rush."),
+    ("kiosk_confirmation", "full", "Gate confirmation card", "select:full|anonymous",
+     "full = name, code, designation and IN/OUT for 3.5 s · anonymous = only IN/OUT and the time."),
     ("geofence_radius_meters", "200", "GPS attendance radius (m)", "number",
      "How close a field employee must be to an allowed location to mark attendance."),
 ]

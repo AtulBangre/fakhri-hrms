@@ -32,6 +32,42 @@ router = APIRouter(tags=["kiosk"])
 MAX_FRAME_BYTES = 8 * 1024 * 1024
 
 
+def _confirmation(storage, settings) -> str:
+    """``full`` or ``anonymous`` (Settings → Gate confirmation card; the old env switch still works)."""
+    value = storage.get_setting("kiosk_confirmation", "full")
+    if settings.kiosk_show_name:
+        return "full"
+    return value if value in ("full", "anonymous") else "full"
+
+
+def _card(employee: dict, outcome, settings) -> dict | None:
+    """What the confirmation card shows after a successful punch."""
+    if outcome.action not in ("check_in", "check_out"):
+        return None
+    now = orgtime.local_now(settings)
+    stamp = (outcome.check_in if outcome.action == "check_in" else outcome.check_out) or now.strftime("%H:%M:%S")
+    clock = orgtime.parse_clock(stamp)
+    initials = "".join(part[0] for part in (employee.get("name") or "?").split()[:2]).upper()
+    late = ""
+    if outcome.action == "check_in" and outcome.late_minutes:
+        late = f"Late {outcome.late_minutes} min"
+        if outcome.late_half_day:
+            late += " · half day"
+        elif outcome.late_fine:
+            late += f" · ₹{outcome.late_fine:g} fine"
+    return {
+        "punch": "IN" if outcome.action == "check_in" else "OUT",
+        "name": employee.get("name"),
+        "code": employee.get("code"),
+        "designation": employee.get("designation"),
+        "department": employee.get("department"),
+        "initials": initials or "?",
+        "time": clock.strftime("%I:%M %p").lstrip("0") if clock else stamp,
+        "date": now.strftime("%A, %d %b %Y"),
+        "late": late,
+    }
+
+
 def device_label_for(user: SessionUser) -> str:
     """Label recorded on scans: the configured device, else a sensible default."""
     if user.device_label:
@@ -55,7 +91,8 @@ def kiosk_screen(
         user=user,
         device_label=device_label_for(user),
         health=health,
-        show_name=settings.kiosk_show_name,
+        show_name=_confirmation(storage, settings) == "full",
+        scan_mode=storage.get_setting("kiosk_scan_mode", "tap"),
         shift_start=storage.get_setting("shift_start", "09:30"),
         debounce_seconds=settings.kiosk_debounce_seconds,
         server_time=orgtime.local_now(settings).strftime("%H:%M:%S"),
@@ -160,6 +197,12 @@ def kiosk_scan(
     _notify_punch(storage, settings, employee, outcome)
 
     body = outcome.as_dict()
+    if _confirmation(storage, settings) == "full":
+        body["card"] = _card(employee, outcome, settings)
+    else:
+        # anonymous gate: nothing about the person leaves the server
+        body["employee"] = None
+        body["message"] = {"check_in": "Checked in.", "check_out": "Checked out."}.get(outcome.action, "Noted.")
     body.update(
         {
             "similarity": identification.similarity,
@@ -200,7 +243,7 @@ def kiosk_status(
         "server_time": orgtime.local_now(settings).strftime("%H:%M:%S"),
         "today": orgtime.human_day(orgtime.today(settings)),
         "device": device_label_for(user),
-        "show_name": settings.kiosk_show_name,
+        "show_name": _confirmation(storage, settings) == "full",
     }
 
     if user.is_hr:

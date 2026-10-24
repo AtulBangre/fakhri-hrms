@@ -54,7 +54,7 @@ def test_hr_login_lands_on_dashboard_and_sets_cookie(client: TestClient, hr_user
 def test_kiosk_login_lands_on_the_scanner(client: TestClient, hr_user, kiosk_user):
     response = client.post("/login", data={"username": KIOSK_USERNAME, "password": KIOSK_PASSWORD})
     assert response.status_code == 200
-    assert "Tap to start" in response.text
+    assert "Tap the screen to mark attendance" in response.text
     assert "attendance scanner" in response.text.lower()
 
 

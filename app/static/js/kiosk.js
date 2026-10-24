@@ -1,15 +1,17 @@
 /* ==========================================================================
    Gate scanner — deliberately minimal.
 
-   On screen: the camera, a short anonymous result flash, two controls
+   On screen: the camera, a result flash or confirmation card, two controls
    (flip camera, sound) and sign-out. Nothing else.
 
-   No names, no counters, no "who scanned before you": the gate is a shared
-   device and one person's attendance must not be visible to the next. If your
-   gate staff need the name to verify a match, set HRMS_KIOSK_SHOW_NAME=true.
+   No counters and no "who scanned before you". The page itself never carries
+   a name: with Settings → Gate confirmation card = full, the scan response
+   brings the card of the person who just scanned and it disappears after 3.5 s;
+   with "anonymous" only IN/OUT and the time are shown.
 
    Behaviour
-     * auto-scan loop (~1.4 s), in-flight guard, server-side debounce
+     * tap mode (default): camera off until a tap, up to 3 tries, then off again
+     * continuous mode: auto-scan loop (~1.4 s), in-flight guard, server-side debounce
      * green = marked, amber = look again, red = problem
      * optional beep, tap-the-camera to scan now, wake lock, tiny status dot
    ========================================================================== */
@@ -34,6 +36,20 @@
   var liveDot = $("liveDot");
   var clock = $("clock");
   var stateDot = $("stateDot");
+  var hud = $("hud");
+  var hudTxt = $("hudTxt");
+  var card = $("card");
+  var cardPunch = $("cardPunch");
+  var cardAvatar = $("cardAvatar");
+  var cardName = $("cardName");
+  var cardMeta = $("cardMeta");
+  var cardWhen = $("cardWhen");
+  var cardLate = $("cardLate");
+  var tapMode = cfg.scanMode !== "continuous";
+  var session = false;   // a tap-mode scan is in progress
+  var cardTimer = null;
+  var startLabel = startBtn.querySelector("strong").textContent;
+  var startHint = startBtn.querySelector("small").textContent;
 
   var canvas = document.createElement("canvas");
   var stream = null;
@@ -52,6 +68,10 @@
   var HOLD_SUCCESS_MS = 2600;
   var HOLD_NOTICE_MS = 1700;
   var HOLD_ERROR_MS = 2200;
+  var HOLD_CARD_MS = 3500;
+  var TAP_WARMUP_MS = 700;      // let exposure settle before the first frame
+  var TAP_RETRY_MS = 900;
+  var TAP_ATTEMPTS = 3;
 
   /* ------------------------------------------------------------------ audio */
   var audioCtx = null;
@@ -118,11 +138,36 @@
     setGuide("");
   }
 
+  /** Full-screen confirmation card; returns false when the response has none. */
+  function showCard(info) {
+    if (!info) return false;
+    window.clearTimeout(cardTimer);
+    clearFlash();
+    card.className = "kiosk-card" + (info.punch === "OUT" ? " out" : "");
+    cardPunch.textContent = info.punch;
+    cardAvatar.textContent = info.initials || "?";
+    cardName.textContent = info.name || "";
+    cardMeta.textContent = [info.code, info.designation, info.department].filter(Boolean).join(" · ");
+    cardWhen.textContent = info.time + " · " + info.date;
+    cardLate.textContent = info.late || "";
+    cardLate.hidden = !info.late;
+    card.hidden = false;
+    cardTimer = window.setTimeout(hideCard, HOLD_CARD_MS);
+    return true;
+  }
+
+  function hideCard() {
+    window.clearTimeout(cardTimer);
+    card.hidden = true;
+  }
+
   /* ---------------------------------------------------------------- capture */
-  function capture() {
-    if (!stream || busy || !running || Date.now() < pausedUntil) return;
+  /** Send one frame. ``done(body)`` is called once with the response (or null). */
+  function capture(done) {
+    done = done || function () {};
+    if (!stream || busy || !running || Date.now() < pausedUntil) return done(null);
     var w = video.videoWidth, h = video.videoHeight;
-    if (!w || !h) return;
+    if (!w || !h) return done(null);
 
     // ~720 px on the long edge is plenty for YuNet and keeps the upload small.
     var scale = Math.min(1, 720 / Math.max(w, h));
@@ -132,7 +177,7 @@
 
     busy = true;
     canvas.toBlob(function (blob) {
-      if (!blob) { busy = false; return; }
+      if (!blob) { busy = false; return done(null); }
       var data = new FormData();
       data.append("_csrf", cfg.csrf);
       data.append("image", blob, "scan.jpg");
@@ -141,17 +186,13 @@
         .then(function (response) {
           return response.json().then(function (body) { return { ok: response.ok, body: body }; });
         })
-        .then(function (out) { handle(out.body, out.ok); })
-        .catch(function () {
-          show("bad", "Connection problem", "server did not answer", HOLD_ERROR_MS);
-          setState("bad");
-          pausedUntil = Date.now() + HOLD_ERROR_MS;
-        })
-        .then(function () { busy = false; });
+        .then(function (out) { return out.body; })
+        .catch(function () { return { action: "connection" }; })
+        .then(function (body) { busy = false; done(body); });
     }, "image/jpeg", 0.85);
   }
 
-  function handle(body, httpOk) {
+  function handle(body) {
     if (!body || typeof body !== "object") {
       show("bad", "Unexpected response", "", HOLD_ERROR_MS);
       return;
@@ -160,12 +201,19 @@
 
     switch (body.action) {
       case "check_in":
-        show("ok", "IN" + (name ? " · " + name : ""), (body.check_in || nowClock()).slice(0, 5), HOLD_SUCCESS_MS);
-        beep("ok");
-        pausedUntil = Date.now() + HOLD_SUCCESS_MS;
-        break;
       case "check_out":
-        show("ok", "OUT" + (name ? " · " + name : ""), (body.check_out || nowClock()).slice(0, 5), HOLD_SUCCESS_MS);
+        if (showCard(body.card)) {
+          beep("ok");
+          pausedUntil = Date.now() + HOLD_CARD_MS;
+          break;
+        }
+        if (body.action === "check_out") {
+          show("ok", "OUT" + (name ? " · " + name : ""), (body.check_out || nowClock()).slice(0, 5), HOLD_SUCCESS_MS);
+          beep("ok");
+          pausedUntil = Date.now() + HOLD_SUCCESS_MS;
+          break;
+        }
+        show("ok", "IN" + (name ? " · " + name : ""), (body.check_in || nowClock()).slice(0, 5), HOLD_SUCCESS_MS);
         beep("ok");
         pausedUntil = Date.now() + HOLD_SUCCESS_MS;
         break;
@@ -198,6 +246,11 @@
         beep("bad");
         pausedUntil = Date.now() + HOLD_ERROR_MS;
         break;
+      case "connection":
+        show("bad", "Connection problem", "server did not answer", HOLD_ERROR_MS);
+        setState("bad");
+        pausedUntil = Date.now() + HOLD_ERROR_MS;
+        return;
       case "service_down":
       case "service_error":
         show("bad", "Scanner offline", "use the HR console", HOLD_ERROR_MS);
@@ -206,24 +259,70 @@
         pausedUntil = Date.now() + 4000;
         break;
       default:
-        show(httpOk ? "warn" : "bad", body.action || "Notice", "", HOLD_NOTICE_MS);
+        show(body.kind === "error" ? "bad" : "warn", body.message || body.action || "Notice", "", HOLD_NOTICE_MS);
         pausedUntil = Date.now() + HOLD_NOTICE_MS;
     }
 
     setState(body.action === "service_down" || body.action === "service_error" ? "bad" : "ok");
   }
 
+  /** Holding time of whatever ``handle`` just put on screen. */
+  function holdFor(body) {
+    if (!body) return HOLD_NOTICE_MS;
+    if (body.card) return HOLD_CARD_MS;
+    if (body.action === "check_in" || body.action === "check_out") return HOLD_SUCCESS_MS;
+    return body.kind === "error" || body.action === "connection" ? HOLD_ERROR_MS : HOLD_NOTICE_MS;
+  }
+
+  /* --------------------------------------------------------------- tap mode */
+  function tapScan() {
+    if (session) return;
+    session = true;
+    hideCard();
+    clearFlash();
+    startBtn.hidden = true;
+    hudTxt.textContent = "Verifying identity…";
+    hud.hidden = false;
+    startCamera(function (started) {
+      if (!started) { hud.hidden = true; session = false; return; }
+      window.setTimeout(function () { attempt(1); }, TAP_WARMUP_MS);
+    });
+
+    function attempt(n) {
+      pausedUntil = 0;
+      capture(function (body) {
+        var retry = !body || body.action === "no_face";
+        if (retry && n < TAP_ATTEMPTS) {
+          hudTxt.textContent = "Look straight at the camera…";
+          window.setTimeout(function () { attempt(n + 1); }, TAP_RETRY_MS);
+          return;
+        }
+        hud.hidden = true;
+        stopCamera(true);                 // camera off as soon as we have an answer
+        if (body) handle(body);
+        else show("warn", "No face found", "tap and look into the oval", HOLD_NOTICE_MS);
+        window.setTimeout(function () {
+          session = false;
+          startBtn.hidden = false;
+        }, holdFor(body));
+      });
+    }
+  }
+
   /* ----------------------------------------------------------------- camera */
-  function startCamera() {
+  function startCamera(onReady) {
+    onReady = onReady || function () {};
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       show("bad", "No camera access", "use HTTPS", 4000);
+      startBtn.hidden = false;
       startBtn.querySelector("strong").textContent = "Camera needs HTTPS";
       startBtn.querySelector("small").textContent = "open this page over https://";
-      return;
+      return onReady(false);
     }
     if (cfg.faceRequired && !cfg.faceHealthy) {
       show("bad", "Scanner disabled", "face service offline", 4000);
-      return;
+      startBtn.hidden = false;
+      return onReady(false);
     }
 
     startBtn.querySelector("strong").textContent = "Starting…";
@@ -239,12 +338,20 @@
       cam.classList.toggle("mirror", facing === "user");
       running = true;
       startBtn.hidden = true;
+      startBtn.querySelector("strong").textContent = startLabel;
+      startBtn.querySelector("small").textContent = startHint;
       liveDot.hidden = false;
       setState("ok");
       clearFlash();
       requestWakeLock();
+      if (tapMode) return onReady(true);
       if (cfg.showName) show("", "Ready", "", 0);
-      if (!loopTimer) loopTimer = window.setInterval(capture, SCAN_INTERVAL_MS);
+      if (!loopTimer) {
+        loopTimer = window.setInterval(function () {
+          capture(function (body) { if (body) handle(body); });
+        }, SCAN_INTERVAL_MS);
+      }
+      onReady(true);
     }).catch(function (error) {
       running = false;
       startBtn.hidden = false;
@@ -253,10 +360,12 @@
         error && error.name === "NotAllowedError" ? "camera permission was denied" : "camera unavailable";
       show("bad", "Camera blocked", (error && error.name) || "", 3500);
       setState("bad");
+      onReady(false);
     });
   }
 
-  function stopCamera() {
+  /** ``keepScreen``: leave the result on screen (tap mode turns the camera off under it). */
+  function stopCamera(keepScreen) {
     if (stream) {
       stream.getTracks().forEach(function (t) { t.stop(); });
       stream = null;
@@ -264,8 +373,10 @@
     video.srcObject = null;
     running = false;
     liveDot.hidden = true;
-    startBtn.hidden = false;
-    clearFlash();
+    if (!keepScreen) {
+      startBtn.hidden = false;
+      clearFlash();
+    }
     releaseWakeLock();
   }
 
@@ -307,13 +418,14 @@
   /* -------------------------------------------------------------- controls */
   document.addEventListener("DOMContentLoaded", function () {
     // One gesture starts the camera (required by iOS, and for the permission prompt).
-    startBtn.addEventListener("click", startCamera);
-
-    // Tapping the camera scans immediately instead of waiting for the next tick.
-    cam.addEventListener("click", function () {
+    // Tap mode: every tap is one scan. Continuous: the tap starts the loop, later
+    // taps scan immediately instead of waiting for the next tick.
+    cam.addEventListener("click", function (event) {
+      if (event.target.closest && event.target.closest("#card")) { hideCard(); return; }
+      if (tapMode) { tapScan(); return; }
       if (!running) { startCamera(); return; }
       pausedUntil = 0;
-      capture();
+      capture(function (body) { if (body) handle(body); });
     });
 
     flipBtn.addEventListener("click", function () {
@@ -321,7 +433,7 @@
       cam.classList.toggle("mirror", facing === "user");
       flipBtn.classList.add("is-active");
       window.setTimeout(function () { flipBtn.classList.remove("is-active"); }, 350);
-      if (running) startCamera();          // restart on the other camera
+      if (running && !tapMode) startCamera();   // restart on the other camera
       var label = flipBtn.querySelector(".lbl");
       if (label) label.textContent = facing === "user" ? "Front" : "Back";
     });
@@ -347,8 +459,9 @@
       if (clockTimer) window.clearInterval(clockTimer);
     });
 
-    // Kiosk devices usually already granted the camera: start without a tap.
-    if (navigator.permissions && navigator.permissions.query) {
+    // Continuous kiosks usually already granted the camera: start without a tap.
+    // Tap mode keeps the camera off until someone taps.
+    if (!tapMode && navigator.permissions && navigator.permissions.query) {
       navigator.permissions.query({ name: "camera" }).then(function (status) {
         if (status.state === "granted") startCamera();
       }).catch(function () { /* Safari: wait for the tap */ });
