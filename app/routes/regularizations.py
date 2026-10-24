@@ -69,13 +69,15 @@ def decide(
     storage=Depends(get_storage),
     csrf: str = Form("", alias="_csrf"),
     note: str = Form(""),
+    release_leave: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
     if decision not in ("approve", "reject"):
         return redirect("/attendance/regularizations", err="Unknown action.")
     try:
         if decision == "approve":
-            row = regularization.approve(storage, request_id, actor=user.username, note=note.strip() or None)
+            row = regularization.approve(storage, request_id, actor=user.username, note=note.strip() or None,
+                                         release_leave=bool(release_leave))
         else:
             row = regularization.reject(storage, request_id, actor=user.username, note=note.strip() or None)
     except regularization.ValidationError as exc:

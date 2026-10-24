@@ -51,9 +51,10 @@ def _text(value: Any) -> str:
 class PayslipPDF(FPDF):
     """Thin FPDF subclass that knows the company's colours."""
 
-    def __init__(self, org_name: str):
+    def __init__(self, org_name: str, subtitle: str = "Salary slip - computer generated"):
         super().__init__(orientation="P", unit="mm", format="A4")
         self.org_name = org_name
+        self.subtitle = subtitle
         self.set_auto_page_break(auto=True, margin=16)
         self.set_margins(14, 14, 14)
 
@@ -67,7 +68,7 @@ class PayslipPDF(FPDF):
         self.cell(0, 7, _text(self.org_name), new_x="LEFT", new_y="NEXT")
         self.set_x(14)
         self.set_font("Helvetica", "", 9)
-        self.cell(0, 5, "Salary slip - computer generated", new_x="LEFT", new_y="NEXT")
+        self.cell(0, 5, _text(self.subtitle), new_x="LEFT", new_y="NEXT")
         self.set_text_color(*INK)
         self.set_y(30)
 
@@ -234,3 +235,96 @@ def filename_for(slip: dict[str, Any]) -> str:
     code = str(slip.get("code") or "employee").replace(" ", "")
     period = str(slip.get("period") or "").replace("/", "-")
     return f"payslip-{code}-{period}.pdf"
+
+
+def render_fnf(fnf: dict[str, Any], *, settings: Settings, org_name: str, ref: str) -> bytes:
+    """The full & final settlement statement as a PDF (emailed at settlement — F1)."""
+    employee = fnf.get("employee") or {}
+    pdf = PayslipPDF(org_name, subtitle="Full & final settlement statement")
+    pdf.add_page()
+    pdf.brand_bar()
+
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(120, 8, "Full & final settlement", new_x="RIGHT")
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(*MUTED)
+    pdf.cell(0, 8, _text(ref), align="R", new_x="LEFT", new_y="NEXT")
+    pdf.set_text_color(*INK)
+    pdf.ln(3)
+
+    pdf.section("Employee")
+    left = [("Name", employee.get("name")), ("Employee code", employee.get("code")),
+            ("Designation", employee.get("designation") or "-"), ("PAN", employee.get("pan") or "-")]
+    right = [("Date of joining", employee.get("joined_on") or "-"),
+             ("Resignation / notice", fnf.get("resignation_date") or "-"),
+             ("Last working day", fnf.get("last_working_day") or "-"),
+             ("Service", f"{_num(fnf.get('service_years'))} years")]
+    start_y = pdf.get_y()
+    pdf.set_x(14)
+    for label, value in left:
+        pdf.field(label, _text(value or ""))
+    bottom_left = pdf.get_y()
+    pdf.set_xy(109, start_y)
+    for label, value in right:
+        pdf.field(label, _text(value or ""), width=87)
+    pdf.set_y(max(bottom_left, pdf.get_y()) + 1)
+
+    pdf.section("Earnings and deductions")
+    start_y = pdf.get_y()
+    pdf.set_x(14)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(*MUTED)
+    pdf.cell(70, 7, "EARNING", new_x="RIGHT")
+    pdf.cell(25, 7, "AMOUNT", align="R", new_x="LEFT", new_y="NEXT")
+    pdf.set_text_color(*INK)
+    for line in fnf.get("earnings") or []:
+        pdf.amount_row(line["label"], _money(line["amount"]))
+    pdf.amount_row("Total earnings", _money(fnf.get("total_earnings")), bold=True, tint=True)
+    left_end = pdf.get_y()
+
+    pdf.set_xy(109, start_y)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(*MUTED)
+    pdf.cell(62, 7, "DEDUCTION", new_x="RIGHT")
+    pdf.cell(25, 7, "AMOUNT", align="R", new_x="LEFT", new_y="NEXT")
+    pdf.set_text_color(*INK)
+    for line in fnf.get("deductions") or []:
+        pdf.set_x(109)
+        pdf.amount_row(line["label"], _money(line["amount"]))
+    pdf.set_x(109)
+    pdf.amount_row("Total deductions", _money(fnf.get("total_deductions")), bold=True, tint=True)
+    pdf.set_y(max(left_end, pdf.get_y()) + 2)
+
+    net = float(fnf.get("net") or 0)
+    pdf.ln(2)
+    pdf.set_fill_color(*MAROON)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(120, 14, "  NET PAYABLE" if net >= 0 else "  NET RECOVERABLE", fill=True, new_x="RIGHT")
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 14, _money(abs(net)) + "  ", fill=True, align="R", new_x="LEFT", new_y="NEXT")
+    pdf.set_text_color(*INK)
+
+    notes = list(fnf.get("notes") or [])
+    if employee.get("account_number"):
+        notes.append(f"Payable to {employee.get('bank_name') or 'bank'} account ending "
+                     f"{str(employee['account_number'])[-4:]}" + (f", IFSC {employee['ifsc']}" if employee.get("ifsc") else "") + ".")
+    if notes:
+        pdf.ln(3)
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.set_text_color(*MUTED)
+        for note in notes:
+            pdf.multi_cell(0, 4.5, _text(note))
+        pdf.set_text_color(*INK)
+
+    pdf.ln(10)
+    pdf.set_draw_color(*BORDER)
+    y = pdf.get_y()
+    pdf.line(14, y, 80, y)
+    pdf.line(130, y, 196, y)
+    pdf.set_xy(14, y + 1)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.cell(66, 5, "Employee signature", align="C", new_x="RIGHT")
+    pdf.cell(50, 5, "", new_x="RIGHT")
+    pdf.cell(66, 5, f"For {_text(org_name)}", align="C")
+    return bytes(pdf.output())

@@ -517,12 +517,15 @@ def test_pay12_mid_month_raise_is_split_by_days(storage: Storage, settings):
 def test_lv07_overwriting_a_leave_day_gives_it_back(storage: Storage, settings, aarav):
     result = leave_service.apply_leave(storage, settings, employee_id=aarav["id"], leave_type="paid",
                                        from_date="2026-09-07", to_date="2026-09-08")
+    with pytest.raises(attendance_service.LeaveDayConflict):  # F3: needs confirmation
+        attendance_service.mark_manual(storage, employee_id=aarav["id"], work_date="2026-09-08", status="present",
+                                       check_in="09:30", check_out="18:30")
     attendance_service.mark_manual(storage, employee_id=aarav["id"], work_date="2026-09-08", status="present",
-                                   check_in="09:30", check_out="18:30")
+                                   check_in="09:30", check_out="18:30", release_leave=True)
     leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (result["leave"]["id"],))
     assert leave["days"] == 1
     attendance_service.mark_manual(storage, employee_id=aarav["id"], work_date="2026-09-07", status="present",
-                                   check_in="09:30", check_out="18:30")
+                                   check_in="09:30", check_out="18:30", release_leave=True)
     leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (result["leave"]["id"],))
     assert leave["status"] == "cancelled"
 

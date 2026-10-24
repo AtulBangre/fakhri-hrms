@@ -75,6 +75,7 @@ def mark(
     leave_type: str = Form(""),
     note: str = Form(""),
     return_day: str = Form(""),
+    release_leave: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
     target = return_day or work_date
@@ -83,6 +84,7 @@ def mark(
             storage, employee_id=employee_id, work_date=work_date, status=status,
             check_in=check_in or None, check_out=check_out or None,
             leave_type=leave_type or None, note=note or None, actor=user.username,
+            release_leave=bool(release_leave),
         )
     except employees_service.ValidationError as exc:
         return redirect("/attendance", err=str(exc), day=target)

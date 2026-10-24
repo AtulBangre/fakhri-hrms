@@ -368,6 +368,19 @@ def _attachments_for(storage: Storage, settings: Settings, row: dict[str, Any]) 
         meta = json.loads(row.get("meta") or "{}")
     except json.JSONDecodeError:
         return []
+    exit_id = meta.get("exit_id")
+    if exit_id:
+        row_exit = storage.query_one("SELECT * FROM employee_exits WHERE id = ?", (int(exit_id),))
+        if not row_exit or not row_exit.get("fnf_snapshot"):
+            return []
+        from .pdf import render_fnf
+
+        fnf = json.loads(row_exit["fnf_snapshot"])
+        code = (fnf.get("employee") or {}).get("code") or exit_id
+        data = render_fnf(fnf, settings=settings, org_name=storage.get_setting("org_name", settings.org_name),
+                          ref=f"FNF-{exit_id}")
+        return [(f"full-and-final-{code}.pdf", data)]
+
     slip_id = meta.get("slip_id")
     if not slip_id:
         return []
@@ -549,8 +562,8 @@ def _write_console(settings: Settings, row: dict[str, Any], channel: str) -> str
     return f"written to {path.relative_to(settings.data_dir)}"
 
 
-#: Three attempts: wait 1 minute, then 5, then the message is marked "failed".
-RETRY_BACKOFF_MINUTES = (1, 5)
+#: Four attempts: retry after 1, 5 and 30 minutes, then the message is marked "failed".
+RETRY_BACKOFF_MINUTES = (1, 5, 30)
 #: A message left in "sending" this long (process crashed mid-send) is retried.
 STALE_SENDING_MINUTES = 10
 

@@ -90,13 +90,15 @@ def test_failed_message_is_retried_then_marked_failed(storage, settings):
     row_id = notify.queue_email(
         storage, "x@example.com", "welcome", settings=settings, name="x", username="y"
     )
-    for _ in range(3):
+    for attempt in range(4):
         notify.dispatch(storage, settings)
-        # skip the back-off wait so the next attempt is due now
+        row = storage.query_one("SELECT * FROM notifications WHERE id = ?", (row_id,))
+        assert row["status"] == ("failed" if attempt == 3 else "pending")
+        # skip the back-off wait (1, 5, 30 min) so the next attempt is due now
         storage.execute("UPDATE notifications SET next_attempt_at = NULL WHERE id = ?", (row_id,))
     row = storage.query_one("SELECT * FROM notifications WHERE id = ?", (row_id,))
     assert row["status"] == "failed"
-    assert row["attempts"] == 3
+    assert row["attempts"] == 4
     assert row["error"]
 
     settings.smtp_host = ""         # back to the console driver

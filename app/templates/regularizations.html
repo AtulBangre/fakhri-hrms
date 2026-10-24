@@ -61,8 +61,10 @@
             {% if row.decided_by %}<span class="sub">{{ row.decided_by }}</span>{% endif %}</td>
           <td class="actions-cell">
             {% if row.status == 'pending' %}
-              <form method="post" action="/attendance/regularizations/{{ row.id }}/approve">
+              <form method="post" action="/attendance/regularizations/{{ row.id }}/approve"
+                    {% if row.previous_status in ('leave', 'half_day') %}data-confirm="{{ row.work_date }} is on approved leave. Approving gives that leave day back to {{ row.name }}'s balance. Continue?"{% endif %}>
                 <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                {% if row.previous_status in ('leave', 'half_day') %}<input type="hidden" name="release_leave" value="1">{% endif %}
                 <button class="btn btn-sm btn-primary" type="submit">{{ icon('check') }} Approve</button>
               </form>
               <button class="btn btn-sm" type="button" data-toggle-row="reject-{{ row.id }}">Reject</button>

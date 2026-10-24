@@ -430,13 +430,17 @@ def _email_statement(storage: Storage, settings: Settings, row: dict[str, Any], 
     lines = [f"{line['label']}: ₹{line['amount']:,.2f}" for line in fnf["earnings"]]
     lines += [f"Less {line['label']}: ₹{line['amount']:,.2f}" for line in fnf["deductions"]]
     verdict = "payable to you" if fnf["net"] >= 0 else "recoverable from you"
-    notify.queue_email(
+    row_id = notify.queue_email(
         storage, employee["email"], "hr_alert", settings=settings, category="fnf",
         subject=f"Your full & final settlement — ₹{abs(fnf['net']):,.2f}",
         message=(f"Hi {employee.get('name', '')}, your full & final settlement (last working day "
                  f"{orgtime.human_date(fnf['last_working_day'])}) is complete. " + " · ".join(lines)
-                 + f". Net {verdict}: ₹{abs(fnf['net']):,.2f}. Please keep this email for your records."),
+                 + f". Net {verdict}: ₹{abs(fnf['net']):,.2f}. The signed-off statement is attached as a PDF — "
+                 "please keep it for your records."),
     )
+    if row_id:  # the sender regenerates the PDF from the frozen snapshot
+        storage.execute("UPDATE notifications SET meta = ? WHERE id = ?",
+                        (json.dumps({"template": "hr_alert", "exit_id": row["id"]}), row_id))
 
 
 def settle(storage: Storage, settings: Settings, exit_id: int, *, actor: str | None = None) -> dict[str, Any]:

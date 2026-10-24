@@ -528,8 +528,13 @@ def mark_manual(
     leave_type: str | None = None,
     note: str | None = None,
     actor: str | None = None,
+    release_leave: bool = False,
 ) -> dict:
-    """HR override / correction for any employee-day."""
+    """HR override / correction for any employee-day.
+
+    A day that belongs to an approved leave is only overwritten when the caller
+    confirms with ``release_leave`` — the day then goes back to the balance (F3).
+    """
     employee = employees_service.require_employee(storage, employee_id)
     day = orgtime.parse_date(work_date)
     locks.assert_period_open(storage, day)
@@ -566,6 +571,11 @@ def mark_manual(
     now = utcnow_iso()
     existing = get_row(storage, employee_id, day)
     if existing and existing.get("leave_id"):
+        if not release_leave:
+            raise LeaveDayConflict(
+                f"{orgtime.human_date(day)} is on approved leave (#{existing['leave_id']}). Confirm that the leave "
+                "day should be given back to the balance, then save again."
+            )
         _release_leave_day(storage, existing, actor=actor)
     if existing:
         storage.execute(
@@ -592,6 +602,10 @@ def mark_manual(
     row = get_row(storage, employee_id, day)
     assert row is not None
     return row
+
+
+class LeaveDayConflict(employees_service.ValidationError):
+    """Raised when a correction would overwrite an approved leave day without confirmation."""
 
 
 def _release_leave_day(storage: Storage, row: dict, *, actor: str | None = None) -> None:

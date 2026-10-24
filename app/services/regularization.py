@@ -151,7 +151,8 @@ def _require_pending(row: dict[str, Any]) -> None:
         raise ValidationError(f"That request is already {row['status']}.")
 
 
-def approve(storage: Storage, request_id: int, *, actor: str | None = None, note: str | None = None) -> dict[str, Any]:
+def approve(storage: Storage, request_id: int, *, actor: str | None = None, note: str | None = None,
+            release_leave: bool = False) -> dict[str, Any]:
     row = get(storage, request_id)
     _require_pending(row)
     locked = _payroll_locked(storage, row["work_date"])
@@ -162,7 +163,7 @@ def approve(storage: Storage, request_id: int, *, actor: str | None = None, note
     attendance_service.mark_manual(
         storage, employee_id=row["employee_id"], work_date=row["work_date"], status=row["requested_status"],
         check_in=row["check_in"], check_out=row["check_out"], leave_type=None,
-        note=f"Regularized: {row['reason'][:120]}", actor=actor,
+        note=f"Regularized: {row['reason'][:120]}", actor=actor, release_leave=release_leave,
     )
     storage.execute(
         "UPDATE attendance_regularizations SET status = 'approved', decided_by = ?, decided_at = ?, "

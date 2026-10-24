@@ -202,3 +202,40 @@ def test_f2_edit_form_status_change_handles_the_portal_login(hr_client: TestClie
     hr_client.post(f"/employees/{staff[0]['id']}", data={"_csrf": token, **base, "status": "active",
                                                          "enable_portal": "1"})
     assert auth.get_user(storage, user["id"])["active"] == 1
+
+
+# ------------------------------------------------------------- F1, F3, F5
+from app import notify  # noqa: E402
+from app.services import exits as exits_service  # noqa: E402
+from app.services import leave as leave_service  # noqa: E402
+
+
+def test_f1_fnf_email_carries_the_pdf(storage: Storage, settings, staff):
+    employees_service.update_employee(storage, staff[0]["id"], {"email": "leaver@example.com"})
+    today = orgtime.today(settings).isoformat()
+    row = exits_service.record_exit(storage, settings, employee_id=staff[0]["id"], exit_type="resignation",
+                                    resignation_date=today, last_working_day=today, notice_days=0)
+    for item in exits_service.checklist(storage, row["id"]):
+        exits_service.toggle_item(storage, item["id"], done=True)
+    exits_service.settle(storage, settings, row["id"])
+    mail = storage.query_one("SELECT * FROM notifications WHERE category = 'fnf'")
+    attachments = notify._attachments_for(storage, settings, mail)
+    assert attachments and attachments[0][0].endswith(".pdf") and attachments[0][1].startswith(b"%PDF")
+
+
+def test_f3_overwriting_a_leave_day_needs_confirmation(hr_client: TestClient, storage: Storage, settings, staff):
+    day = _past_working_day(storage, settings, back=20)
+    leave_service.apply_leave(storage, settings, employee_id=staff[0]["id"], leave_type="paid",
+                              from_date=day.isoformat(), allow_negative=True)
+    token = csrf_of(hr_client, "/attendance")
+    form = {"_csrf": token, "employee_id": staff[0]["id"], "work_date": day.isoformat(), "status": "present",
+            "check_in": "09:30", "check_out": "18:30"}
+    refused = hr_client.post("/attendance/mark", data=form, follow_redirects=False)
+    assert "err=" in refused.headers["location"]
+    assert attendance_service.get_row(storage, staff[0]["id"], day)["status"] == "leave"
+    hr_client.post("/attendance/mark", data={**form, "release_leave": "1"})
+    assert attendance_service.get_row(storage, staff[0]["id"], day)["status"] == "present"
+
+
+def test_f5_four_attempts_with_30_minute_last_wait(storage: Storage, settings, monkeypatch):
+    assert notify.RETRY_BACKOFF_MINUTES == (1, 5, 30)

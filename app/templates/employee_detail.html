@@ -181,6 +181,7 @@
             <label for="note">Note</label>
             <input id="note" name="note" type="text" placeholder="reason for the manual entry" value="{{ row.note if row and row.note else '' }}">
           </div>
+          <label class="checkline mb-2 small"><input type="checkbox" name="release_leave" value="1"> If this day is on approved leave, give it back to the balance</label>
           <button class="btn btn-primary" type="submit">Save attendance</button>
         </form>
       </div>

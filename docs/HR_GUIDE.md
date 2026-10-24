@@ -31,13 +31,22 @@ password**. Do not share the HR login with the gate staff.
 
 **Employees → ➕ Add employee**
 
-1. **Full name** and **Employee code** (it suggests `FITS004`; the code is the
-   identity used by the face system, so keep it stable once set).
-2. Department, designation, email, phone, **date of joining**, employment type.
-3. **Monthly gross (CTC)** and, if you track them, basic / HRA / PF / ESI /
-   professional tax. These drive payroll deductions.
-4. **Save** — you land on the employee page with a warning that no face is
-   enrolled yet.
+1. **Required:** full name, employee code (it suggests `FITS004`), date of
+   joining and monthly gross (CTC).
+2. Department, designation, email, phone, employment type, and — if you track
+   them — basic / HRA / PF / ESI / professional tax.
+3. **Personal & bank details** (optional, can be added later): address,
+   emergency contact, PAN, Aadhaar, bank, account number, IFSC. PAN and IFSC
+   formats are checked; for Aadhaar only the **last 4 digits are kept**
+   (`XXXX-XXXX-1234`) — upload the card itself as a document.
+4. **KYC documents** (optional): Aadhaar, PAN, resume and a photo or offer
+   letter — or tick **Skip for now** and let the employee upload them from
+   their profile. A rejected file never loses the form; it is reported after saving.
+5. **Portal login** (ticked by default): the username is the employee code in
+   lower case; they can also sign in with their email address. With an email on
+   file they receive a one-time **"Set my password"** link (valid 72 hours);
+   without one you see the username and password **once** — hand them over in person.
+6. **Save** — then enrol their face from the employee page.
 
 ### Enrolling their face
 
@@ -144,8 +153,8 @@ reduce the balance; a day the person actually worked is never charged.
   scan times are kept and the day stays a *paid* half day.
 * To undo: **Cancel** on the leave row. Only the days that leave created are
   removed; a worked day it was laid over goes back to present.
-* Overwriting a leave day by hand (or approving a correction for it) gives that
-  day back to the balance.
+* Overwriting a leave day by hand (or approving a correction for it) asks you to
+  confirm first, and then gives that day back to the balance.
 * **Holidays**: add them here (or in Settings) so they are not counted as working
   days anywhere.
 
@@ -382,8 +391,11 @@ for each gate kiosk (offline after ~75 s without a check-in).
 
 ## 7b. Attendance corrections (regularization)
 
-Employees who missed a punch use **Fix** next to that day in **My attendance**
-(actual in/out time and a reason). Requests arrive under **Regularizations**
+Employees who missed a punch use **Request correction** at the top of **My
+attendance** (date within the last 60 days, actual in/out time and a reason).
+Every day shows how it was marked — *Gate scanner*, *Field (GPS)*, *Marked by
+HR*, *Corrected on request* or *Leave* — the same wording HR sees on the daily
+board and the register. Requests arrive under **Regularizations**
 with a badge in the sidebar. **Approve** writes the corrected attendance; tick
 several rows to approve or reject in bulk. A day inside a finalised or paid
 payroll month cannot be changed until you reopen that run.
