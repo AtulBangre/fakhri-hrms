@@ -97,6 +97,7 @@ def my_field(
         checks=field_service.checks_for(storage, employee_id=employee["id"], limit=10),
         today=orgtime.today_str(settings),
         default_radius=storage.get_int("geofence_radius_meters", 200),
+        punch_mode=employees_service.self_punch_mode(storage, employee),
     )
 
 
@@ -138,4 +139,4 @@ def field_check_api(
         "location": {"name": location.get("name"), "radius_m": location.get("radius_m")} if location else None,
         "attendance": result.get("attendance"),
     }
-    return JSONResponse(body, status_code=200 if result.get("inside") else 422)
+    return JSONResponse(body, status_code=200 if (result.get("inside") or result.get("ok")) else 422)

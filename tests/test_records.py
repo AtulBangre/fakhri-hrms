@@ -286,6 +286,7 @@ def test_haversine_is_accurate_enough():
 
 
 def test_field_check_is_blocked_until_a_location_exists(ess_client, storage, staff, ess_credentials, settings):
+    storage.set_setting("allow_employee_self_punch", "geofence_only")
     token = csrf_of(ess_client, "/me/field")
     response = ess_client.post(
         "/api/field/check",
@@ -298,6 +299,7 @@ def test_field_check_is_blocked_until_a_location_exists(ess_client, storage, sta
 
 
 def test_field_check_inside_marks_attendance(ess_client, storage, settings, staff, ess_credentials):
+    storage.set_setting("allow_employee_self_punch", "geofence_only")
     field_service.add_location(storage, name="Client site", lat=23.2599, lng=77.4126, radius_m=300)
     token = csrf_of(ess_client, "/me/field")
     response = ess_client.post(
@@ -323,6 +325,7 @@ def test_field_check_inside_marks_attendance(ess_client, storage, settings, staf
 
 
 def test_field_check_outside_does_not_mark(ess_client, storage, settings, staff, ess_credentials):
+    storage.set_setting("allow_employee_self_punch", "geofence_only")
     field_service.add_location(storage, name="Office", lat=23.2599, lng=77.4126, radius_m=100)
     token = csrf_of(ess_client, "/me/field")
     response = ess_client.post(

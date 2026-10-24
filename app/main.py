@@ -148,6 +148,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response.headers["Cache-Control"] = "no-store"
         return response
 
+    @app.exception_handler(403)
+    async def forbidden(request: Request, exc):  # noqa: ANN001
+        detail = getattr(exc, "detail", None) or "You do not have access to this page."
+        if request.url.path.startswith(("/api/", "/static/")) or "application/json" in request.headers.get("accept", ""):
+            return JSONResponse({"error": {"message": detail}, "detail": detail}, status_code=403)
+        session = get_session(request)
+        return templates.TemplateResponse(
+            request, "error.html",
+            {"request": request, "active": "", "user": session, "org_name": settings.org_name, "brand": BRAND,
+             "code": 403, "title": "Not allowed", "detail": detail, "ok_message": None, "err_message": None,
+             "csrf_token": session.csrf if session else "", "today": None, "settings": settings},
+            status_code=403,
+        )
+
     @app.exception_handler(404)
     async def not_found(request: Request, exc):  # noqa: ANN001
         if request.url.path.startswith(("/api/", "/static/")):

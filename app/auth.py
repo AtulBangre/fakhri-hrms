@@ -252,11 +252,9 @@ def require_hr_or_kiosk(request: Request) -> SessionUser:
     """The gate scanner. An employee login must not be able to open it."""
     session = current_user(request)
     if session.is_employee:
-        if _wants_html(request):
-            raise HTTPException(
-                status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/me"}
-            )
-        raise HTTPException(status_code=403, detail="The scanner is not available to employee logins")
+        # A plain 403 for pages and API alike; browsers get the branded error page.
+        raise HTTPException(status_code=403, detail="The gate scanner is for the kiosk device and HR only. "
+                                                    "Your attendance is marked when you scan at the gate.")
     return session
 
 

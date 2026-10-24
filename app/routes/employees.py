@@ -210,6 +210,8 @@ def edit_page(
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         form={},
         masked_aadhaar=employees_service.masked_aadhaar(employee.get("aadhaar_last4")),
+        self_punch_labels=employees_service.SELF_PUNCH_LABELS,
+        company_punch_mode=storage.get_setting("allow_employee_self_punch", "disabled"),
     )
 
 
@@ -291,6 +293,7 @@ def update(
     account_number: str = Form(""),
     ifsc: str = Form(""),
     enable_portal: str = Form(""),
+    self_punch_mode: str = Form(""),
 ):
     from ..auth import verify_form_csrf
 
@@ -307,6 +310,8 @@ def update(
     }
     if aadhaar.strip():  # empty means "keep what is on file"
         data["aadhaar"] = aadhaar
+    if self_punch_mode:
+        data["self_punch_mode"] = self_punch_mode
     try:
         employees_service.update_employee(storage, employee_id, data)
         if status != before["status"]:

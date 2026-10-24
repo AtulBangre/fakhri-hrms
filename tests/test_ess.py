@@ -134,8 +134,8 @@ def test_employee_cannot_open_hr_pages(ess_client: TestClient, ess_credentials):
 
 def test_employee_cannot_open_the_gate_scanner(ess_client: TestClient):
     response = ess_client.get("/kiosk", follow_redirects=False)
-    assert response.status_code == 303
-    assert response.headers["location"] == "/me"
+    assert response.status_code == 403  # plan v4: a plain 403, rendered as the error page
+    assert "gate scanner" in response.text
 
 
 def test_employee_cannot_call_the_scan_api(ess_client: TestClient, assets):

@@ -127,16 +127,30 @@ def check_in(
     if not (-90 <= lat <= 90 and -180 <= lng <= 180):
         raise ValueError("Those coordinates are not valid.")
 
+    mode = employees_service.self_punch_mode(storage, employee)
+    if mode == "disabled":
+        return {
+            "ok": False, "inside": False, "distance_m": None, "location": None,
+            "message": "Attendance is marked at the gate scanner only. Ask HR if you need to punch from your phone.",
+        }
+
     locations = list_locations(storage, active_only=True)
-    if not locations:
+    if not locations and mode != "always_allowed":
         return {
             "ok": False, "inside": False, "distance_m": None, "location": None,
             "message": "HR has not configured any work location yet — ask them to add one before using field attendance.",
         }
 
-    location, distance = nearest(storage, lat, lng)
-    assert location is not None and distance is not None
-    inside = distance <= float(location["radius_m"])
+    if locations:
+        location, distance = nearest(storage, lat, lng)
+        assert location is not None and distance is not None
+        inside = distance <= float(location["radius_m"])
+    else:
+        location, distance, inside = None, None, False
+    # "always_allowed": anywhere counts; the position is still recorded for HR (Feature 3)
+    allowed = inside or mode == "always_allowed"
+    dist = round(distance, 1) if distance is not None else None
+    place = location["name"] if (location and inside) else "Remote"
 
     selfie_name = None
     if selfie:
@@ -154,8 +168,9 @@ def check_in(
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
-                employee["id"], now.date().isoformat(), kind, lat, lng, accuracy, round(distance, 1),
-                location["id"], location["name"], 1 if inside else 0, selfie_name, note, utcnow_iso(),
+                employee["id"], now.date().isoformat(), kind, lat, lng, accuracy, dist,
+                location["id"] if location else None, location["name"] if location else None,
+                1 if inside else 0, selfie_name, note, utcnow_iso(),
             ),
         )
         row_id = int(cursor.lastrowid)
@@ -164,27 +179,27 @@ def check_in(
         raise
 
     # A reading less precise than the fence itself cannot prove where someone is (ATT-05).
-    if inside and accuracy is not None and float(accuracy) > float(location["radius_m"]):
+    if mode == "geofence_only" and inside and accuracy is not None and float(accuracy) > float(location["radius_m"]):
         storage.execute("UPDATE field_checks SET inside = 0, note = COALESCE(note, 'weak gps') WHERE id = ?", (row_id,))
         return {
-            "ok": False, "inside": False, "distance_m": round(distance, 1), "location": location,
+            "ok": False, "inside": False, "distance_m": dist, "location": location,
             "message": f"GPS signal too weak (±{float(accuracy):.0f} m) — move outdoors or near a window and retry.",
             "check_id": row_id,
         }
-    if inside and kind == "check_out":
+    if allowed and kind == "check_out":
         today_row = attendance_service.get_row(storage, employee["id"], now.date())
         if not today_row or not today_row.get("check_in"):
             return {
-                "ok": False, "inside": True, "distance_m": round(distance, 1), "location": location,
+                "ok": False, "inside": inside, "distance_m": dist, "location": location,
                 "message": "You haven't checked in today — choose Check in first.",
                 "check_id": row_id,
             }
 
-    if not inside:
+    if not allowed:
         storage.audit(actor=actor, action="field_check_outside", entity="employee", entity_id=employee["id"],
                       detail=f"{distance:.0f}m from {location['name']}")
         return {
-            "ok": False, "inside": False, "distance_m": round(distance, 1),
+            "ok": False, "inside": False, "distance_m": dist,
             "location": location,
             "message": (
                 f"You are {distance / 1000:.2f} km from {location['name']} "
@@ -195,21 +210,21 @@ def check_in(
 
     outcome = attendance_service.mark_by_face(
         storage, settings, employee,
-        device_label=f"Field · {location['name']}",
+        device_label=f"Field · {place}",
         moment=now,
         source="field",
     )
     storage.audit(actor=actor, action="field_check_inside", entity="employee",
                   entity_id=employee["id"],
-                  detail=f"{kind} at {location['name']} ({distance:.0f}m)")
+                  detail=f"{kind} at {place}" + (f" ({distance:.0f}m)" if distance is not None else ""))
     storage.execute(
         "UPDATE field_checks SET note = COALESCE(note, ?) WHERE id = ?",
         (outcome.action, row_id),
     )
     return {
         "ok": outcome.ok,
-        "inside": True,
-        "distance_m": round(distance, 1),
+        "inside": inside,
+        "distance_m": dist,
         "location": location,
         "message": outcome.message,
         "check_id": row_id,

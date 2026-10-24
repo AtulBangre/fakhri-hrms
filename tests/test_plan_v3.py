@@ -540,6 +540,7 @@ def test_att04_department_spellings_are_merged(storage: Storage):
 
 def test_att05_field_checkout_needs_a_checkin_and_good_gps(storage: Storage, settings, aarav):
     from app.services import field
+    storage.set_setting("allow_employee_self_punch", "geofence_only")
     field.add_location(storage, name="Office", lat=22.7, lng=75.8, radius_m=200)
     result = field.check_in(storage, settings, employee=aarav, lat=22.7, lng=75.8, kind="check_out")
     assert not result["ok"] and "checked in" in result["message"]

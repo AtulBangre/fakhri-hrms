@@ -32,6 +32,25 @@ PROFILE_FIELDS = (
 )
 
 
+#: Where an employee may punch from (Feature 3). "inherit" follows the global setting.
+SELF_PUNCH_MODES = ("inherit", "disabled", "geofence_only", "always_allowed")
+SELF_PUNCH_LABELS = {
+    "inherit": "Company default",
+    "disabled": "Gate kiosk only",
+    "geofence_only": "Mobile, inside an allowed location",
+    "always_allowed": "Mobile, from anywhere",
+}
+
+
+def self_punch_mode(storage: Storage, employee: dict[str, Any]) -> str:
+    """The effective self-punch mode for one employee: their override, else the company setting."""
+    own = (employee or {}).get("self_punch_mode") or "inherit"
+    if own != "inherit":
+        return own
+    mode = storage.get_setting("allow_employee_self_punch", "disabled")
+    return mode if mode in SELF_PUNCH_MODES[1:] else "disabled"
+
+
 class ValidationError(ValueError):
     """User-facing validation failure (shown as a form error)."""
 
@@ -298,12 +317,15 @@ def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) ->
             )
         updates["code"] = code
 
+    if "self_punch_mode" in data and data["self_punch_mode"] not in SELF_PUNCH_MODES:
+        raise ValidationError("Unknown self-punch mode.")
     if "employment_type" in data and data["employment_type"] not in EMPLOYMENT_TYPES:
         raise ValidationError(f"Unknown employment type '{data['employment_type']}'.")
     if "status" in data and data["status"] not in ("active", "inactive"):
         raise ValidationError("Status must be active or inactive.")
 
-    text_fields = ("department", "designation", "employment_type", "status", "notes") + PROFILE_FIELDS
+    text_fields = ("department", "designation", "employment_type", "status", "notes",
+                   "self_punch_mode") + PROFILE_FIELDS
     for field in text_fields:
         if field in data:
             value = data[field]

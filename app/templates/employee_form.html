@@ -93,6 +93,17 @@
             {% endif %}
           </div>
 
+          {% if employee %}
+          <div class="field">
+            <label for="self_punch_mode">Where can they mark attendance?</label>
+            <select id="self_punch_mode" name="self_punch_mode">
+              {% for value, label in self_punch_labels.items() %}
+                <option value="{{ value }}" {{ 'selected' if (employee.self_punch_mode or 'inherit') == value }}>{{ label }}{% if value == 'inherit' %} ({{ self_punch_labels[company_punch_mode] }}){% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="hint">Mobile punching uses Field attendance in their portal; the gate scanner always works.</div>
+          </div>
+          {% endif %}
           <div class="field">
             <label for="notes">Notes</label>
             <textarea id="notes" name="notes" placeholder="Anything HR should remember about this person">{{ f.get('notes') or (employee.notes if employee else '') }}</textarea>

@@ -13,6 +13,18 @@
 
 <div class="grid grid-sidebar">
   <div>
+    {% if punch_mode == 'disabled' %}
+    <div class="card mb-3">
+      <div class="card-head"><h2>Mark attendance</h2><span class="spacer"></span><span class="chip chip-muted">gate kiosk only</span></div>
+      <div class="card-body">
+        <p class="mb-0">Your attendance is marked at the <strong>gate scanner</strong>. Punching from your phone is not
+          enabled for you — ask HR if you work in the field.</p>
+      </div>
+    </div>
+    {% else %}
+    {% if punch_mode == 'always_allowed' %}
+      <div class="alert alert-info">{{ icon('info') }}<div>You may mark attendance from anywhere. Your location is still recorded for HR.</div></div>
+    {% endif %}
     <div class="card mb-3">
       <div class="card-head"><h2>Mark attendance</h2>
         <span class="spacer"></span><span class="chip chip-primary" id="geoBadge">location off</span></div>
@@ -44,6 +56,7 @@
         <div id="result" class="small mt-2"></div>
       </div>
     </div>
+    {% endif %}
 
     <div class="card flush">
       <div class="card-head"><h2>My recent checks</h2></div>

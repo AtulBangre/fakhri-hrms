@@ -674,6 +674,7 @@ class Storage:
             ("aadhaar_last4", "TEXT"),
             ("emergency_contact", "TEXT"),
             ("face_key", "TEXT"),
+            ("self_punch_mode", "TEXT NOT NULL DEFAULT 'inherit'"),
         ],
     }
 

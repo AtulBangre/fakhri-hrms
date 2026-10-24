@@ -207,6 +207,16 @@ def _pending_counts(storage: Storage) -> dict[str, int]:
     return {key: int(value or 0) for key, value in (row or {}).items()}
 
 
+def _self_punch(storage: Storage, user: SessionUser | None) -> str | None:
+    """The employee's effective self-punch mode (drives the "Field attendance" menu item)."""
+    if not user or not user.is_employee or not user.employee_id:
+        return None
+    from .services import employees as employees_service
+
+    employee = employees_service.get_employee(storage, int(user.employee_id))
+    return employees_service.self_punch_mode(storage, employee) if employee else "disabled"
+
+
 def page_context(request: Request, *, active: str, user: SessionUser | None, **extra: Any) -> dict[str, Any]:
     settings = get_settings_dep(request)
     storage = get_storage(request)
@@ -223,6 +233,7 @@ def page_context(request: Request, *, active: str, user: SessionUser | None, **e
         "csrf_token": user.csrf if user else "",
         "nav_items": [],
         "nav_pending": _pending_counts(storage) if user and user.is_hr else {},
+        "self_punch": _self_punch(storage, user),
     }
     context.update(extra)
     return context

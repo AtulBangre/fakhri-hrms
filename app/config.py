@@ -220,6 +220,9 @@ SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
      "Optional line shown under every announcement, e.g. a helpdesk number."),
     ("notice_period_days", "30", "Notice period (days)", "number",
      "Default notice for resignations; a shorter notice is recovered in the F&F unless waived."),
+    ("allow_employee_self_punch", "disabled", "Employee self-punch (mobile)", "select:disabled|geofence_only|always_allowed",
+     "disabled = gate kiosk only · geofence_only = within an allowed location · always_allowed = from anywhere "
+     "(location still recorded). Can be overridden per employee."),
     ("geofence_radius_meters", "200", "GPS attendance radius (m)", "number",
      "How close a field employee must be to an allowed location to mark attendance."),
 ]
