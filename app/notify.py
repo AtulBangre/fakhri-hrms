@@ -97,23 +97,35 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
             f"<p>Hi {escape(ctx['name'])},</p>"
             f"<p>Your employee portal is ready. Use it to see your attendance, download payslips and apply for leave.</p>"
             f"<table role='presentation' cellpadding='0' cellspacing='0' style='margin:14px 0'>"
+            f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Portal URL</td>"
+            f"<td style='padding:4px 12px;font-family:monospace'><a href='{base}/login'>{base}/login</a></td></tr>"
             f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Username</td>"
             f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['username'])}</b></td></tr>"
             + (
+                f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Login Email</td>"
+                f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['email'])}</b></td></tr>"
+                if ctx.get("email") else ""
+            )
+            + (
+                f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Login Mobile</td>"
+                f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['phone'])}</b></td></tr>"
+                if ctx.get("phone") else ""
+            )
+            + (
                 f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Password</td>"
                 f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['password'])}</b></td></tr>"
-                if ctx.get("password") and not ctx.get("link") else ""
+                if ctx.get("password") else ""
             )
             + "</table>"
             + (
                 f"<p><a href='{base}{escape(ctx['link'])}' style='display:inline-block;background:{BRAND['primary']};"
                 f"color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none'>Set my password</a></p>"
                 f"<p style='color:{BRAND['muted']};font-size:12px'>The link works once and expires in "
-                f"{escape(str(ctx.get('hours', 72)))} hours. You can sign in with your username or this email address.</p>"
+                f"{escape(str(ctx.get('hours', 72)))} hours. You can sign in with your email, mobile number or username.</p>"
                 if ctx.get("link") else
                 f"<p><a href='{base}/login' style='display:inline-block;background:{BRAND['primary']};color:#fff;"
-                f"padding:10px 18px;border-radius:8px;text-decoration:none'>Open my portal</a></p>"
-                f"<p style='color:{BRAND['muted']};font-size:12px'>Please change the password after your first sign-in.</p>"
+                f"padding:10px 18px;border-radius:8px;text-decoration:none'>Open Employee Portal</a></p>"
+                f"<p style='color:{BRAND['muted']};font-size:12px'>You can sign in using your <b>Email</b>, <b>Mobile Number</b>, or <b>Username</b> with the password above.</p>"
             )
         )
         footer = "Ask HR if you did not expect this message."
@@ -349,6 +361,19 @@ def _whatsapp_text(template: str, settings: Settings, **ctx: Any) -> str:
         return f"*{settings.org_name}* — your payslip for {ctx['period']} has been sent to your email."
     if template == "otp":
         return f"*{settings.org_name}* — password reset code: {ctx['code']} (valid {ctx['minutes']} min)."
+    if template == "welcome":
+        base = settings.public_base_url.rstrip("/")
+        pw = ctx.get("password") or "—"
+        parts = [f"*{settings.org_name}* — Welcome {ctx['name']}! Your employee portal login is ready.\n"]
+        parts.append(f"Portal: {base}/login")
+        parts.append(f"Username: {ctx['username']}")
+        if ctx.get("email"):
+            parts.append(f"Email: {ctx['email']}")
+        if ctx.get("phone"):
+            parts.append(f"Mobile: {ctx['phone']}")
+        parts.append(f"Password: {pw}")
+        parts.append("\nYou can sign in with your email or mobile number using this password.")
+        return "\n".join(parts)
     return _sanitise(ctx.get("message") or "Notification from HRMS")
 
 

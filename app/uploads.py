@@ -76,7 +76,7 @@ def sniff(data: bytes) -> tuple[str, str] | None:
 
 def upload_dir(settings: Settings, kind: str) -> Path:
     """``data/uploads/<kind>/`` — ``kind`` is a fixed word chosen by our code."""
-    if kind not in ("documents", "receipts", "selfies", "proofs"):
+    if kind not in ("documents", "receipts", "selfies", "proofs", "avatars", "punches"):
         raise ValueError("unknown upload kind")
     path = Path(settings.data_dir) / "uploads" / kind
     path.mkdir(parents=True, exist_ok=True)

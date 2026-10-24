@@ -665,6 +665,8 @@ class Storage:
         "attendance": [
             ("leave_id", "INTEGER"),
             ("late_fine", "REAL NOT NULL DEFAULT 0"),
+            ("punch_in_photo", "TEXT"),
+            ("punch_out_photo", "TEXT"),
         ],
         "employees": [
             ("address", "TEXT"),
@@ -677,6 +679,7 @@ class Storage:
             ("emergency_contact", "TEXT"),
             ("face_key", "TEXT"),
             ("self_punch_mode", "TEXT NOT NULL DEFAULT 'inherit'"),
+            ("photo_filename", "TEXT"),
         ],
     }
 

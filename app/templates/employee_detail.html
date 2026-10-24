@@ -134,56 +134,162 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card flush mb-3">
       <div class="card-head">
-        <h2>Quick attendance entry</h2>
+        <h2>Attendance history · {{ period_label }}</h2>
         <span class="spacer"></span>
-        <span class="small muted">HR override — face scans always win for the same day</span>
-      </div>
-      <div class="card-body">
-        {% set row = today_row %}
-        <div class="alert alert-info">
-          <div>Today ({{ today | nice_date }}):
-            {% if row %}
-              <strong>{{ STATUS_LABELS.get(row.status, row.status) }}</strong>
-              {% if row.check_in %}· in {{ row.check_in | clock }}{% endif %}
-              {% if row.check_out %}· out {{ row.check_out | clock }}{% endif %}
-            {% else %}not marked yet{% endif %}
-          </div>
-        </div>
-        <form method="post" action="/attendance/mark">
-          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-          <input type="hidden" name="employee_id" value="{{ employee.id }}">
-          <input type="hidden" name="work_date" value="{{ today.isoformat() }}">
-          <input type="hidden" name="return_day" value="{{ today.isoformat() }}">
-          <div class="form-row cols-2">
-            <div class="field">
-              <label for="status">Status</label>
-              <select id="status" name="status">
-                {% for value in all_statuses %}
-                  <option value="{{ value }}" {{ 'selected' if row and row.status == value }}>{{ STATUS_LABELS.get(value, value) }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="field">
-              <label for="leave_type">Leave type (for leave / half day)</label>
-              <select id="leave_type" name="leave_type">
-                <option value="">—</option>
-                {% for value in leave_types %}<option value="{{ value }}">{{ leave_labels[value] }}</option>{% endfor %}
-              </select>
-            </div>
-          </div>
-          <div class="form-row cols-2">
-            <div class="field"><label for="check_in">Check in</label><input id="check_in" name="check_in" type="time" value="{{ row.check_in[:5] if row and row.check_in else '09:30' }}"></div>
-            <div class="field"><label for="check_out">Check out</label><input id="check_out" name="check_out" type="time" value="{{ row.check_out[:5] if row and row.check_out else '18:30' }}"></div>
-          </div>
-          <div class="field">
-            <label for="note">Note</label>
-            <input id="note" name="note" type="text" placeholder="reason for the manual entry" value="{{ row.note if row and row.note else '' }}">
-          </div>
-          <label class="checkline mb-2 small"><input type="checkbox" name="release_leave" value="1"> If this day is on approved leave, give it back to the balance</label>
-          <button class="btn btn-primary" type="submit">Save attendance</button>
+        {% if period == today.strftime('%Y-%m') and today_kind == 'working' and (not today_row or today_row.status != 'present') %}
+          <form method="post" action="/attendance/mark" style="display:inline;margin-right:.5rem">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="employee_id" value="{{ employee.id }}">
+            <input type="hidden" name="work_date" value="{{ today_iso }}">
+            <input type="hidden" name="status" value="present">
+            <input type="hidden" name="check_in" value="{{ shift_start }}">
+            <input type="hidden" name="check_out" value="{{ shift_end }}">
+            <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}">
+            <button class="btn btn-sm btn-primary" type="submit">Mark Present Today</button>
+          </form>
+        {% endif %}
+        <form class="inline-form" method="get" action="/employees/{{ employee.id }}">
+          <input name="period" type="month" value="{{ period }}" aria-label="Month" onchange="this.form.submit()" style="width:auto">
         </form>
+      </div>
+      <div class="table-wrap">
+        <table class="data stack">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Status</th>
+              <th>In</th>
+              <th>Out</th>
+              <th>Worked</th>
+              <th>Late</th>
+              <th>Source / Note</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for item in attendance_days %}
+            {% if not item.is_future %}
+            <tr {% if item.is_today %}style="background:var(--primary-soft)"{% endif %}>
+              <td data-label="Date" class="nowrap">
+                <strong>{{ item.day.strftime('%d %b') }}</strong>
+                <span class="sub">{{ item.weekday }}{% if item.is_today %} · today{% endif %}</span>
+              </td>
+              <td data-label="Status">
+                <span class="{{ item.status | chip }}">{{ item.status_label }}</span>
+                {% if item.leave_type %}<span class="sub muted">{{ item.leave_type }}</span>{% endif %}
+              </td>
+              <td data-label="In">
+                <div style="display:flex;align-items:center;gap:.35rem">
+                  <span>{{ item.check_in }}</span>
+                  {% if item.punch_in_photo %}
+                    <a href="/attendance/photos/{{ item.punch_in_photo }}" target="_blank" title="Punch-in photo">
+                      <img src="/attendance/photos/{{ item.punch_in_photo }}" alt="In" style="width:22px;height:22px;border-radius:4px;object-fit:cover;border:1px solid var(--border)">
+                    </a>
+                  {% endif %}
+                </div>
+              </td>
+              <td data-label="Out">
+                <div style="display:flex;align-items:center;gap:.35rem">
+                  <span>{{ item.check_out }}</span>
+                  {% if item.punch_out_photo %}
+                    <a href="/attendance/photos/{{ item.punch_out_photo }}" target="_blank" title="Punch-out photo">
+                      <img src="/attendance/photos/{{ item.punch_out_photo }}" alt="Out" style="width:22px;height:22px;border-radius:4px;object-fit:cover;border:1px solid var(--border)">
+                    </a>
+                  {% endif %}
+                </div>
+              </td>
+              <td data-label="Worked">{{ item.worked }}</td>
+              <td data-label="Late">
+                {% if item.late_minutes %}
+                  <span class="chip chip-warn">{{ item.late_minutes }}m{% if item.late_fine %} · ₹{{ item.late_fine | plain }}{% endif %}</span>
+                {% else %}—{% endif %}
+              </td>
+              <td data-label="Source / Note" class="small">
+                {% if item.note %}{{ item.note }}{% elif item.source %}<span class="muted">{{ item.source }}</span>{% else %}—{% endif %}
+              </td>
+              <td class="actions-cell">
+                {% if item.is_fixable %}
+                  {% if item.status not in ('present', 'week_off', 'holiday') and not item.is_off %}
+                    <form method="post" action="/attendance/mark" style="display:inline">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <input type="hidden" name="employee_id" value="{{ employee.id }}">
+                      <input type="hidden" name="work_date" value="{{ item.iso }}">
+                      <input type="hidden" name="status" value="present">
+                      <input type="hidden" name="check_in" value="{{ item.raw_in or shift_start }}">
+                      <input type="hidden" name="check_out" value="{{ item.raw_out or shift_end }}">
+                      <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}">
+                      <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present ({{ item.raw_in or shift_start }} - {{ item.raw_out or shift_end }})">Mark Present</button>
+                    </form>
+                  {% endif %}
+                  <button class="btn btn-sm" type="button" data-toggle-row="fix-att-{{ item.iso }}">Fix / Edit</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% if item.is_fixable %}
+            <tr id="fix-att-{{ item.iso }}" class="hidden" style="background:var(--surface)">
+              <td colspan="8" style="padding:1rem 1.25rem">
+                <form method="post" action="/attendance/mark">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="employee_id" value="{{ employee.id }}">
+                  <input type="hidden" name="work_date" value="{{ item.iso }}">
+                  <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}">
+                  <div style="font-size:.9rem;font-weight:600;margin-bottom:.6rem;color:var(--ink)">
+                    Edit attendance for {{ item.day.strftime('%A, %d %B %Y') }}
+                  </div>
+                  <div class="form-row cols-4">
+                    <div class="field">
+                      <label>Status</label>
+                      <select name="status">
+                        {% for val in all_statuses %}
+                          <option value="{{ val }}" {{ 'selected' if item.raw_status == val or (not item.raw_status and item.status == val) }}>{{ status_labels.get(val, val) }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label>Check in</label>
+                      <input name="check_in" type="time" value="{{ item.raw_in or shift_start }}">
+                    </div>
+                    <div class="field">
+                      <label>Check out</label>
+                      <input name="check_out" type="time" value="{{ item.raw_out or shift_end }}">
+                    </div>
+                    <div class="field">
+                      <label>Leave type (if half/leave)</label>
+                      <select name="leave_type">
+                        <option value="">—</option>
+                        {% for lt in leave_types %}
+                          <option value="{{ lt }}" {{ 'selected' if item.raw_leave_type == lt }}>{{ leave_labels[lt] }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-row cols-2 mt-1">
+                    <div class="field">
+                      <label>Reason / Note for correction</label>
+                      <input name="note" type="text" placeholder="e.g. scanner missed / HR correction" value="{{ item.note or '' }}">
+                    </div>
+                    <div class="field" style="display:flex;align-items:flex-end">
+                      <label class="checkline small" style="margin-bottom:.5rem">
+                        <input type="checkbox" name="release_leave" value="1"> If on approved leave, return day to balance
+                      </label>
+                    </div>
+                  </div>
+                  <div class="form-actions mt-1">
+                    <button class="btn btn-primary btn-sm" type="submit">Save correction</button>
+                    <button class="btn btn-sm btn-ghost" type="button" data-toggle-row="fix-att-{{ item.iso }}">Cancel</button>
+                  </div>
+                </form>
+              </td>
+            </tr>
+            {% endif %}
+            {% endif %}
+          {% else %}
+            <tr><td colspan="8" class="empty-state">No attendance records for this period.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -193,9 +299,17 @@
       <div class="card-head"><h3>Face enrolment</h3></div>
       <div class="card-body">
         {% if employee.face_id %}
-          <div class="alert alert-ok" style="margin-bottom:.75rem">
-            <div class="small">Enrolled {{ employee.face_enrolled_at | nice_date }}.<br>
-              <span class="mono">{{ employee.face_id }}</span></div>
+          <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem;padding:.5rem;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border)">
+            {% if employee.photo_filename %}
+              <img src="/employees/{{ employee.id }}/avatar" alt="{{ employee.name }}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--primary)">
+            {% else %}
+              <span class="avatar" style="width:56px;height:56px;font-size:1.1rem">{{ employee.name | initials }}</span>
+            {% endif %}
+            <div class="small">
+              <strong style="color:var(--ink)">Face Enrolled</strong><br>
+              <span class="muted">Enrolled {{ employee.face_enrolled_at | nice_date }}</span><br>
+              <span class="mono muted" style="font-size:.7rem">{{ employee.face_id }}</span>
+            </div>
           </div>
         {% else %}
           <div class="alert alert-warn" style="margin-bottom:.75rem">

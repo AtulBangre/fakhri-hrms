@@ -58,6 +58,8 @@ def daily(
         leave_labels=orgtime.LEAVE_LABELS,
         previous_day=(target.fromordinal(target.toordinal() - 1)).isoformat(),
         next_day=(target.fromordinal(target.toordinal() + 1)).isoformat(),
+        shift_start=storage.get_setting("shift_start", "09:30"),
+        shift_end=storage.get_setting("shift_end", "18:30"),
     )
 
 
@@ -76,6 +78,7 @@ def mark(
     note: str = Form(""),
     return_day: str = Form(""),
     release_leave: str = Form(""),
+    return_url: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
     target = return_day or work_date
@@ -87,12 +90,14 @@ def mark(
             release_leave=bool(release_leave),
         )
     except employees_service.ValidationError as exc:
+        if return_url:
+            return redirect(return_url, err=str(exc))
         return redirect("/attendance", err=str(exc), day=target)
     employee = employees_service.get_employee(storage, employee_id)
-    return redirect(
-        "/attendance", day=target,
-        ok=f"{employee['name'] if employee else 'Employee'} marked {orgtime.STATUS_LABELS.get(status, status)} on {work_date}.",
-    )
+    msg = f"{employee['name'] if employee else 'Employee'} marked {orgtime.STATUS_LABELS.get(status, status)} on {work_date}."
+    if return_url:
+        return redirect(return_url, ok=msg)
+    return redirect("/attendance", day=target, ok=msg)
 
 
 @router.post("/clear")

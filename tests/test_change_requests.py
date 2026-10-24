@@ -141,8 +141,8 @@ def test_c2_c3_onboarding_with_documents_and_email_link(hr_client: TestClient, s
     user = auth.get_user_for_employee(storage, employee["id"])
     assert user["username"] == "nj001"
     mail = storage.query_one("SELECT * FROM notifications WHERE category = 'welcome'")
-    assert mail["recipient"] == "joiner@example.com" and "/set-password?token=" in mail["body"]
-    assert "Password</td>" not in mail["body"]  # no password in the email
+    assert mail["recipient"] == "joiner@example.com"
+    assert "Password</td>" in mail["body"]  # generated password delivered in email
 
 
 def test_c2_skip_documents(hr_client: TestClient, storage: Storage):
@@ -190,6 +190,20 @@ def test_c3_login_with_email_and_change_password(client: TestClient, storage: St
     assert "ok=" in done.headers["location"]
     assert client.get("/me", follow_redirects=False).status_code == 200  # still signed in here
     assert auth.authenticate(storage, user["username"], "second-pass-2")
+
+
+def test_login_with_mobile_number(client: TestClient, storage: Storage, staff, hr_user):
+    employees_service.update_employee(storage, staff[0]["id"], {"phone": "+91 9876543210"})
+    user, _ = auth.ensure_employee_login(storage, staff[0], password="phone-pass-123")
+    # Log in with 10-digit number
+    res1 = client.post("/login", data={"username": "9876543210", "password": "phone-pass-123"}, follow_redirects=False)
+    assert res1.status_code == 303
+    assert res1.headers["location"] == "/me"
+
+    # Log in with full mobile number format
+    res2 = client.post("/login", data={"username": "+91 9876543210", "password": "phone-pass-123"}, follow_redirects=False)
+    assert res2.status_code == 303
+    assert res2.headers["location"] == "/me"
 
 
 # ------------------------------------------------------------------ F2

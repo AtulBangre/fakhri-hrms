@@ -23,7 +23,11 @@
 <div class="card mb-3" style="background:var(--primary-soft);border-color:var(--primary-soft-border);border-left:3px solid var(--primary)">
   <div class="card-body">
     <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-      <span class="avatar" style="width:44px;height:44px;font-size:.9rem">{{ employee.name | initials }}</span>
+      {% if employee.photo_filename %}
+        <img src="/employees/{{ employee.id }}/avatar" alt="{{ employee.name }}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--primary)">
+      {% else %}
+        <span class="avatar" style="width:44px;height:44px;font-size:.9rem">{{ employee.name | initials }}</span>
+      {% endif %}
       <div style="flex:1;min-width:180px">
         <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:var(--primary);font-weight:600">Today</div>
         {% if today_row and today_row.status == 'present' and today_row.check_in and not today_row.check_out %}
@@ -135,7 +139,8 @@
       <div class="card-body">
         <div style="font-family:var(--font-heading);font-size:2rem;font-weight:600;line-height:1">{{ balance.balance | number }}<span class="small muted">days</span></div>
         <div class="progress mt-2" style="margin:.6rem 0 .4rem">
-          <span style="width: {{ [[(balance.used_paid / balance.accrued * 100) if balance.accrued else 0, 100] | min, 0] | max }}%"></span>
+          {% set leave_pct = [[(balance.used_paid / balance.accrued * 100) if balance.accrued else 0, 100] | min, 0] | max | round(1) %}
+          <span {{ ('style="width: ' ~ leave_pct ~ '%;"') | safe }}></span>
         </div>
         <div class="kv small">
           <div><span class="k">Earned</span><span class="v">{{ balance.accrued | number }}</span></div>

@@ -168,15 +168,15 @@
         <div class="card mb-3">
           <div class="card-head"><h2>Portal login</h2></div>
           <div class="card-body">
-            <label class="checkline mb-2"><input type="checkbox" name="create_login" value="1" {{ 'checked' if f.get('create_login', '1') }}> Create a self-service login</label>
+            <label class="checkline mb-2"><input type="checkbox" name="create_login" value="1" checked> Create a self-service login (Active by default)</label>
             <div class="form-row cols-2">
               <div class="field"><label for="portal_username">Username</label>
                 <input id="portal_username" name="portal_username" type="text" autocapitalize="none"
                        value="{{ f.get('portal_username') or '' }}" placeholder="employee code in lower case">
-                <div class="hint">They can also sign in with their email address.</div></div>
+                <div class="hint">Employee can sign in with their Email, Mobile Number, or Username.</div></div>
               <div class="field"><label>&nbsp;</label>
-                <label class="checkline"><input type="checkbox" name="send_welcome" value="1" {{ 'checked' if f.get('send_welcome', '1') }}> Email a "set your password" link</label>
-                <div class="hint">Valid for 72 hours. Without an email address you will see the login details once.</div></div>
+                <label class="checkline"><input type="checkbox" name="send_welcome" value="1" checked> Email credentials (password, email &amp; mobile) to employee</label>
+                <div class="hint">Auto-generates a secure password and delivers it via Email &amp; WhatsApp/SMS.</div></div>
             </div>
           </div>
         </div>

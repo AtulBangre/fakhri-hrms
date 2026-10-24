@@ -114,3 +114,40 @@ def favicon() -> Response:
     if icon.exists():
         return FileResponse(icon, media_type="image/png")
     return Response(status_code=204)
+
+
+@router.get("/employees/{employee_id}/avatar", include_in_schema=False)
+def employee_avatar(
+    employee_id: int,
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+) -> Response:
+    """Stream an employee's registered face photo if available, else 404."""
+    from ..uploads import path_for, UploadError
+    row = storage.query_one("SELECT photo_filename FROM employees WHERE id = ?", (employee_id,))
+    if not row or not row.get("photo_filename"):
+        return Response(status_code=404)
+    try:
+        path = path_for(settings, "avatars", row["photo_filename"])
+        if not path.exists():
+            return Response(status_code=404)
+        return FileResponse(path, media_type="image/jpeg")
+    except (UploadError, ValueError):
+        return Response(status_code=404)
+
+
+@router.get("/attendance/photos/{filename}", include_in_schema=False)
+def punch_photo(
+    filename: str,
+    settings=Depends(get_settings_dep),
+) -> Response:
+    """Stream a captured punch snapshot (for HR audit), else 404."""
+    from ..uploads import path_for, UploadError
+    try:
+        path = path_for(settings, "punches", filename)
+        if not path.exists():
+            return Response(status_code=404)
+        return FileResponse(path, media_type="image/jpeg")
+    except (UploadError, ValueError):
+        return Response(status_code=404)
+

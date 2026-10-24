@@ -145,7 +145,11 @@
     clearFlash();
     card.className = "kiosk-card" + (info.punch === "OUT" ? " out" : "");
     cardPunch.textContent = info.punch;
-    cardAvatar.textContent = info.initials || "?";
+    if (info.avatar_url) {
+      cardAvatar.innerHTML = '<img src="' + info.avatar_url + '" alt="' + (info.name || '') + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">';
+    } else {
+      cardAvatar.textContent = info.initials || "?";
+    }
     cardName.textContent = info.name || "";
     cardMeta.textContent = [info.code, info.designation, info.department].filter(Boolean).join(" · ");
     cardWhen.textContent = info.time + " · " + info.date;

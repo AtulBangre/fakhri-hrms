@@ -69,8 +69,17 @@
       {% for person in employees %}
         <tr>
           <td data-label="Employee">
-            <a href="/employees/{{ person.id }}"><strong>{{ person.name }}</strong></a>
-            <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}</span>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              {% if person.photo_filename %}
+                <img src="/employees/{{ person.id }}/avatar" alt="{{ person.name }}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid var(--border)">
+              {% else %}
+                <span class="avatar" style="width:34px;height:34px;font-size:.78rem;flex-shrink:0">{{ person.name | initials }}</span>
+              {% endif %}
+              <div>
+                <a href="/employees/{{ person.id }}"><strong>{{ person.name }}</strong></a>
+                <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}</span>
+              </div>
+            </div>
           </td>
           <td data-label="Department">{{ person.department or '—' }}</td>
           <td data-label="Joined">{{ person.joined_on | nice_date }}</td>

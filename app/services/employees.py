@@ -545,12 +545,30 @@ def enrol_face(
     # code change can never orphan it (EMP-01).
     key = face_key_for(employee_id)
     result = face_service.enrol_face(image_bytes, external_id=key)
+
+    # Save the enrolled profile photo on disk for kiosk cards and profile display.
+    photo_name = None
+    try:
+        from ..config import Settings
+        from ..uploads import save_upload, delete_file
+        app_settings = storage._settings if hasattr(storage, "_settings") and storage._settings else Settings()
+        stored = save_upload(app_settings, "avatars", image_bytes, original_name=f"avatar_{employee_id}.jpg")
+        photo_name = stored.stored_name
+        # Delete old photo file if one existed
+        if employee.get("photo_filename"):
+            try:
+                delete_file(app_settings, "avatars", employee["photo_filename"])
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.warning("could not save avatar file for employee %s: %s", employee_id, exc)
+
     storage.execute(
-        "UPDATE employees SET face_id = ?, face_key = ?, face_enrolled_at = ?, updated_at = ? WHERE id = ?",
-        (result.face_id, key, utcnow_iso(), utcnow_iso(), employee_id),
+        "UPDATE employees SET face_id = ?, face_key = ?, face_enrolled_at = ?, photo_filename = COALESCE(?, photo_filename), updated_at = ? WHERE id = ?",
+        (result.face_id, key, utcnow_iso(), photo_name, utcnow_iso(), employee_id),
     )
     storage.audit(actor=actor, action="enrol_face", entity="employee", entity_id=employee_id,
-                  detail=f"face_id={result.face_id} score={result.det_score}")
+                  detail=f"face_id={result.face_id} score={result.det_score} photo={photo_name}")
     return result
 
 
@@ -561,8 +579,16 @@ def unenrol_face(
     removed = False
     if employee.get("face_id"):
         removed = face_service.delete_face(employee["face_id"])
+    if employee.get("photo_filename"):
+        try:
+            from ..config import Settings
+            from ..uploads import delete_file
+            app_settings = storage._settings if hasattr(storage, "_settings") and storage._settings else Settings()
+            delete_file(app_settings, "avatars", employee["photo_filename"])
+        except Exception:
+            pass
     storage.execute(
-        "UPDATE employees SET face_id = NULL, face_key = NULL, face_enrolled_at = NULL, updated_at = ? WHERE id = ?",
+        "UPDATE employees SET face_id = NULL, face_key = NULL, face_enrolled_at = NULL, photo_filename = NULL, updated_at = ? WHERE id = ?",
         (utcnow_iso(), employee_id),
     )
     storage.audit(actor=actor, action="unenrol_face", entity="employee", entity_id=employee_id)

@@ -98,15 +98,42 @@
       {% for row in rows %}
         <tr>
           <td data-label="Employee">
-            <a href="/employees/{{ row.employee_id }}"><strong>{{ row.name }}</strong></a>
-            <span class="sub">{{ row.code }}{% if row.department %} · {{ row.department }}{% endif %}</span>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              {% if row.photo_filename %}
+                <img src="/employees/{{ row.employee_id }}/avatar" alt="{{ row.name }}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid var(--border)">
+              {% else %}
+                <span class="avatar" style="width:34px;height:34px;font-size:.78rem;flex-shrink:0">{{ row.name | initials }}</span>
+              {% endif %}
+              <div>
+                <a href="/employees/{{ row.employee_id }}"><strong>{{ row.name }}</strong></a>
+                <span class="sub">{{ row.code }}{% if row.department %} · {{ row.department }}{% endif %}</span>
+              </div>
+            </div>
           </td>
           <td data-label="Status">
             <span class="{{ row.effective_status | chip }}">{{ row.status_label }}</span>
             {% if row.leave_type %}<span class="sub muted">{{ leave_labels.get(row.leave_type, row.leave_type) }}</span>{% endif %}
           </td>
-          <td data-label="In">{{ row.check_in_label }}</td>
-          <td data-label="Out">{{ row.check_out_label }}</td>
+          <td data-label="In">
+            <div style="display:flex;align-items:center;gap:.4rem">
+              <span>{{ row.check_in_label }}</span>
+              {% if row.punch_in_photo %}
+                <a href="/attendance/photos/{{ row.punch_in_photo }}" target="_blank" title="View punch-in photo" style="display:inline-flex;align-items:center">
+                  <img src="/attendance/photos/{{ row.punch_in_photo }}" alt="In snapshot" style="width:24px;height:24px;border-radius:4px;object-fit:cover;border:1px solid var(--border)">
+                </a>
+              {% endif %}
+            </div>
+          </td>
+          <td data-label="Out">
+            <div style="display:flex;align-items:center;gap:.4rem">
+              <span>{{ row.check_out_label }}</span>
+              {% if row.punch_out_photo %}
+                <a href="/attendance/photos/{{ row.punch_out_photo }}" target="_blank" title="View punch-out photo" style="display:inline-flex;align-items:center">
+                  <img src="/attendance/photos/{{ row.punch_out_photo }}" alt="Out snapshot" style="width:24px;height:24px;border-radius:4px;object-fit:cover;border:1px solid var(--border)">
+                </a>
+              {% endif %}
+            </div>
+          </td>
           <td data-label="Worked">{{ row.worked_label }}</td>
           <td data-label="Late">{% if row.late_minutes %}<span class="chip chip-warn">{{ row.late_minutes }}m{% if row.late_fine %} · ₹{{ row.late_fine | plain }}{% endif %}</span>{% else %}—{% endif %}</td>
           <td data-label="Source">
@@ -114,6 +141,18 @@
             {% if row.user_note %}<span class="sub muted">{{ row.user_note }}</span>{% endif %}
           </td>
           <td class="actions-cell">
+            {% if kind == 'working' and row.effective_status not in ('present', 'week_off', 'holiday') %}
+              <form method="post" action="/attendance/mark" style="display:inline">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+                <input type="hidden" name="work_date" value="{{ day_iso }}">
+                <input type="hidden" name="status" value="present">
+                <input type="hidden" name="check_in" value="{{ shift_start }}">
+                <input type="hidden" name="check_out" value="{{ shift_end }}">
+                <input type="hidden" name="return_day" value="{{ day_iso }}">
+                <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present">Present</button>
+              </form>
+            {% endif %}
             {% if row.attendance_id %}
               <form method="post" action="/attendance/clear" data-confirm="Remove this attendance entry?">
                 <input type="hidden" name="_csrf" value="{{ csrf_token }}">

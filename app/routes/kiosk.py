@@ -62,6 +62,7 @@ def _card(employee: dict, outcome, settings) -> dict | None:
         "designation": employee.get("designation"),
         "department": employee.get("department"),
         "initials": initials or "?",
+        "avatar_url": f"/employees/{employee['id']}/avatar" if employee.get("photo_filename") else None,
         "time": clock.strftime("%I:%M %p").lstrip("0") if clock else stamp,
         "date": now.strftime("%A, %d %b %Y"),
         "late": late,
@@ -188,6 +189,7 @@ def kiosk_scan(
         device_label=device,
         similarity=identification.similarity,
         source="face",
+        photo_bytes=payload,
     )
     storage.audit(
         actor=user.username, action=f"kiosk_{outcome.action}", entity="employee", entity_id=employee["id"],

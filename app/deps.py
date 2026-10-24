@@ -182,7 +182,10 @@ def flash_url(path: str, *, ok: str | None = None, err: str | None = None, **par
         query["ok"] = ok
     if err:
         query["err"] = err
-    return f"{path}?{urlencode(query)}" if query else path
+    if not query:
+        return path
+    separator = "&" if "?" in path else "?"
+    return f"{path}{separator}{urlencode(query)}"
 
 
 def redirect(path: str, **kwargs: Any) -> RedirectResponse:

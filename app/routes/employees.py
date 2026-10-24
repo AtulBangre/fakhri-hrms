@@ -157,20 +157,39 @@ async def create(
     # Portal login (C3)
     credentials = None
     login_note = ""
-    if data["create_login"]:
+    should_create_login = data.get("create_login")
+    if should_create_login is None or should_create_login in ("1", "true", "on"):
         try:
             portal_user, password = auth.ensure_employee_login(
-                storage, employee, username=data["portal_username"] or None)
-            if employee.get("email") and data["send_welcome"]:
-                token = auth.issue_password_link(storage, portal_user["id"])
+                storage, employee, username=data.get("portal_username") or None)
+            credentials = {
+                "username": portal_user["username"],
+                "password": password,
+                "email": employee.get("email"),
+                "phone": employee.get("phone"),
+            }
+            if employee.get("email") and data.get("send_welcome", "1") in ("1", "true", "on"):
                 notify.queue_email(
                     storage, employee["email"], "welcome", settings=settings, category="welcome",
-                    name=employee["name"].split(" ")[0], username=portal_user["username"],
-                    link=f"/set-password?token={token}", hours=auth.PASSWORD_LINK_HOURS,
+                    name=employee["name"].split(" ")[0],
+                    username=portal_user["username"],
+                    password=password,
+                    email=employee["email"],
+                    phone=employee.get("phone"),
                 )
-                login_note = f" A set-password link was emailed to {employee['email']}."
-            else:
-                credentials = {"username": portal_user["username"], "password": password}
+                login_note = f" Login credentials (email, mobile & password) emailed to {employee['email']}."
+            if employee.get("phone") and data.get("send_welcome", "1") in ("1", "true", "on"):
+                try:
+                    notify.queue_whatsapp(
+                        storage, employee["phone"], "welcome", settings=settings,
+                        name=employee["name"].split(" ")[0],
+                        username=portal_user["username"],
+                        password=password,
+                        email=employee.get("email"),
+                        phone=employee["phone"],
+                    )
+                except Exception:
+                    pass
         except ValueError as exc:
             failed.append(f"Portal login: {exc}")
 
@@ -178,7 +197,7 @@ async def create(
     if uploaded:
         message += f" {uploaded} document(s) uploaded."
     message += login_note
-    if credentials:
+    if credentials and not employee.get("email"):
         # shown exactly once, in the response body — never in a URL or the log
         return render(request, "employee_created.html", active="employees", user=user, employee=employee,
                       credentials=credentials, message=message, failed=failed)
@@ -229,7 +248,8 @@ def detail(
         return redirect("/employees", err="Employee not found.")
 
     today = orgtime.today(settings)
-    period = period or orgtime.period_of(today)
+    parsed_period = orgtime.parse_period(period[:7] if period else None)
+    period = parsed_period or orgtime.period_of(today)
     summary = attendance_service.employee_month_summary(storage, settings, employee_id, period)
     history = employees_service.salary_history(storage, employee_id)
     latest = history[0] if history else {}
@@ -257,11 +277,17 @@ def detail(
         leaves=leave_service.list_leave(storage, employee_id=employee_id, limit=25),
         exit_record=exits_service.latest_for(storage, employee_id),
         appraisals=appraisal_service.for_employee(storage, employee_id)[:1],
+        today=today,
+        today_iso=today.isoformat(),
+        today_kind=orgtime.day_kind(storage, today),
         today_row=attendance_service.get_row(storage, employee_id, today),
+        attendance_days=attendance_service.employee_month_days(storage, settings, employee, period),
+        shift_start=storage.get_setting("shift_start", "09:30"),
+        shift_end=storage.get_setting("shift_end", "18:30"),
         leave_types=orgtime.ALL_LEAVE_TYPES,
         leave_labels=orgtime.LEAVE_LABELS,
-
         all_statuses=orgtime.ALL_STATUSES,
+        status_labels=orgtime.STATUS_LABELS,
         ess_user=auth.get_user_for_employee(storage, employee_id),
         suggested_password=auth.generate_password(),
     )
@@ -493,6 +519,7 @@ def create_portal_login(
     employee_id: int,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
     password: str = Form(...),
 ):
@@ -511,15 +538,40 @@ def create_portal_login(
         return redirect("/employees", err="Employee not found.")
     try:
         portal_user, _ = ensure_employee_login(storage, employee, password=password)
+        delivery_note = ""
+        if employee.get("email"):
+            notify.queue_email(
+                storage, employee["email"], "welcome", settings=settings, category="welcome",
+                name=employee["name"].split(" ")[0],
+                username=portal_user["username"],
+                password=password,
+                email=employee["email"],
+                phone=employee.get("phone"),
+            )
+            delivery_note = f" Login details emailed to {employee['email']}."
+        if employee.get("phone"):
+            try:
+                notify.queue_whatsapp(
+                    storage, employee["phone"], "welcome", settings=settings,
+                    name=employee["name"].split(" ")[0],
+                    username=portal_user["username"],
+                    password=password,
+                    email=employee.get("email"),
+                    phone=employee["phone"],
+                )
+            except Exception:
+                pass
     except ValueError as exc:
         return redirect(f"/employees/{employee_id}", err=str(exc))
     storage.audit(
         actor=user.username, action="ess_login", entity="employee", entity_id=employee_id,
         detail=f"username={portal_user['username']}",
     )
+    first_name = employee["name"].split()[0]
+    tail = delivery_note or f" Share the password with {first_name} privately."
     return redirect(
         f"/employees/{employee_id}",
-        ok=f"Portal login ready: username '{portal_user['username']}'. Share the password with {employee['name'].split()[0]} privately.",
+        ok=f"Portal login ready: username '{portal_user['username']}'.{tail}",
     )
 
 

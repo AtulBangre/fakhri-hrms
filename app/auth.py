@@ -325,15 +325,42 @@ def get_user_by_username(storage: Storage, username: str) -> dict[str, Any] | No
     user = storage.query_one("SELECT * FROM users WHERE username = ?", (clean,))
     if user:
         return user
-    return storage.query_one(
+    user = storage.query_one(
         """
         SELECT u.* FROM users u
         JOIN employees e ON e.id = u.employee_id
-        WHERE LOWER(COALESCE(e.email, '')) = ? OR LOWER(COALESCE(e.code, '')) = ?
+        WHERE LOWER(COALESCE(e.email, '')) = ?
+           OR LOWER(COALESCE(e.code, '')) = ?
+           OR LOWER(COALESCE(e.phone, '')) = ?
         ORDER BY u.id LIMIT 1
         """,
-        (clean, clean),
+        (clean, clean, clean),
     )
+    if user:
+        return user
+
+    phone_digits = "".join(ch for ch in clean if ch.isdigit())
+    if phone_digits and len(phone_digits) >= 7:
+        candidates = storage.query(
+            """
+            SELECT u.*, e.phone AS employee_phone FROM users u
+            JOIN employees e ON e.id = u.employee_id
+            WHERE e.phone IS NOT NULL AND e.phone != ''
+            """
+        )
+        for cand in candidates:
+            raw_phone = str(cand.get("employee_phone") or cand.get("phone") or "")
+            cand_digits = "".join(ch for ch in raw_phone if ch.isdigit())
+            if not cand_digits:
+                continue
+            if cand_digits == phone_digits:
+                return cand
+            if len(phone_digits) >= 10 and cand_digits.endswith(phone_digits[-10:]):
+                return cand
+            if len(cand_digits) >= 10 and phone_digits.endswith(cand_digits[-10:]):
+                return cand
+
+    return None
 
 
 def get_user(storage: Storage, user_id: int) -> dict[str, Any] | None:

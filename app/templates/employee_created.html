@@ -18,14 +18,15 @@
 <div class="card mb-3" style="max-width:560px">
   <div class="card-head"><h2>Portal login — shown once</h2><span class="spacer"></span><span class="chip chip-warn">copy now</span></div>
   <div class="card-body">
-    <p class="small muted">There is no email address to send a set-password link to, so hand these to
-      {{ employee.name.split(' ')[0] }} directly. They will not be shown again — reset the password from the employee page if they are lost.</p>
+    <p class="small muted">These login credentials have been generated and sent to {{ employee.name.split(' ')[0] }} via email / mobile if provided. You can also copy them here.</p>
     <div class="kv mb-2">
       <div><span class="k">Sign-in page</span><span class="v mono">{{ settings.public_base_url.rstrip('/') }}/login</span></div>
       <div><span class="k">Username</span><span class="v mono">{{ credentials.username }}</span></div>
+      {% if credentials.email %}<div><span class="k">Login Email</span><span class="v mono">{{ credentials.email }}</span></div>{% endif %}
+      {% if credentials.phone %}<div><span class="k">Login Mobile</span><span class="v mono">{{ credentials.phone }}</span></div>{% endif %}
       <div><span class="k">Password</span><span class="v mono">{{ credentials.password }}</span></div>
     </div>
-    <p class="small muted mb-0">Ask them to change it after the first sign-in (My profile → Change password).</p>
+    <p class="small muted mb-0">Employee can sign in using their Email, Mobile Number, or Username with this password.</p>
   </div>
 </div>
 

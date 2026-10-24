@@ -19,10 +19,13 @@ The rules implemented here (and asserted in the test suite):
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
 from ..config import Settings
+
+logger = logging.getLogger("hrms.attendance")
 from ..db import Storage, utcnow_iso
 from . import employees as employees_service
 from . import locks, orgtime
@@ -98,9 +101,10 @@ def daily_rows(storage: Storage, settings: Settings, day: date | None = None) ->
     day = day or orgtime.today(settings)
     rows = storage.query(
         """
-        SELECT e.id AS employee_id, e.code, e.name, e.department, e.designation, e.face_id,
+        SELECT e.id AS employee_id, e.code, e.name, e.department, e.designation, e.face_id, e.photo_filename,
                a.id AS attendance_id, a.status, a.check_in, a.check_out, a.late_minutes,
-               a.worked_minutes, a.leave_type, a.source, a.device_label, a.note, a.late_fine
+               a.worked_minutes, a.leave_type, a.source, a.device_label, a.note, a.late_fine,
+               a.punch_in_photo, a.punch_out_photo
         FROM employees e
         LEFT JOIN attendance a ON a.employee_id = e.id AND a.work_date = ?
         WHERE e.status = 'active'
@@ -267,6 +271,58 @@ def employee_range_summary(storage: Storage, employee_id: int, start: date, limi
     return summary
 
 
+def employee_month_days(storage: Storage, settings: Settings, employee: dict, period: str) -> list[dict]:
+    """Assemble all calendar days in a month for an employee with punch status and photos."""
+    start, end = orgtime.month_bounds(period)
+    rows = {
+        row["work_date"]: row
+        for row in storage.query(
+            "SELECT * FROM attendance WHERE employee_id = ? AND work_date BETWEEN ? AND ?",
+            (employee["id"], start.isoformat(), end.isoformat()),
+        )
+    }
+    today = orgtime.today(settings)
+    window = employment_window(storage, employee, start, end)
+    days = []
+    for day in orgtime.days_in_period(period):
+        iso = day.isoformat()
+        record = rows.get(iso)
+        cls = classify_day(record, orgtime.day_kind(storage, day), day, today, window)
+        status = (record["status"] if record and cls != "not_employed"
+                  else {"not_employed": orgtime.STATUS_NOT_EMPLOYED, "absent": orgtime.STATUS_ABSENT,
+                        "week_off": orgtime.STATUS_WEEK_OFF, "holiday": orgtime.STATUS_HOLIDAY}
+                  .get(cls, orgtime.STATUS_PENDING))
+        days.append(
+            {
+                "day": day,
+                "iso": iso,
+                "weekday": day.strftime("%a"),
+                "status": status,
+                "status_label": orgtime.STATUS_LABELS.get(status, status),
+                "check_in": orgtime.format_clock(record["check_in"]) if record else "—",
+                "check_out": orgtime.format_clock(record["check_out"]) if record else "—",
+                "worked": orgtime.format_minutes(record["worked_minutes"]) if record else "—",
+                "raw_in": record["check_in"][:5] if record and record.get("check_in") else "",
+                "raw_out": record["check_out"][:5] if record and record.get("check_out") else "",
+                "raw_status": record["status"] if record else "",
+                "raw_leave_type": record.get("leave_type") or "" if record else "",
+                "punch_in_photo": record.get("punch_in_photo") if record else None,
+                "punch_out_photo": record.get("punch_out_photo") if record else None,
+                "late_minutes": record["late_minutes"] if record else 0,
+                "late_fine": record.get("late_fine") if record else 0,
+                "leave_type": orgtime.LEAVE_LABELS.get(record["leave_type"], "") if record else "",
+                "note": orgtime.user_note(record) if record else None,
+                "source": orgtime.source_label(record) if record and cls != "not_employed" else None,
+                "day_kind": orgtime.day_kind(storage, day),
+                "is_off": orgtime.day_kind(storage, day) in ("week_off", "holiday") or status in (orgtime.STATUS_WEEK_OFF, orgtime.STATUS_HOLIDAY),
+                "is_today": day == today,
+                "is_future": day > today,
+                "is_fixable": day <= today,
+            }
+        )
+    return days
+
+
 #: The gate screen polls its status every 20 s; three missed polls means offline.
 KIOSK_ONLINE_SECONDS = 75
 
@@ -367,6 +423,7 @@ def mark_by_face(
     moment: datetime | None = None,
     similarity: float | None = None,
     source: str = "face",
+    photo_bytes: bytes | None = None,
 ) -> MarkOutcome:
     """Apply the check-in / check-out state machine for one scan."""
     moment = moment or orgtime.local_now(settings)
@@ -412,6 +469,16 @@ def mark_by_face(
                 check_in=existing.get("check_in"), check_out=existing.get("check_out"),
             )
 
+        # Save check-out punch photo if provided
+        out_photo = None
+        if photo_bytes:
+            try:
+                from ..uploads import save_upload
+                stored = save_upload(settings, "punches", photo_bytes, original_name=f"out_{employee['id']}_{day.isoformat()}.jpg")
+                out_photo = stored.stored_name
+            except Exception as exc:
+                logger.warning("could not save punch out photo: %s", exc)
+
         if existing.get("check_in") and not existing.get("check_out"):
             since_seconds = orgtime.seconds_between(existing["check_in"], now_clock) or 0
             if since_seconds < settings.kiosk_debounce_seconds:
@@ -430,10 +497,11 @@ def mark_by_face(
             storage.execute(
                 """
                 UPDATE attendance SET check_out = ?, worked_minutes = ?, status = ?, source = ?,
+                                      punch_out_photo = COALESCE(?, punch_out_photo),
                                       device_label = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (now_clock, worked, new_status, source, device_label, utcnow_iso(), existing["id"]),
+                (now_clock, worked, new_status, source, out_photo, device_label, utcnow_iso(), existing["id"]),
             )
             updated = get_row(storage, employee["id"], day)
             return MarkOutcome(
@@ -461,12 +529,22 @@ def mark_by_face(
                 worked_minutes=existing.get("worked_minutes"),
             )
 
+        # Save check-in punch photo if provided
+        in_photo = None
+        if photo_bytes:
+            try:
+                from ..uploads import save_upload
+                stored = save_upload(settings, "punches", photo_bytes, original_name=f"in_{employee['id']}_{day.isoformat()}.jpg")
+                in_photo = stored.stored_name
+            except Exception as exc:
+                logger.warning("could not save punch in photo: %s", exc)
+
         # Half-day leave: the person works the other half. Record the scan, keep the
         # paid half day — never turn it into a full "present" (LV-05).
         if status == orgtime.STATUS_HALF_DAY and existing.get("leave_type"):
             storage.execute(
-                "UPDATE attendance SET check_in = ?, device_label = ?, updated_at = ? WHERE id = ?",
-                (now_clock, device_label, utcnow_iso(), existing["id"]),
+                "UPDATE attendance SET check_in = ?, punch_in_photo = COALESCE(?, punch_in_photo), device_label = ?, updated_at = ? WHERE id = ?",
+                (now_clock, in_photo, device_label, utcnow_iso(), existing["id"]),
             )
             updated = get_row(storage, employee["id"], day)
             return MarkOutcome(
@@ -483,10 +561,11 @@ def mark_by_face(
         storage.execute(
             """
             UPDATE attendance SET check_in = ?, status = ?, late_minutes = ?, late_fine = ?, source = ?,
+                                  punch_in_photo = COALESCE(?, punch_in_photo),
                                   device_label = ?, note = ?, updated_at = ?
             WHERE id = ?
             """,
-            (now_clock, status_in, assessed["late_minutes"], assessed["fine"], source, device_label, note,
+            (now_clock, status_in, assessed["late_minutes"], assessed["fine"], source, in_photo, device_label, note,
              utcnow_iso(), existing["id"]),
         )
         updated = get_row(storage, employee["id"], day)
@@ -499,6 +578,15 @@ def mark_by_face(
         )
 
     # First scan of the day.
+    in_photo = None
+    if photo_bytes:
+        try:
+            from ..uploads import save_upload
+            stored = save_upload(settings, "punches", photo_bytes, original_name=f"in_{employee['id']}_{day.isoformat()}.jpg")
+            in_photo = stored.stored_name
+        except Exception as exc:
+            logger.warning("could not save punch in photo: %s", exc)
+
     kind = orgtime.day_kind(storage, day)
     note = None
     assessed = {"late_minutes": 0, "fine": 0.0, "half_day": False}
@@ -517,11 +605,11 @@ def mark_by_face(
     storage.execute(
         """
         INSERT INTO attendance (employee_id, work_date, status, check_in, late_minutes, late_fine, source,
-                                device_label, note, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                                punch_in_photo, device_label, note, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (employee["id"], day.isoformat(), status_in, now_clock, late, assessed["fine"], source,
-         device_label, note, now, now),
+         in_photo, device_label, note, now, now),
     )
     created = get_row(storage, employee["id"], day)
     return MarkOutcome(
