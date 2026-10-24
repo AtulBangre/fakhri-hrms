@@ -337,7 +337,7 @@ def recent_scans(storage: Storage, *, limit: int = 12, day: date | None = None) 
     rows = storage.query(
         f"""
         SELECT a.work_date, a.check_in, a.check_out, a.status, a.source, a.device_label,
-               e.name, e.code, e.department
+               a.employee_id, e.name, e.code, e.department
         FROM attendance a JOIN employees e ON e.id = a.employee_id
         WHERE a.check_in IS NOT NULL {clause}
         ORDER BY a.updated_at DESC LIMIT ?

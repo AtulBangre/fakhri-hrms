@@ -69,7 +69,7 @@
       {% for person in employees %}
         <tr>
           <td data-label="Employee">
-            <strong>{{ person.name }}</strong>
+            <a href="/employees/{{ person.id }}"><strong>{{ person.name }}</strong></a>
             <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}</span>
           </td>
           <td data-label="Department">{{ person.department or '—' }}</td>

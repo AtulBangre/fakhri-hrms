@@ -73,7 +73,7 @@
           {% for point in board.trend %}
             <div class="bar-col" title="{{ point.day }}: {{ point.value }} present">
               <span class="bar-value">{{ point.value or '' }}</span>
-              <span class="bar-track"><span class="bar {{ 'off' if point.is_off }}" style="height: {{ point.percent }}%"></span></span>
+              <span class="bar-track"><span class="bar{% if point.is_off %} off{% endif %}" {{ ('style="height: ' ~ point.percent ~ '%;"') | safe }}></span></span>
               <span class="bar-label">{{ point.label }}</span>
             </div>
           {% endfor %}
@@ -95,7 +95,7 @@
           {% for row in board.recent %}
             <tr>
               <td data-label="Employee">
-                <strong>{{ row.name }}</strong>
+                <a href="/employees/{{ row.employee_id }}"><strong>{{ row.name }}</strong></a>
                 <span class="sub">{{ row.code }}{% if row.device_label %} · {{ row.device_label }}{% endif %}</span>
               </td>
               <td data-label="In">{{ row.check_in_label }}</td>
@@ -118,7 +118,7 @@
           <tbody>
           {% for item in recent_leave %}
             <tr>
-              <td data-label="Employee"><strong>{{ item.employee_name }}</strong><span class="sub">{{ item.employee_code }}</span></td>
+              <td data-label="Employee"><a href="/employees/{{ item.employee_id }}"><strong>{{ item.employee_name }}</strong></a><span class="sub">{{ item.employee_code }}</span></td>
               <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
               <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
               <td data-label="Days" class="num">{{ item.days | number }}</td>

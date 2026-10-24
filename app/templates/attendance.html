@@ -98,7 +98,7 @@
       {% for row in rows %}
         <tr>
           <td data-label="Employee">
-            <strong>{{ row.name }}</strong>
+            <a href="/employees/{{ row.employee_id }}"><strong>{{ row.name }}</strong></a>
             <span class="sub">{{ row.code }}{% if row.department %} · {{ row.department }}{% endif %}</span>
           </td>
           <td data-label="Status">
