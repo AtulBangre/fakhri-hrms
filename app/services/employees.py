@@ -456,6 +456,47 @@ def salary_history(storage: Storage, employee_id: int) -> list[dict[str, Any]]:
 
 
 # -------------------------------------------------------------- face enrolment
+class DuplicateFaceError(ValidationError):
+    """The photo matches a face already enrolled for another employee (one face, one account)."""
+
+    def __init__(self, name: str, code: str):
+        self.name, self.code = name, code
+        super().__init__(
+            f"This face is already registered to {name} ({code}). "
+            "A single face cannot be registered across multiple accounts."
+        )
+
+
+def face_owner_conflict(storage: Storage, face_service: FaceService, employee_id: int,
+                        image_bytes: bytes) -> dict[str, Any] | None:
+    """The *other* employee this face already belongs to, if any (Feature 1).
+
+    Every candidate the Face API scores at or above its own match threshold is
+    checked — not just the best one — so a second account hiding behind the
+    employee's own template is still caught. Templates whose key no longer maps
+    to an employee (deleted records) are ignored.
+    """
+    result = face_service.identify(image_bytes)
+    threshold = result.threshold if result.threshold is not None else 0.363
+    candidates = list(result.candidates or [])
+    if result.matched and result.external_id and not any(
+        c.get("external_id") == result.external_id for c in candidates
+    ):
+        candidates.append({"external_id": result.external_id, "similarity": result.similarity})
+    for candidate in candidates:
+        similarity = candidate.get("similarity")
+        key = candidate.get("external_id")
+        if not key or similarity is None or float(similarity) < float(threshold):
+            continue
+        owner = get_employee_by_face_key(storage, key)
+        if owner is None:
+            logger.warning("face template %s matches an enrolment photo but has no employee", key)
+            continue
+        if owner["id"] != employee_id:
+            return owner
+    return None
+
+
 def enrol_face(
     storage: Storage,
     face_service: FaceService,
@@ -466,6 +507,11 @@ def enrol_face(
 ) -> EnrolmentResult:
     """Register (or re-register) an employee's face in the Face API collection."""
     employee = require_employee(storage, employee_id)
+    conflict = face_owner_conflict(storage, face_service, employee_id, image_bytes)
+    if conflict:
+        storage.audit(actor=actor, action="enrol_face_duplicate", entity="employee", entity_id=employee_id,
+                      detail=f"matches {conflict['code']}")
+        raise DuplicateFaceError(conflict["name"], conflict["code"])
     if employee.get("face_id"):
         # Re-enrolment: drop the old template first so one person cannot match twice.
         try:

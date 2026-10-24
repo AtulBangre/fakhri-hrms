@@ -90,6 +90,7 @@ class FakeFaceService:
         self.settings = None
         self.collection = "employees"
         self.enrolled: dict[str, str] = {}  # external_id -> face_id
+        self.photos: dict[bytes, str] = {}  # enrolment photo -> external_id
         self.deleted: list[str] = []
         self.identify_result = identify_result
         self.fail_health = fail_health
@@ -117,6 +118,7 @@ class FakeFaceService:
         self._counter += 1
         face_id = f"face_{self._counter:04d}"
         self.enrolled[external_id] = face_id
+        self.photos[image_bytes] = external_id  # the same photo later "matches" this person
         return EnrolmentResult(face_id=face_id, det_score=0.93, box={"x": 10, "y": 10, "width": 100, "height": 120})
 
     def delete_face(self, face_id: str) -> bool:
@@ -132,6 +134,13 @@ class FakeFaceService:
     def identify(self, image_bytes: bytes, *, filename: str = "scan.jpg") -> IdentificationResult:
         if self.identify_result is not None:
             return self.identify_result
+        owner = self.photos.get(image_bytes)
+        if owner and owner in self.enrolled:
+            return IdentificationResult(
+                matched=True, external_id=owner, similarity=0.92, face_id=self.enrolled[owner], threshold=0.363,
+                faces_in_probe=1, gallery_size=len(self.enrolled),
+                candidates=[{"external_id": owner, "similarity": 0.92, "face_id": self.enrolled[owner]}],
+            )
         return IdentificationResult(
             matched=False, external_id=None, similarity=None, face_id=None, threshold=0.363,
             faces_in_probe=0, gallery_size=len(self.enrolled), message="No face detected in the frame.",

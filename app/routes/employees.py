@@ -380,6 +380,8 @@ def enrol_face(
         result = employees_service.enrol_face(
             storage, face, employee_id, payload, actor=user.username
         )
+    except employees_service.DuplicateFaceError as exc:
+        return redirect(f"/employees/{employee_id}", err=str(exc))
     except FaceServiceUnavailable as exc:
         return redirect(f"/employees/{employee_id}", err=f"Face service offline: {exc}")
     except FaceServiceError as exc:
