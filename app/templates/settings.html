@@ -64,7 +64,7 @@
           <tbody>
           {% for item in users %}
             <tr>
-              <td data-label="Username"><strong>{{ item.username }}</strong><span class="sub">{{ item.display_name or '' }}</span></td>
+              <td data-label="Username"><strong>{{ item.username }}</strong><span class="sub">{{ item.display_name or '' }}{% if item.email %} · {{ item.email }}{% endif %}</span></td>
               <td data-label="Role"><span class="chip {{ 'chip-primary' if item.role == 'hr' else 'chip-info' }}">{{ item.role }}</span></td>
               <td data-label="Device">{{ item.device_label or '—' }}</td>
               <td data-label="Status"><span class="chip {{ 'chip-ok' if item.active else 'chip-muted' }}">{{ 'active' if item.active else 'disabled' }}</span></td>
@@ -84,6 +84,14 @@
                       <input type="hidden" name="active" value="{{ '0' if item.active else '1' }}">
                       <button class="btn btn-sm" type="submit">{{ 'Disable' if item.active else 'Enable' }} login</button>
                     </form>
+                    {% if item.role == 'hr' %}
+                    <form method="post" action="/settings/users/{{ item.id }}/email" class="mb-2">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <div class="field"><label for="em{{ item.id }}">Email for HR alerts</label>
+                        <input id="em{{ item.id }}" name="email" type="email" value="{{ item.email or '' }}" placeholder="hr@company.com"></div>
+                      <button class="btn btn-sm" type="submit">Save email</button>
+                    </form>
+                    {% endif %}
                     <form method="post" action="/settings/users/{{ item.id }}/signout" class="mb-2"
                           data-confirm="Sign '{{ item.username }}' out on every device?">
                       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -130,6 +138,8 @@
             </select></div>
           <div class="field"><label for="display_name">Display name</label>
             <input id="display_name" name="display_name" type="text" placeholder="Back gate scanner"></div>
+          <div class="field"><label for="new_email">Email (HR — receives alerts)</label>
+            <input id="new_email" name="email" type="email" placeholder="hr@company.com"></div>
           <div class="field"><label for="device_label">Device label</label>
             <input id="device_label" name="device_label" type="text" placeholder="Back Gate">
             <div class="hint">Recorded on every scan so you know which gate marked it.</div></div>

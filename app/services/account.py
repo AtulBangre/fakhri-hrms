@@ -233,23 +233,15 @@ def submit_change_requests(
             actor=employee.get("code"), action="profile_change_requested", entity="employee",
             entity_id=employee["id"], detail=", ".join(row["field"] for row in created),
         )
-        notify.queue_email(
+        notify.notify_hr(
             storage,
-            _hr_email(storage),
+            settings,
             "profile_changed",
-            settings=settings,
             category="profile_change",
             name=employees_service.get_employee(storage, employee["id"])["name"],
             fields=", ".join(CHANGEABLE_FIELDS.get(row["field"], row["field"]) for row in created),
         )
     return created
-
-
-def _hr_email(storage: Storage) -> str | None:
-    row = storage.query_one(
-        "SELECT email FROM users WHERE role = 'hr' AND email IS NOT NULL AND email != '' LIMIT 1"
-    )
-    return row["email"] if row else None
 
 
 def pending_changes(storage: Storage, *, employee_id: int | None = None) -> list[dict[str, Any]]:

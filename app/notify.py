@@ -205,12 +205,37 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
             + f"<p><a href='{base}/me/profile'>See my profile</a></p>"
         )
 
+    elif template == "hr_alert":
+        subject = ctx["subject"]
+        body = f"<p>{escape(ctx['message'])}</p>" + (
+            f"<p><a href='{base}{escape(ctx['link'])}'>Open in HRMS</a></p>" if ctx.get("link") else ""
+        )
+
     else:  # pragma: no cover - defensive
         subject = ctx.get("subject", "Notification")
         body = f"<p>{escape(ctx.get('message', ''))}</p>"
 
     html = _layout(settings, subject, body, footer=ctx.get("footer", ""))
     return subject, html, _plain(html)
+
+
+# --------------------------------------------------------------- HR alerts
+def hr_emails(storage: Storage) -> list[str]:
+    """Every active HR login with an email address (set under Settings → Logins)."""
+    return [
+        row["email"] for row in storage.query(
+            "SELECT DISTINCT email FROM users WHERE role = 'hr' AND active = 1 AND email IS NOT NULL AND email != ''"
+        )
+    ]
+
+
+def notify_hr(storage: Storage, settings: Settings, template: str, *, category: str, **ctx: Any) -> int:
+    """Queue one message per HR address. Returns how many were queued."""
+    queued = 0
+    for address in hr_emails(storage):
+        if queue_email(storage, address, template, settings=settings, category=category, **ctx):
+            queued += 1
+    return queued
 
 
 # ----------------------------------------------------------------------- queue

@@ -350,13 +350,16 @@ def delete(
     employee_id: int,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    face=Depends(get_face),
     csrf: str = Form("", alias="_csrf"),
 ):
     from ..auth import verify_form_csrf
 
     verify_form_csrf(user, csrf)
     try:
-        employees_service.delete_employee(storage, employee_id, actor=user.username)
+        employees_service.delete_employee(storage, employee_id, actor=user.username,
+                                          settings=settings, face_service=face)
     except employees_service.ValidationError as exc:
         return redirect("/employees", err=str(exc))
     return redirect("/employees", ok="Employee and all related records deleted.")

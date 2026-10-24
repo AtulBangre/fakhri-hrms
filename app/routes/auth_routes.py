@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse
 
 from urllib.parse import urlsplit
 
+from .. import auth
 from ..auth import (
     ROLE_EMPLOYEE,
     ROLE_KIOSK,
@@ -61,12 +62,23 @@ def login_submit(
 ):
     settings = get_settings_dep(request)
     storage = get_storage(request)
+    ip = request.client.host if request.client else None
+    if auth.login_locked(storage, username, ip):
+        storage.audit(actor=username[:40], action="login_locked", entity="user", ip=ip)
+        return render(
+            request, "login.html", active="login", user=None,
+            error="Too many failed sign-ins. Wait 10 minutes and try again, or reset your password.",
+            username_value=username, next_url=next,
+            demo_hint=(settings.data_dir / "initial_credentials.txt").exists(),
+            status_code=429,
+        )
     user = authenticate(storage, username, password)
 
     if user is None:
+        auth.record_login_failure(storage, username, ip)
         storage.audit(
             actor=username[:40], action="login_failed", entity="user",
-            ip=request.client.host if request.client else None,
+            ip=ip,
         )
         return render(
             request,
@@ -80,6 +92,7 @@ def login_submit(
             status_code=401,
         )
 
+    auth.clear_login_failures(storage, username)
     lifetime = settings.kiosk_session_days * 86400 if user["role"] == ROLE_KIOSK else settings.hr_session_hours * 3600
     token, session = create_session_token(user, settings, lifetime_seconds=lifetime)
     storage.audit(

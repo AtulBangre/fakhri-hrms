@@ -213,7 +213,8 @@ def test_face_enrolment_stores_a_template(hr_client: TestClient, storage, staff,
     assert "ok=" in response.headers["location"]
 
     employee = employees_service.get_employee(storage, staff[0]["id"])
-    assert employee["face_id"] == fake_face.enrolled[staff[0]["code"]]
+    # templates are keyed by the stable row id, not the editable code (EMP-01)
+    assert employee["face_id"] == fake_face.enrolled[f"emp-{staff[0]['id']}"]
 
 
 def test_face_enrolment_handles_empty_upload(hr_client: TestClient, staff, fake_face):

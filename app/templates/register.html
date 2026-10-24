@@ -8,8 +8,8 @@
     <div class="sub">{{ register.label }} · {{ register.rows | length }} employees · P present · ½ half day · L leave · A absent · W week off · H holiday</div>
   </div>
   <div class="page-actions">
-    <a class="btn" href="/attendance/register.csv?period={{ register.period }}{{ '&department=' ~ department if department }}">Full CSV</a>
-    <a class="btn" href="/attendance/summary.csv?period={{ register.period }}{{ '&department=' ~ department if department }}">Summary CSV</a>
+    <a class="btn" href="/attendance/register.csv?{{ csv_query }}">Full CSV</a>
+    <a class="btn" href="/attendance/summary.csv?{{ csv_query }}">Summary CSV</a>
     <a class="btn" href="/payroll?period={{ register.period }}">Payroll</a>
   </div>
 </div>

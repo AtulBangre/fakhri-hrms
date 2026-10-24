@@ -458,6 +458,15 @@ CREATE TABLE IF NOT EXISTS appraisal_goals (
 );
 CREATE INDEX IF NOT EXISTS idx_appraisal_goals ON appraisal_goals(appraisal_id);
 
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    ip       TEXT,
+    at       REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_user ON login_attempts(username, at);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, at);
+
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -649,6 +658,7 @@ class Storage:
             ("pan", "TEXT"),
             ("aadhaar_last4", "TEXT"),
             ("emergency_contact", "TEXT"),
+            ("face_key", "TEXT"),
         ],
     }
 

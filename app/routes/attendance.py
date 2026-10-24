@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import PlainTextResponse
 
@@ -118,15 +120,17 @@ def register(
     period: str | None = None,
     department: str | None = None,
 ):
-    period = period or orgtime.period_of(orgtime.today(settings))
-    try:
-        data = attendance_service.monthly_register(storage, settings, period, department=department or None)
-    except (ValueError, TypeError):
-        period = orgtime.period_of(orgtime.today(settings))
-        data = attendance_service.monthly_register(storage, settings, period)
+    current = orgtime.period_of(orgtime.today(settings))
+    error = None
+    parsed = orgtime.parse_period(period) if period else current
+    if parsed is None:
+        error = f"'{period}' is not a valid month — showing {orgtime.month_label(current)} instead."
+        parsed = current
+    data = attendance_service.monthly_register(storage, settings, parsed, department=department or None)
     return render(
         request, "register.html", active="register", user=user, register=data,
-        period=period, department=department or "",
+        period=parsed, department=department or "", error=error,
+        csv_query=urlencode({k: v for k, v in (("period", parsed), ("department", department or "")) if v}),
     )
 
 
@@ -138,7 +142,7 @@ def register_csv(
     period: str | None = None,
     department: str | None = None,
 ):
-    period = period or orgtime.period_of(orgtime.today(settings))
+    period = orgtime.parse_period(period) or orgtime.period_of(orgtime.today(settings))
     data = attendance_service.monthly_register(storage, settings, period, department=department or None)
     return PlainTextResponse(
         attendance_service.register_csv(data),
@@ -155,7 +159,7 @@ def summary_csv(
     period: str | None = None,
     department: str | None = None,
 ):
-    period = period or orgtime.period_of(orgtime.today(settings))
+    period = orgtime.parse_period(period) or orgtime.period_of(orgtime.today(settings))
     data = attendance_service.monthly_register(storage, settings, period, department=department or None)
     return PlainTextResponse(
         attendance_service.summary_csv(data),

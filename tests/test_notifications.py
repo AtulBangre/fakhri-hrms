@@ -130,6 +130,7 @@ def test_kiosk_check_in_queues_a_confirmation_email(
     from app.face import IdentificationResult
 
     employees_service.update_employee(storage, staff[0]["id"], {"email": "aarav@example.com"})
+    storage.set_setting("shift_start", "23:00")  # never "late", whatever time the suite runs
     fake_face.identify_result = IdentificationResult(
         matched=True, external_id=staff[0]["code"], similarity=0.9, face_id="f1",
         threshold=0.363, faces_in_probe=1,
@@ -140,7 +141,7 @@ def test_kiosk_check_in_queues_a_confirmation_email(
         "/api/kiosk/scan", data={"_csrf": token},
         files={"image": ("scan.jpg", assets["person_a_1"], "image/jpeg")},
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
     queued = storage.query("SELECT * FROM notifications WHERE category='attendance_punch_in'")
     assert len(queued) == 1

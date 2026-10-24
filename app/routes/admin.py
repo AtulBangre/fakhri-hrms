@@ -134,6 +134,7 @@ def add_user(
     role: str = Form("hr"),
     display_name: str = Form(""),
     device_label: str = Form(""),
+    email: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
     if role not in (auth.ROLE_HR, auth.ROLE_KIOSK):
@@ -142,10 +143,12 @@ def add_user(
         return redirect("/settings", err="Password must be at least 8 characters.")
     if auth.get_user_by_username(storage, username):
         return redirect("/settings", err=f"Username '{username}' already exists.")
-    create_user(
+    created = create_user(
         storage, username=username, password=password, role=role,
         display_name=display_name or username, device_label=device_label or None,
     )
+    if email.strip():
+        storage.execute("UPDATE users SET email = ? WHERE id = ?", (email.strip().lower(), created["id"]))
     storage.audit(actor=user.username, action="create_user", entity="user", entity_id=username, detail=role)
     return redirect("/settings", ok=f"{role.upper()} login created for '{username}'.")
 
@@ -182,6 +185,24 @@ def toggle_user(
     set_user_active(storage, user_id, active == "1")
     storage.audit(actor=user.username, action="set_user_active", entity="user", entity_id=user_id, detail=active)
     return redirect("/settings", ok="User updated.")
+
+
+@router.post("/users/{user_id}/email")
+def set_email(
+    request: Request,
+    user_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+    email: str = Form(""),
+):
+    verify_form_csrf(user, csrf)
+    value = email.strip().lower()
+    if value and ("@" not in value or "." not in value.split("@")[-1]):
+        return redirect("/settings", err="Enter a valid email address.")
+    storage.execute("UPDATE users SET email = ? WHERE id = ?", (value or None, user_id))
+    storage.audit(actor=user.username, action="set_user_email", entity="user", entity_id=user_id, detail=value)
+    return redirect("/settings", ok="Email saved." if value else "Email removed.")
 
 
 @router.post("/users/{user_id}/signout")

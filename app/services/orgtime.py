@@ -98,6 +98,29 @@ def month_label(period: str) -> str:
     return f"{calendar.month_name[month]} {year}"
 
 
+def parse_period(value: str | None) -> str | None:
+    """Accept ``2026-09``, ``2026-9``, ``09/2026`` or ``9-2026`` → ``'2026-09'``; ``None`` if invalid.
+
+    Browsers without ``<input type="month">`` (Firefox desktop, older Safari) send
+    whatever the person typed, so the server has to be forgiving.
+    """
+    text = (value or "").strip().replace(" ", "")
+    if not text:
+        return None
+    for sep in ("-", "/", "."):
+        if sep in text:
+            left, _, right = text.partition(sep)
+            break
+    else:
+        return None
+    if not (left.isdigit() and right.isdigit()):
+        return None
+    year, month = (int(left), int(right)) if len(left) == 4 else (int(right), int(left))
+    if not (1 <= month <= 12 and 2000 <= year <= 2100):
+        return None
+    return f"{year}-{month:02d}"
+
+
 def fiscal_year(period: str) -> str:
     """``'2026-03'`` → ``'2025-26'`` (the Indian financial year runs April → March)."""
     year, month = (int(part) for part in period.split("-")[:2])

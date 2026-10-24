@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Any
 
 from ..db import Storage, utcnow_iso
 from ..face import EnrolmentResult, FaceService, FaceServiceError
 from . import orgtime
+
+logger = logging.getLogger("hrms.employees")
 
 EMPLOYMENT_TYPES = ("full_time", "part_time", "intern", "contract")
 EMPLOYMENT_LABELS = {
@@ -87,6 +90,17 @@ def count_employees(
 
 def get_employee(storage: Storage, employee_id: int) -> dict[str, Any] | None:
     return storage.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
+
+
+def face_key_for(employee_id: int) -> str:
+    return f"emp-{employee_id}"
+
+
+def get_employee_by_face_key(storage: Storage, external_id: str) -> dict[str, Any] | None:
+    """Resolve a face-collection id: ``emp-<id>`` today, the employee code for older enrolments."""
+    if external_id.startswith("emp-") and external_id[4:].isdigit():
+        return get_employee(storage, int(external_id[4:]))
+    return get_employee_by_code(storage, external_id)
 
 
 def get_employee_by_code(storage: Storage, code: str) -> dict[str, Any] | None:
@@ -202,6 +216,11 @@ def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) ->
         clash = get_employee_by_code(storage, code)
         if clash and clash["id"] != employee_id:
             raise ValidationError(f"Employee code '{code}' is already used.")
+        if code != employee["code"] and employee.get("face_id") and not employee.get("face_key"):
+            raise ValidationError(
+                "This person's face was enrolled under the old code. Remove the face enrolment (or re-enrol it) "
+                "before changing the code, otherwise the gate scanner can no longer find them."
+            )
         updates["code"] = code
 
     if "employment_type" in data and data["employment_type"] not in EMPLOYMENT_TYPES:
@@ -244,15 +263,60 @@ def set_status(storage: Storage, employee_id: int, status: str, *, actor: str | 
         "UPDATE employees SET status = ?, updated_at = ? WHERE id = ?",
         (status, utcnow_iso(), employee_id),
     )
+    if status == "inactive":
+        # their portal login goes too, and any open session ends now (SEC-05);
+        # reactivating leaves it off — HR re-enables it from the employee page
+        storage.execute(
+            "UPDATE users SET active = 0, session_version = session_version + 1 WHERE employee_id = ?",
+            (employee_id,),
+        )
     storage.audit(actor=actor, action="set_employee_status", entity="employee", entity_id=employee_id, detail=status)
 
 
-def delete_employee(storage: Storage, employee_id: int, *, actor: str | None = None) -> None:
-    """Delete an employee and every attendance/leave/payslip row attached to them."""
+def delete_employee(storage: Storage, employee_id: int, *, actor: str | None = None,
+                    settings: Any = None, face_service: Any = None) -> None:
+    """Delete an employee and everything attached to them — rows, files and face template.
+
+    Refused once the person is on a finalised or paid payslip: those are statutory
+    records, so mark the employee inactive instead (EMP-03).
+    """
+    from ..uploads import delete_file
+
     employee = require_employee(storage, employee_id)
+    on_record = storage.query_one(
+        "SELECT p.period FROM payslips p JOIN payroll_runs r ON r.id = p.run_id "
+        "WHERE p.employee_id = ? AND r.status IN ('finalized','paid') LIMIT 1",
+        (employee_id,),
+    )
+    if on_record:
+        raise ValidationError(
+            f"{employee['name']} is on a finalised payslip ({on_record['period']}) — those are statutory records. "
+            "Mark the employee inactive instead of deleting."
+        )
+
+    files = []
+    if settings is not None:
+        files += [("documents", r["stored_name"]) for r in storage.query(
+            "SELECT stored_name FROM documents WHERE employee_id = ?", (employee_id,))]
+        files += [("receipts", r["receipt_name"]) for r in storage.query(
+            "SELECT receipt_name FROM expense_claims WHERE employee_id = ? AND receipt_name IS NOT NULL", (employee_id,))]
+        files += [("selfies", r["selfie_name"]) for r in storage.query(
+            "SELECT selfie_name FROM field_checks WHERE employee_id = ? AND selfie_name IS NOT NULL", (employee_id,))]
+        files += [("proofs", r["proof_name"]) for r in storage.query(
+            "SELECT proof_name FROM tax_declarations WHERE employee_id = ? AND proof_name IS NOT NULL", (employee_id,))]
+
     for table in ("attendance", "leave_requests", "salary_revisions", "payslips"):
         storage.execute(f"DELETE FROM {table} WHERE employee_id = ?", (employee_id,))
-    storage.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
+    storage.execute("DELETE FROM employees WHERE id = ?", (employee_id,))  # cascades the rest
+
+    for kind, name in files:
+        delete_file(settings, kind, name)
+    if face_service is not None and employee.get("face_id"):
+        try:
+            face_service.delete_face(employee["face_id"])
+        except Exception:  # noqa: BLE001 - best effort: the row is gone either way
+            logger.warning("could not delete face template %s for deleted employee %s",
+                           employee["face_id"], employee_id)
     storage.audit(actor=actor, action="delete_employee", entity="employee", entity_id=employee_id,
                   detail=f"{employee['code']} {employee['name']}")
 
@@ -332,10 +396,13 @@ def enrol_face(
         except FaceServiceError:  # pragma: no cover - best effort cleanup
             pass
 
-    result = face_service.enrol_face(image_bytes, external_id=employee["code"])
+    # The template is keyed by the row id, not the editable employee code, so a
+    # code change can never orphan it (EMP-01).
+    key = face_key_for(employee_id)
+    result = face_service.enrol_face(image_bytes, external_id=key)
     storage.execute(
-        "UPDATE employees SET face_id = ?, face_enrolled_at = ?, updated_at = ? WHERE id = ?",
-        (result.face_id, utcnow_iso(), utcnow_iso(), employee_id),
+        "UPDATE employees SET face_id = ?, face_key = ?, face_enrolled_at = ?, updated_at = ? WHERE id = ?",
+        (result.face_id, key, utcnow_iso(), utcnow_iso(), employee_id),
     )
     storage.audit(actor=actor, action="enrol_face", entity="employee", entity_id=employee_id,
                   detail=f"face_id={result.face_id} score={result.det_score}")
@@ -350,7 +417,7 @@ def unenrol_face(
     if employee.get("face_id"):
         removed = face_service.delete_face(employee["face_id"])
     storage.execute(
-        "UPDATE employees SET face_id = NULL, face_enrolled_at = NULL, updated_at = ? WHERE id = ?",
+        "UPDATE employees SET face_id = NULL, face_key = NULL, face_enrolled_at = NULL, updated_at = ? WHERE id = ?",
         (utcnow_iso(), employee_id),
     )
     storage.audit(actor=actor, action="unenrol_face", entity="employee", entity_id=employee_id)

@@ -126,7 +126,7 @@ def kiosk_scan(
             }
         )
 
-    employee = employees_service.get_employee_by_code(storage, identification.external_id)
+    employee = employees_service.get_employee_by_face_key(storage, identification.external_id)
     if employee is None:
         storage.audit(actor=user.username, action="kiosk_orphan_template", entity="employee",
                       detail=f"code={identification.external_id} is in the face collection but not in HRMS")

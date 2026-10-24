@@ -27,6 +27,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from ..config import Settings
+from .. import notify
 from ..db import Storage, utcnow_iso
 from . import attendance as attendance_service
 from . import employees as employees_service
@@ -164,6 +165,14 @@ def resign(storage: Storage, settings: Settings, *, employee_id: int, reason: st
                       last_working_day=lwd, status="requested", actor=actor)
     storage.audit(actor=actor, action="resignation_submitted", entity="employee", entity_id=employee_id,
                   detail=f"LWD {lwd.isoformat()}")
+    employee = employees_service.get_employee(storage, employee_id) or {}
+    notify.notify_hr(
+        storage, settings, "hr_alert", category="resignation",
+        subject=f"Resignation: {employee.get('name')}",
+        message=f"{employee.get('name')} ({employee.get('code')}) has resigned. Proposed last working day: "
+                f"{orgtime.human_date(lwd)}. Reason: {reason}",
+        link=f"/exits/{exit_id}",
+    )
     return get(storage, exit_id)
 
 
@@ -298,43 +307,43 @@ def compute_fnf(storage: Storage, settings: Settings, exit_row: dict[str, Any]) 
     def deduct(label: str, amount: float, note: str = "") -> None:
         deductions.append({"label": label, "amount": round(amount, 2), "note": note})
 
-    # 1. salary for the LWD month (unless a payroll run already covers it)
-    paid_by_payroll = storage.query_one(
-        "SELECT p.id, r.status FROM payslips p JOIN payroll_runs r ON r.id = p.run_id "
-        "WHERE p.employee_id = ? AND p.period = ?",
-        (employee["id"], period),
+    # 1. salary for every month payroll has not covered yet, up to the LWD (EXIT-01)
+    last_paid = storage.scalar(
+        "SELECT MAX(period) AS p FROM payslips WHERE employee_id = ?", (employee["id"],), None
     )
-    pending_salary = 0.0
-    payable_days = 0.0
-    if paid_by_payroll:
-        notes.append(f"{orgtime.month_label(period)} salary is in the payroll run ({paid_by_payroll['status']}), "
-                     "so it is not repeated here.")
+    months: list[str] = []
+    if last_paid and last_paid < period:
+        year, month = (int(x) for x in last_paid.split("-"))
+        while True:
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+            months.append(f"{year}-{month:02d}")
+            if months[-1] >= period:
+                break
+    elif not last_paid:
+        months = [period]  # no payroll history in HRMS: only the leaving month is ours to settle
     else:
-        month_start, _ = orgtime.month_bounds(period)
-        joined = orgtime.parse_date(employee["joined_on"]) if employee.get("joined_on") else month_start
-        start = max(month_start, joined)
-        if start <= lwd:
-            counted_until = min(lwd, orgtime.today(settings))
-            lop = 0.0
-            if counted_until >= start:
-                summary = attendance_service.employee_range_summary(
-                    storage, employee["id"], start, counted_until, today=orgtime.today(settings))
-                lop = attendance_service.pay_figures(summary, 0, 0)["lop_days"]
-            calendar_days = (lwd - start).days + 1
-            payable_days = max(0.0, calendar_days - lop)
-            pending_salary = min(gross, per_day * payable_days)
-            earn(f"Salary {orgtime.month_label(period)}", pending_salary,
-                 f"{payable_days:g} payable day(s) × {per_day:,.2f}")
-            if pending_salary and gross:
-                share = pending_salary / gross
-                pf = float(salary.get("pf") or 0) * share
-                esi = float(salary.get("esi") or 0) * share
-                if pf:
-                    deduct("Provident fund (PF)", pf, "pro-rated")
-                if esi:
-                    deduct("ESI", esi, "pro-rated")
-                if float(salary.get("professional_tax") or 0):
-                    deduct("Professional tax", float(salary.get("professional_tax") or 0))
+        notes.append(f"{orgtime.month_label(period)} salary is in the payroll run, so it is not repeated here.")
+
+    payable_days = 0.0
+    totals = {"pf": 0.0, "esi": 0.0, "professional_tax": 0.0}
+    for month in months:
+        slip = payroll.compute_slip(storage, settings, employee, month)
+        if slip["earned_gross"] <= 0 and slip["employed_days"] <= 0:
+            continue
+        days = slip["present_days"] + slip["paid_leave_days"]
+        payable_days += days
+        earn(f"Salary {orgtime.month_label(month)}", slip["earned_gross"],
+             f"{slip['employed_days']} day(s) employed · {slip['lop_days']:g} LOP")
+        for key in totals:
+            totals[key] += float(slip[key])
+    if totals["pf"]:
+        deduct("Provident fund (PF)", totals["pf"], "on earned wages")
+    if totals["esi"]:
+        deduct("ESI", totals["esi"], "on earned wages")
+    if totals["professional_tax"]:
+        deduct("Professional tax", totals["professional_tax"])
+    if len(months) > 1:
+        notes.append(f"Includes {len(months)} months not yet paid through payroll.")
 
     # 2. leave encashment
     leave_balance = max(0.0, float(leave_service.balance(storage, settings, employee["id"], as_of=lwd)["balance"]))

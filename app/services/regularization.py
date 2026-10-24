@@ -17,6 +17,7 @@ from typing import Any
 
 from ..config import Settings
 from ..db import Storage, utcnow_iso
+from .. import notify
 from . import attendance as attendance_service
 from . import employees as employees_service
 from . import orgtime
@@ -96,6 +97,14 @@ def submit(
     )
     storage.audit(actor=actor, action="regularization_requested", entity="employee",
                   entity_id=employee_id, detail=day.isoformat())
+    employee = employees_service.get_employee(storage, employee_id) or {}
+    notify.notify_hr(
+        storage, settings, "hr_alert", category="regularization",
+        subject=f"Attendance correction: {employee.get('name')} · {orgtime.human_date(day)}",
+        message=f"{employee.get('name')} ({employee.get('code')}) asks to correct {orgtime.human_date(day)}: "
+                f"in {orgtime.format_clock(check_in)}, out {orgtime.format_clock(check_out)}. Reason: {reason}",
+        link="/attendance/regularizations",
+    )
     return get(storage, int(cursor.lastrowid))
 
 

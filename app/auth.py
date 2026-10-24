@@ -344,7 +344,7 @@ def get_user(storage: Storage, user_id: int) -> dict[str, Any] | None:
 
 def list_users(storage: Storage) -> list[dict[str, Any]]:
     return storage.query(
-        "SELECT id, username, role, display_name, device_label, active, created_at, last_login_at "
+        "SELECT id, username, role, display_name, device_label, active, created_at, last_login_at, email "
         "FROM users ORDER BY role, username"
     )
 
@@ -387,7 +387,46 @@ def set_user_active(storage: Storage, user_id: int, active: bool) -> None:
 
 
 def delete_user(storage: Storage, user_id: int) -> None:
-    storage.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    """Delete a login. Records it created stay; they just lose the link (EMP-02)."""
+    with storage.transaction():
+        storage.execute_tx("UPDATE leave_requests SET applied_by = NULL WHERE applied_by = ?", (user_id,))
+        storage.execute_tx(
+            "UPDATE profile_change_requests SET requested_by = NULL WHERE requested_by = ?", (user_id,)
+        )
+        storage.execute_tx("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+# ---------------------------------------------------------- brute-force guard
+#: 5 wrong passwords for one username (or 20 from one IP) in 10 minutes → locked
+#: for the rest of that window. Successful sign-in clears the username's slate.
+LOCKOUT_WINDOW_SECONDS = 600
+LOCKOUT_PER_USER = 5
+LOCKOUT_PER_IP = 20
+
+
+def login_locked(storage: Storage, username: str, ip: str | None) -> bool:
+    since = time.time() - LOCKOUT_WINDOW_SECONDS
+    per_user = storage.scalar(
+        "SELECT COUNT(*) AS n FROM login_attempts WHERE username = ? AND at > ?",
+        (username.strip().lower(), since),
+    )
+    per_ip = storage.scalar(
+        "SELECT COUNT(*) AS n FROM login_attempts WHERE ip = ? AND at > ?", (ip, since)
+    ) if ip else 0
+    return int(per_user) >= LOCKOUT_PER_USER or int(per_ip) >= LOCKOUT_PER_IP
+
+
+def record_login_failure(storage: Storage, username: str, ip: str | None) -> None:
+    storage.execute(
+        "INSERT INTO login_attempts (username, ip, at) VALUES (?,?,?)",
+        (username.strip().lower()[:80], ip, time.time()),
+    )
+    # keep the table small
+    storage.execute("DELETE FROM login_attempts WHERE at < ?", (time.time() - 86400,))
+
+
+def clear_login_failures(storage: Storage, username: str) -> None:
+    storage.execute("DELETE FROM login_attempts WHERE username = ?", (username.strip().lower(),))
 
 
 CREDENTIALS_FILE = "initial_credentials.txt"

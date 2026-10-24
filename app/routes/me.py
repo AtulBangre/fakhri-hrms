@@ -335,17 +335,13 @@ def request_leave(
     leave = result["leave"]
 
     if settings.notify_leave_email:
-        hr_email = storage.query_one(
-            "SELECT email FROM users WHERE role='hr' AND email IS NOT NULL AND email != '' LIMIT 1"
+        notify.notify_hr(
+            storage, settings, "leave_requested",
+            category="leave_requested", name=employee["name"], code=employee["code"],
+            leave_type=orgtime.LEAVE_LABELS.get(leave_type, leave_type),
+            from_date=leave["from_date"], to_date=leave["to_date"],
+            days=leave["days"], reason=reason or "",
         )
-        if hr_email and hr_email.get("email"):
-            notify.queue_email(
-                storage, hr_email["email"], "leave_requested", settings=settings,
-                category="leave_requested", name=employee["name"], code=employee["code"],
-                leave_type=orgtime.LEAVE_LABELS.get(leave_type, leave_type),
-                from_date=leave["from_date"], to_date=leave["to_date"],
-                days=leave["days"], reason=reason or "",
-            )
 
     return redirect(
         "/me/leave",

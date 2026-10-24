@@ -397,3 +397,104 @@ def test_pay09_net_pay_never_negative(storage: Storage, settings, aarav):
     with pytest.raises(employees_service.ValidationError, match="exceed"):
         payroll.update_slip(storage, slip["id"], advance=slip["earned_gross"] + 10_000)
     assert float(slip["net_pay"]).is_integer()  # rounded to the rupee
+
+
+# ------------------------------------------------------------ workflows (step 6)
+from app.services import appraisal  # noqa: E402,F401
+from tests.conftest import HR_PASSWORD, HR_USERNAME  # noqa: E402
+
+
+def test_sec04_login_lockout(client: TestClient, storage: Storage, hr_user):
+    codes = [client.post("/login", data={"username": HR_USERNAME, "password": f"wrong{i}"}).status_code
+             for i in range(6)]
+    assert codes[:5] == [401] * 5 and codes[5] == 429
+    # even the right password is refused while locked
+    locked = client.post("/login", data={"username": HR_USERNAME, "password": HR_PASSWORD}, follow_redirects=False)
+    assert locked.status_code == 429
+
+
+def test_sec05_inactive_employee_loses_portal_login(client: TestClient, storage: Storage, staff, hr_user):
+    user = _portal_client(client, storage, staff[0])
+    employees_service.set_status(storage, staff[0]["id"], "inactive")
+    assert auth.get_user(storage, user["id"])["active"] == 0
+    assert client.get("/me", follow_redirects=False).status_code == 303
+
+
+def test_emp01_code_change_keeps_face_recognition(app, client: TestClient, storage: Storage, staff,
+                                                  hr_user, kiosk_user):
+    from app.face import IdentificationResult
+    from tests.conftest import FakeFaceService, KIOSK_PASSWORD, KIOSK_USERNAME
+    fake = FakeFaceService()
+    app.state.face = fake
+    employees_service.enrol_face(storage, fake, staff[0]["id"], b"jpeg-bytes")
+    external_id = next(iter(fake.enrolled))
+    employees_service.update_employee(storage, staff[0]["id"], {"code": "NEWCODE1"})
+    fake.identify_result = IdentificationResult(
+        matched=True, external_id=external_id, similarity=0.9, face_id=fake.enrolled[external_id],
+        threshold=0.36, faces_in_probe=1, gallery_size=1, message="ok")
+    client.post("/login", data={"username": KIOSK_USERNAME, "password": KIOSK_PASSWORD})
+    body = client.post("/api/kiosk/scan", files={"image": ("f.jpg", b"jpeg", "image/jpeg")}).json()
+    assert body["ok"] and body["action"] == "check_in", body
+
+
+def test_emp01_legacy_template_blocks_code_change(storage: Storage, staff):
+    storage.execute("UPDATE employees SET face_id = 'legacy-face', face_key = NULL WHERE id = ?", (staff[0]["id"],))
+    with pytest.raises(employees_service.ValidationError, match="face"):
+        employees_service.update_employee(storage, staff[0]["id"], {"code": "OTHER9"})
+
+
+def test_emp02_deleting_a_login_with_history_works(storage: Storage, settings, staff):
+    user, _ = auth.ensure_employee_login(storage, staff[0], password="portal-pass-1")
+    leave_service.apply_leave(storage, settings, employee_id=staff[0]["id"], leave_type="unpaid",
+                              from_date="2026-11-02", status="pending", requested_by=user["id"])
+    auth.delete_user(storage, user["id"])
+    assert auth.get_user(storage, user["id"]) is None
+    assert storage.query_one("SELECT applied_by FROM leave_requests")["applied_by"] is None
+
+
+def test_emp03_deleting_an_employee_removes_files(storage: Storage, settings, staff):
+    doc = records.add_document(storage, settings, employee_id=staff[0]["id"], data=b"%PDF-1.4 x",
+                               original_name="pan.pdf", category="pan")
+    path = settings.data_dir / "uploads" / "documents" / doc["stored_name"]
+    assert path.exists()
+    employees_service.delete_employee(storage, staff[0]["id"], settings=settings)
+    assert not path.exists()
+
+
+def test_emp03_employee_on_a_final_payslip_cannot_be_deleted(storage: Storage, settings, staff):
+    _finalise(storage, settings, AUG)
+    with pytest.raises(employees_service.ValidationError, match="inactive"):
+        employees_service.delete_employee(storage, staff[0]["id"], settings=settings)
+
+
+def test_emp04_hr_email_receives_requests(hr_client: TestClient, storage: Storage, settings, hr_user, staff):
+    token = csrf_of(hr_client, "/settings")
+    hr_client.post(f"/settings/users/{hr_user['id']}/email", data={"_csrf": token, "email": "hr@example.com"})
+    assert auth.get_user(storage, hr_user["id"])["email"] == "hr@example.com"
+    from app.services import regularization
+    day = next(d for d in reversed(_working_days(storage, orgtime.period_of(orgtime.today(settings))))
+               if d < orgtime.today(settings))
+    regularization.submit(storage, settings, employee_id=staff[0]["id"], work_date=day.isoformat(),
+                          check_in="09:30", check_out="18:30", reason="scanner missed me")
+    assert storage.query_one("SELECT recipient FROM notifications WHERE recipient = 'hr@example.com'")
+
+
+def test_att01_att02_register_links_and_bad_month(hr_client: TestClient, storage: Storage, staff):
+    employees_service.update_employee(storage, staff[0]["id"], {"department": "R&D"})
+    page = hr_client.get("/attendance/register?period=2026-09&department=R%26D").text
+    assert "department=R%26D" in page
+    bad = hr_client.get("/attendance/register?period=Sept-2026&department=R%26D")
+    assert "not a valid month" in bad.text and 'value="R&amp;D" selected' in bad.text
+    assert orgtime.parse_period("2026-9") == "2026-09" and orgtime.parse_period("09/2026") == "2026-09"
+
+
+def test_exit01_fnf_pays_every_unpaid_month(storage: Storage, settings):
+    e = _employee(storage, "Long Notice")
+    for period in ("2026-08", SEPT):
+        _fill(storage, e["id"], _working_days(storage, period))
+    payroll.generate_run(storage, settings, "2026-07")       # last paid month: July
+    row = exits_service.record_exit(storage, settings, employee_id=e["id"], exit_type="resignation",
+                                    resignation_date="2026-08-01", last_working_day="2026-09-30", notice_days=30)
+    fnf = exits_service.compute_fnf(storage, settings, row)
+    labels = [line["label"] for line in fnf["earnings"]]
+    assert "Salary August 2026" in labels and "Salary September 2026" in labels

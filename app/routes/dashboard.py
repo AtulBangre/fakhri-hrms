@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
+from .. import notify
 from ..auth import SessionUser, require_hr
 from ..deps import get_face, get_settings_dep, get_storage, paginate, render
 from ..services import announcements as announcement_service
@@ -48,6 +49,7 @@ def dashboard(
         announcements=announcement_service.visible_for(storage, "hr"),
         company_notice_footer=storage.get_setting("company_notice_footer", ""),
         kiosks=attendance_service.kiosk_devices(storage),
+        hr_email_missing=not notify.hr_emails(storage),
         face_ok=bool(face.health().get("ok")),
     )
 

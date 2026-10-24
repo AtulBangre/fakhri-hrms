@@ -26,6 +26,11 @@
   </div>
 </div>
 
+{% if hr_email_missing %}
+  <div class="alert alert-warn">{{ icon('mail') }}<div>No HR login has an email address, so leave, correction, profile and
+    resignation alerts are not being sent. Add one under <a href="/settings">Settings → Logins → Manage</a>.</div></div>
+{% endif %}
+
 {% include "_announcements.html" %}
 
 <div class="grid grid-4 mb-3">
