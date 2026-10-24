@@ -11,6 +11,15 @@
   <div class="page-actions"><a class="btn" href="/me">← My day</a></div>
 </div>
 
+<div class="btn-group mb-3" role="tablist">
+  <a class="btn {{ 'btn-dark' if tab == 'details' }}" role="tab" href="/me/profile" aria-selected="{{ 'true' if tab == 'details' else 'false' }}">Details</a>
+  <a class="btn {{ 'btn-dark' if tab == 'documents' }}" role="tab" href="/me/profile?tab=documents" aria-selected="{{ 'true' if tab == 'documents' else 'false' }}">
+    Documents{% if doc_summary.missing_required %} <span class="badge-count">{{ doc_summary.missing_required | length }}</span>{% endif %}</a>
+</div>
+
+{% if tab == 'documents' %}
+{% include "_my_documents.html" %}
+{% else %}
 <div class="grid grid-sidebar">
   <div>
     <div class="card">
@@ -129,4 +138,5 @@
     </div>
   </div>
 </div>
+{% endif %}
 {% endblock %}

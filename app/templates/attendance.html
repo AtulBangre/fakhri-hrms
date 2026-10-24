@@ -109,8 +109,8 @@
           <td data-label="Worked">{{ row.worked_label }}</td>
           <td data-label="Late">{% if row.late_minutes %}<span class="chip chip-warn">{{ row.late_minutes }}m</span>{% else %}—{% endif %}</td>
           <td data-label="Source">
-            {% if row.source %}<span class="chip chip-muted">{{ row.source }}</span>{% if row.device_label %}<span class="sub muted">{{ row.device_label }}</span>{% endif %}{% else %}—{% endif %}
-            {% if row.note %}<span class="sub muted">{{ row.note }}</span>{% endif %}
+            {% if row.source_label %}<span class="chip chip-muted">{{ row.source_label }}</span>{% else %}—{% endif %}
+            {% if row.user_note %}<span class="sub muted">{{ row.user_note }}</span>{% endif %}
           </td>
           <td class="actions-cell">
             {% if row.attendance_id %}

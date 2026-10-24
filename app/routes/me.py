@@ -135,7 +135,8 @@ def my_attendance(
                 "worked": orgtime.format_minutes(record["worked_minutes"]) if record else "—",
                 "late_minutes": record["late_minutes"] if record else 0,
                 "leave_type": orgtime.LEAVE_LABELS.get(record["leave_type"], "") if record else "",
-                "note": record["note"] if record else None,
+                "note": orgtime.user_note(record) if record else None,
+                "source": orgtime.source_label(record) if record and cls != "not_employed" else None,
                 "is_today": day == today,
                 "is_future": day > today,
             }
@@ -159,6 +160,8 @@ def my_attendance(
         shift_start=storage.get_setting("shift_start", "09:30"),
         shift_end=storage.get_setting("shift_end", "18:30"),
         oldest_fixable=(orgtime.today(settings) - timedelta(days=regularization.MAX_AGE_DAYS)).isoformat(),
+        today_iso=orgtime.today_str(settings),
+        open_request=bool(request.query_params.get("request")),
     )
 
 
@@ -184,7 +187,7 @@ def request_regularization(
             actor=user.username,
         )
     except employees_service.ValidationError as exc:
-        return redirect("/me/attendance", err=str(exc), period=period)
+        return redirect("/me/attendance", err=str(exc), period=period, request="1")
     return redirect("/me/attendance", period=period,
                     ok=f"Correction for {orgtime.human_date(work_date)} sent to HR.")
 

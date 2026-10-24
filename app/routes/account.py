@@ -8,6 +8,8 @@ from ..auth import SessionUser, current_user, require_employee, require_hr, veri
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..services import account as account_service
 from ..services import employees as employees_service
+from ..services import records
+from ..uploads import human_size
 
 router = APIRouter(tags=["account"])
 
@@ -70,14 +72,23 @@ def my_profile(
     request: Request,
     user: SessionUser = Depends(require_employee),
     storage=Depends(get_storage),
+    tab: str = "details",
 ):
     employee = employees_service.require_employee(storage, int(user.employee_id or 0))
+    documents = records.list_documents(storage, employee_id=employee["id"])
     return render(
         request,
         "me_profile.html",
         active="me-profile",
         user=user,
         employee=employee,
+        tab="documents" if tab == "documents" else "details",
+        rows=documents,
+        summary=records.document_summary(storage, employee["id"]),
+        doc_summary=records.document_summary(storage, employee["id"]),
+        categories=records.DOC_CATEGORIES,
+        sizes={row["id"]: human_size(row["size"]) for row in documents},
+        required=records.REQUIRED_DOCS,
         fields=account_service.CHANGEABLE_FIELDS,
         pending=account_service.pending_changes(storage, employee_id=employee["id"]),
         history=storage.query(

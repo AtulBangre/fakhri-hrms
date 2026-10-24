@@ -192,6 +192,42 @@ def week_off_label(storage: Storage) -> str:
     return " + ".join(parts) or "No weekly off"
 
 
+# --------------------------------------------------------------- day source
+_SYSTEM_NOTES = ("leave #", "regularized:", "demo data", "face scan overrode a manual entry")
+
+
+def source_label(record: dict | None) -> str | None:
+    """How a day was marked, in words people understand (same wording everywhere).
+
+    ``face`` → "Gate scanner · Main Gate", ``field`` → "Field (GPS) · Client site",
+    ``manual`` → "Marked by HR" (or "Corrected on request" for an approved
+    regularization), ``leave`` → "Leave".
+    """
+    if not record or not record.get("status"):
+        return None
+    source = record.get("source") or ""
+    device = (record.get("device_label") or "").strip()
+    note = (record.get("note") or "").strip().lower()
+    if source == "face":
+        return "Gate scanner" + (f" · {device}" if device else "")
+    if source == "field":
+        place = device.split("·", 1)[1].strip() if "·" in device else ""
+        return "Field (GPS)" + (f" · {place}" if place else "")
+    if source == "leave":
+        return "Leave"
+    if source == "manual":
+        return "Corrected on request" if note.startswith("regularized:") else "Marked by HR"
+    return None
+
+
+def user_note(record: dict | None) -> str | None:
+    """The note a person typed — system bookkeeping notes are hidden."""
+    note = ((record or {}).get("note") or "").strip()
+    if not note or note.lower().startswith(_SYSTEM_NOTES):
+        return None
+    return note
+
+
 def holiday_name(storage: Storage, day: date) -> str | None:
     return storage.holidays().get(day.isoformat())
 

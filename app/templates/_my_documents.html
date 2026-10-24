@@ -1,16 +1,4 @@
-{% extends "base.html" %}
-{% block title %}My documents · {{ org_name }}{% endblock %}
-{% block brandsub %}My space{% endblock %}
-
-{% block content %}
-<div class="page-head">
-  <div class="titles">
-    <h1>My documents</h1>
-    <div class="sub">Upload your Aadhaar, PAN, offer letter or contract. HR verifies them — only you and HR can see them.</div>
-  </div>
-  <div class="page-actions"><a class="btn" href="/me">← My day</a></div>
-</div>
-
+{# Employee documents: list + upload. Used as the "Documents" tab of /me/profile. #}
 {% if summary.missing_required %}
   <div class="alert alert-warn">
     <div>Still missing: <strong>{% for c in summary.missing_required %}{{ categories.get(c, c) }}{% if not loop.last %}, {% endif %}{% endfor %}</strong> — please upload when you can.</div>
@@ -92,4 +80,3 @@
     </div>
   </div>
 </div>
-{% endblock %}

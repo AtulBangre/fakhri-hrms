@@ -123,6 +123,8 @@ def daily_rows(storage: Storage, settings: Settings, day: date | None = None) ->
         row["check_out_label"] = orgtime.format_clock(row["check_out"])
         row["worked_label"] = orgtime.format_minutes(row["worked_minutes"])
         row["is_late"] = bool(row["late_minutes"])
+        row["source_label"] = orgtime.source_label(row)
+        row["user_note"] = orgtime.user_note(row)
     return rows
 
 
@@ -843,10 +845,11 @@ def _cell_title(record: dict) -> str:
         bits.append(orgtime.format_minutes(record["worked_minutes"]))
     if record.get("leave_type"):
         bits.append(orgtime.LEAVE_LABELS.get(record["leave_type"], record["leave_type"]))
-    if record.get("note"):
-        bits.append(record["note"])
-    if record.get("source") == "manual":
-        bits.append("manual entry")
+    label = orgtime.source_label(record)
+    if label:
+        bits.append(label)
+    if orgtime.user_note(record):
+        bits.append(orgtime.user_note(record))
     return " · ".join(bits)
 
 

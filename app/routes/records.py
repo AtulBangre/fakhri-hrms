@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from ..auth import SessionUser, require_employee, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
@@ -82,13 +82,15 @@ def download_document(
     try:
         row = records.get_document(storage, document_id)
     except ValueError:
-        return redirect("/documents" if session.is_hr else "/me/documents", err="Document not found.")
+        return redirect("/documents" if session.is_hr else "/me/profile", err="Document not found.",
+                        tab=None if session.is_hr else "documents")
     if not session.is_hr and session.employee_id != row["employee_id"]:
-        return redirect("/me/documents", err="That document is not yours.")
+        return redirect("/me/profile", err="That document is not yours.", tab="documents")
     try:
         path = path_for(settings, "documents", row["stored_name"])
     except UploadError as exc:
-        return redirect("/documents" if session.is_hr else "/me/documents", err=str(exc))
+        return redirect("/documents" if session.is_hr else "/me/profile", err=str(exc),
+                        tab=None if session.is_hr else "documents")
     return FileResponse(path, media_type=row["mime"], filename=row["filename"])
 
 
@@ -121,21 +123,9 @@ def delete_document(
 
 # ========================================================= DOCUMENTS (employee)
 @router.get("/me/documents")
-def my_documents(
-    request: Request,
-    user: SessionUser = Depends(require_employee),
-    storage=Depends(get_storage),
-):
-    employee = employees_service.require_employee(storage, int(user.employee_id or 0))
-    rows = records.list_documents(storage, employee_id=employee["id"])
-    summary = records.document_summary(storage, employee["id"])
-    return render(
-        request, "me_documents.html", active="me-documents", user=user,
-        employee=employee, rows=rows, summary=summary,
-        categories=records.DOC_CATEGORIES,
-        sizes={row["id"]: human_size(row["size"]) for row in rows},
-        required=records.REQUIRED_DOCS,
-    )
+def my_documents(request: Request, user: SessionUser = Depends(require_employee)):
+    """Documents now live on the profile page (a "Documents" tab)."""
+    return RedirectResponse("/me/profile?tab=documents", status_code=303)
 
 
 @router.post("/me/documents")
@@ -158,8 +148,8 @@ def upload_my_document(
             uploaded_by=user.username,
         )
     except (UploadError, ValueError) as exc:
-        return redirect("/me/documents", err=str(exc))
-    return redirect("/me/documents", ok="Uploaded — HR will verify it.")
+        return redirect("/me/profile", err=str(exc), tab="documents")
+    return redirect("/me/profile", ok="Uploaded — HR will verify it.", tab="documents")
 
 
 # ================================================================== ASSETS (HR)
