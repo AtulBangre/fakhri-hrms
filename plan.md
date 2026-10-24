@@ -1,5 +1,8 @@
 # Fakhri HRMS — Plan v4: Biometric safety, kiosk UX, punch governance, late policy
 
+> **Plan v4 status: all 5 steps done on branch `feat/plan-v4`** (329 tests passing, site crawl clean).
+> Waiting for your go-ahead to merge into `main` and push.
+>
 > **Status of the original roadmap (checked against the code on 2026-10-24):**
 > Feature 5 (A1–A3, C1–C3) and Phases 5–6 are **already done** and on `main` (305 tests).
 > This plan covers the four new features. Each section lists the decisions taken where the
@@ -108,12 +111,12 @@
 
 ## 5. Execution sequence
 
-| Step | Work | Verification |
-|---|---|---|
-| 1 | Feature 1 — duplicate face check | Unit + route tests with the fake face service |
-| 2 | Feature 3 — punch permissions + kiosk 403 | Route tests per mode and override; field nav hidden |
-| 3 | Feature 4 — late policy engine | Tests per slab, cutoff, mode; payslip line; register/ESS totals |
-| 4 | Feature 2 — kiosk modes and confirmation card | Scan API returns card data; screenshot of the card; JS mode switch |
-| 5 | Docs + full regression | HR guide; full pytest; site crawl |
+| Step | Work | Verification | Status |
+|---|---|---|---|
+| 1 | Feature 1 — duplicate face check | Unit + route tests with the fake face service | ✅ 0c4e27c |
+| 2 | Feature 3 — punch permissions + kiosk 403 | Route tests per mode and override; field nav hidden | ✅ ef19921 |
+| 3 | Feature 4 — late policy engine | Tests per slab, cutoff, mode; payslip line; register/ESS totals | ✅ 6f7b9dd |
+| 4 | Feature 2 — kiosk modes and confirmation card | Scan API returns card data; screenshot of the card; JS mode switch | ✅ 99736a9 |
+| 5 | Docs + full regression | HR guide; full pytest; site crawl | ✅ this commit |
 
 Work happens on branch `feat/plan-v4`, one commit per step. Merging to `main` and pushing need your go-ahead.

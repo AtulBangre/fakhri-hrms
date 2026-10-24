@@ -203,10 +203,12 @@ another's attendance. The result is just colour + IN/OUT + time:
 | Nobody in frame | amber **! No face found** — step into the oval |
 | Face API down | red **✕ Scanner offline** (HR can mark attendance meanwhile) |
 
-Need the name on screen so gate staff can verify a match? Set
-`HRMS_KIOSK_SHOW_NAME=true` and the flash reads `IN · Aarav`. Either way the scan
-is still recorded server-side (attendance row + audit log), so hiding it on the
-screen costs you nothing in the records.
+By default (Settings → *Gate confirmation card* = full) a successful scan shows a
+3.5 s card with the person's initials, name, code, designation, IN/OUT, time and
+any late fine. Set it to *anonymous* to show only IN/OUT and the time — the scan
+response then carries no employee data at all. Either way the scan is recorded
+server-side (attendance row + audit log). *Gate scanner mode* picks tap-to-scan
+(camera off until a tap; default) or continuous scanning.
 
 ---
 
@@ -252,9 +254,9 @@ Every state-changing request needs the session's CSRF token. Passwords are store
 
 ```
 per_day      = monthly_gross / basis_days      # calendar days, or a fixed 26 (setting)
-lop_days     = absent + unpaid_leave + (late_marks // marks_per_half_lop) * 0.5
+lop_days     = absent + unpaid_leave + (late_marks // marks_per_half_lop) * 0.5   # count policies only
 earned_gross = monthly_gross - lop_days × per_day            (never below zero)
-net_pay      = earned_gross + bonus − PF − ESI − professional tax − advance − other
+net_pay      = earned_gross + bonus − PF − ESI − professional tax − late fines − advance − other
 ```
 
 Salary components come from the revision **in force for that month**, so a raise
@@ -282,7 +284,7 @@ The ones you will actually touch:
 | `HRMS_TIMEZONE` → `HRMS_TZ` | `Asia/Kolkata` | the working day is a *local* concept |
 | `HRMS_SECURE_COOKIES` | `false` | set `true` behind HTTPS |
 | `HRMS_KIOSK_DEBOUNCE` | `45` | seconds before the same face can scan again |
-| `HRMS_KIOSK_SHOW_NAME` | `false` | show the employee's name in the gate result flash |
+| `HRMS_KIOSK_SHOW_NAME` | `false` | force the full confirmation card even if Settings says anonymous |
 
 Operational settings (shift start, grace, half-day threshold, payroll basis,
 leave accrual, weekly off day, late-mark penalty, currency) live in the database

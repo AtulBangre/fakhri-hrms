@@ -62,6 +62,13 @@ Their first scan at the gate is then recognised. **Ask the person first** — yo
 need their consent, and you should be able to tell them what the template is used
 for and that it is deleted when they leave.
 
+**One face, one employee.** Before enrolling, HRMS searches every enrolled face.
+If the photo matches somebody else you see *"This face is already registered to
+Name (CODE)"* and nothing is saved — this stops one person punching for another.
+Re-enrolling the *same* employee is always allowed. Genuine identical twins are the
+only legitimate clash; contact support rather than working around it. Faces are
+only enrolled by HR, never by employees themselves, so every enrolment is witnessed.
+
 To replace a bad enrolment, capture again (the old template is removed
 automatically). To stop someone scanning without deleting their records, use
 **Remove face enrolment**, or **Mark inactive** if they have left.
@@ -100,12 +107,29 @@ always see who changed what.
 
 ### The gate device
 
-The gate login shows **only the camera**: no names, no counters, no list of who
-scanned before — deliberately, so one person cannot see another's attendance.
-Training is one line: *look at the camera, wait for the green tick.*
+The gate login shows the camera and nothing else: no counters, no list of who
+scanned before. Training is one line: *tap the screen, look at the camera, wait for
+the green tick.*
 
-* Green **✓ IN** with a time — they are marked in. Nothing to tap.
-* Green **✓ OUT** with a time — they are marked out.
+**Scan mode** (Settings → Gate scanner mode):
+* **Tap** (default) — the camera is off until someone taps the screen, which saves
+  the tablet's battery. After a tap it shows *Verifying identity…*, tries up to
+  three frames (about 3 seconds), shows the result and switches the camera off.
+* **Continuous** — the camera stays on and scans every ~1.4 s. Use it for the
+  morning rush when a queue forms.
+
+**Confirmation** (Settings → Gate confirmation card):
+* **Full** (default) — a full-screen card for 3.5 seconds: green tick, **IN** or
+  **OUT**, initials, name, code, designation, department, time and date, and a
+  pill such as *Late 31 min · ₹50 fine*. Tap the card to dismiss it early.
+* **Anonymous** — only the green tick, IN/OUT and the time; the name is never sent
+  to the gate device.
+
+The first scan of the day is IN, the second is OUT, any later scan says *Already
+done today*.
+
+* Green **✓ IN** — they are marked in. Nothing else to do.
+* Green **✓ OUT** — they are marked out.
 * Amber **! Already scanned** — they are standing in front of the camera too
   long; ask them to step aside for a moment.
 * Amber **! No face found** — step into the oval, better light, remove the mask.
@@ -119,9 +143,8 @@ Training is one line: *look at the camera, wait for the green tick.*
 The two round buttons are all the controls: **Flip** (front / rear camera) and
 **Sound** (beep on / muted). **⏏** in the top bar signs the gate device out.
 
-> The gate screen never shows whose attendance was marked — only a tick and the
-> time. If your gate staff need the name to double-check a match, ask the
-> administrator to switch on `HRMS_KIOSK_SHOW_NAME`.
+> Employees who sign in with their own login and open the gate page get a
+> *Not allowed* (403) page: the scanner belongs to the gate device and HR only.
 
 ---
 
@@ -244,7 +267,22 @@ the top so you know what to reimburse. Pay approved claims with the next payroll
 
 ## 4f. Field staff attendance (GPS)
 
-Field staff cannot scan a gate. Instead:
+**Who may mark attendance from a phone** — Settings → *Employee self-punch*:
+
+| Mode | Meaning |
+|---|---|
+| **Disabled** (default) | gate kiosk only; the *Field attendance* menu is hidden |
+| **Geofence only** | from a phone, but only inside a field location's radius |
+| **Always allowed** | from a phone, anywhere; the location is still recorded when the phone shares it, otherwise the punch is labelled *Remote* |
+
+Override it for one person on their **Edit** page (*Where can they mark attendance?*):
+e.g. keep the company on *Disabled* and set your two field technicians to *Geofence only*.
+*Use company setting* follows the global mode.
+
+> Upgrading from an older version? The default is now **Disabled**, so field staff
+> lose phone attendance until you choose *Geofence only* globally or per person.
+
+With *Geofence only*:
 
 1. **Set up the places** — *Field locations*. Add each site with a radius (200–300 m is
    sensible; too tight and GPS drift blocks honest people). "Use my current position" fills
@@ -274,7 +312,9 @@ links to the daily board) until the run is finalised.
   `per day = monthly gross ÷ basis days` (calendar days, or a fixed 26 — set in
   Settings), then `earned gross = gross × days employed ÷ days in month − LOP days × per day`.
   * **LOP days** = absent + unpaid leave + ½ for every half day without paid leave
-    + the late-mark penalty.
+    + the late-mark penalty (only in the *count* late policies, see below).
+  * **Late arrival fines** — the month's fines are a separate deduction line on the
+    payslip, PDF and bank CSV, never more than the month's pay can carry.
   * **Joined or left mid-month** — only the days from joining to the last working
     day are paid (the register shows the other days as `–`).
   * **A raise that starts mid-month** is paid at the old rate up to the day
@@ -346,8 +386,18 @@ use the confirmed figure.
 | Notice period (days) | default notice for resignations; shortfall is recovered in the F&F unless waived |
 | Weekly off days | tick every day that is always off — e.g. Sat + Sun for a 5-day week (default Sunday) |
 | Alternate Saturdays off | e.g. `2,4` for 2nd & 4th Saturday off (only when Saturday is otherwise working) |
-| Late marks per half-day LOP | e.g. 3 → every 3 late marks costs half a day. **0 disables it.** |
+| Late policy | **Tiered fines** (default) · **Late-mark count** (the old "every N late marks = ½ day") · **Both** · **None** |
+| Late slab 1 / 2 (minutes, ₹) | up to 15 min past grace → ₹50; anything later → ₹100 (defaults) |
+| Automatic half day after (minutes) | counted from **shift start**: 60 → arriving at 10:30 or later on a 09:30 shift is a half day with no fine. 0 = off |
+| Late marks per half-day LOP | used by the *count* and *both* policies: every N late marks costs half a day. **0 disables it.** |
+| Gate scanner mode / confirmation card | see *The gate device* |
+| Employee self-punch | see *Field staff attendance* |
 | Currency symbol | used on payroll screens and payslips |
+
+With the defaults and a 09:30 shift: 09:44 on time · 09:52 ₹50 · 10:10 ₹100 ·
+10:31 half day. Fines and half days apply at the gate, on field punches and when
+HR enters a check-in time by hand. Changing the policy does not touch finalised
+months; a draft month picks it up on **Recalculate draft**.
 
 Also on this page: **Logins** (add one per gate, change passwords, disable),
 **Holidays**, **Email delivery** (with a *Send test email* button to check
