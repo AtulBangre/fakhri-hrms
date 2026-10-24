@@ -138,7 +138,8 @@ def daily_rows(storage: Storage, settings: Settings, day: date | None = None) ->
 
 def month_rows(storage: Storage, period: str, *, department: str | None = None) -> list[dict]:
     """Raw attendance rows for a whole month (optionally one department)."""
-    params: list = [f"{period}-01", f"{period}-31"]
+    start, end = orgtime.month_bounds(period)
+    params: list = [start.isoformat(), end.isoformat()]
     clause = ""
     if department:
         clause = "AND e.department = ? COLLATE NOCASE"
@@ -977,7 +978,7 @@ def _cell_title(record: dict) -> str:
 
 def register_csv(register: dict) -> str:
     """Flat CSV of the monthly register (one row per employee per day)."""
-    lines = ["Employee Code,Employee Name,Department,Date,Status,Check In,Check Out,Late (min),Worked,Leave Type,Note"]
+    lines = ["\ufeffEmployee Code,Employee Name,Department,Date,Status,Check In,Check Out,Late (min),Worked,Leave Type,Note"]
     for row in register["rows"]:
         employee = row["employee"]
         for day, cell in zip(register["days"], row["cells"]):

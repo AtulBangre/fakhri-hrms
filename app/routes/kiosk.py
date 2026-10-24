@@ -126,12 +126,6 @@ def kiosk_scan(
             {"ok": False, "action": "empty_frame", "kind": "error", "message": "Empty frame — try again."},
             status_code=400,
         )
-    if len(payload) > MAX_FRAME_BYTES:
-        return JSONResponse(
-            {"ok": False, "action": "frame_too_large", "kind": "error",
-             "message": "Frame too large — reduce the camera resolution."},
-            status_code=413,
-        )
 
     try:
         identification = face.identify(payload)
@@ -307,7 +301,7 @@ def _notify_punch(storage, settings, employee: dict, outcome) -> None:
     if is_in:
         should_email = settings.notify_punch_in or (bool(outcome.late_minutes) and settings.notify_late)
     else:
-        should_email = True
+        should_email = settings.notify_punch_out
 
     if settings.notify_email_enabled and employee.get("email") and should_email:
         category = "late_alert" if (is_in and outcome.late_minutes) else f"attendance_{template}"

@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
@@ -261,8 +261,8 @@ def render(
 
 def html_or_json_error(request: Request, message: str, status_code: int = 400):
     """Small helper for API routes that want a consistent JSON error."""
-    return HTMLResponse(
-        f'{{"error": {{"message": {message!r}}}}}', status_code=status_code, media_type="application/json"
+    return JSONResponse(
+        {"error": {"message": message}}, status_code=status_code
     )
 
 

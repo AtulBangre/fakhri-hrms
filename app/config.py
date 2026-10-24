@@ -132,6 +132,7 @@ class Settings:
 
     #: Automatic triggers
     notify_punch_in: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_PUNCH_IN", True))
+    notify_punch_out: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_PUNCH_OUT", True))
     notify_late: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_LATE", True))
     notify_leave_email: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_LEAVE", True))
     notify_whatsapp_attendance: bool = field(
