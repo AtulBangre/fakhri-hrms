@@ -458,6 +458,16 @@ CREATE TABLE IF NOT EXISTS appraisal_goals (
 );
 CREATE INDEX IF NOT EXISTS idx_appraisal_goals ON appraisal_goals(appraisal_id);
 
+CREATE TABLE IF NOT EXISTS password_tokens (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    used_at    REAL
+);
+CREATE INDEX IF NOT EXISTS idx_password_tokens_user ON password_tokens(user_id);
+
 CREATE TABLE IF NOT EXISTS login_attempts (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL,

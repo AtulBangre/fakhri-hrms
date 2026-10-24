@@ -195,7 +195,8 @@ def test_create_employee_validation_error_is_shown(hr_client: TestClient, staff)
     token = csrf_of(hr_client, "/employees/new")
     response = hr_client.post(
         "/employees",
-        data={"_csrf": token, "name": "Duplicate Code", "code": staff[0]["code"]},
+        data={"_csrf": token, "name": "Duplicate Code", "code": staff[0]["code"],
+              "joined_on": "2026-01-01", "monthly_gross": "30000"},
     )
     assert response.status_code == 422
     assert "already used" in response.text

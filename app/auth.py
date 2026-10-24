@@ -495,7 +495,7 @@ def get_user_for_employee(storage: Storage, employee_id: int) -> dict[str, Any] 
 
 
 def ensure_employee_login(
-    storage: Storage, employee: dict[str, Any], *, password: str | None = None
+    storage: Storage, employee: dict[str, Any], *, password: str | None = None, username: str | None = None
 ) -> tuple[dict[str, Any], str]:
     """Create (or reset) the portal login for an employee.
 
@@ -503,9 +503,11 @@ def ensure_employee_login(
     (``FITS001`` → ``fits001``). Returns ``(user, plaintext_password)`` — the
     password is shown once and never stored in readable form.
     """
-    code = str(employee.get("code") or "").strip().lower()
+    code = (username or str(employee.get("code") or "")).strip().lower()
     if not code:
         raise ValueError("Employee has no code, so a login cannot be created.")
+    if username and not all(ch.isalnum() or ch in "._-@" for ch in code):
+        raise ValueError("A username may use letters, digits and . _ - @ only.")
 
     existing = get_user_for_employee(storage, employee["id"])
     new_password = password or generate_password()
@@ -523,7 +525,7 @@ def ensure_employee_login(
     clash = get_user_by_username(storage, code)
     if clash:
         raise ValueError(
-            f"The username '{code}' is already taken by another login — change the employee code first."
+            f"The username '{code}' is already taken by another login — pick another one."
         )
 
     user = create_user(
@@ -535,6 +537,48 @@ def ensure_employee_login(
         employee_id=employee["id"],
     )
     return user, new_password
+
+
+# ------------------------------------------------------ set-password links (C3)
+PASSWORD_LINK_HOURS = 72
+
+
+def issue_password_link(storage: Storage, user_id: int) -> str:
+    """A one-time token for "set your password". Only its hash is stored."""
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    storage.execute("UPDATE password_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
+                    (now, user_id))  # one live link per user
+    storage.execute(
+        "INSERT INTO password_tokens (user_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)",
+        (user_id, hashlib.sha256(token.encode()).hexdigest(), now, now + PASSWORD_LINK_HOURS * 3600),
+    )
+    return token
+
+
+def password_link_user(storage: Storage, token: str) -> dict[str, Any] | None:
+    """The login a still-valid, unused token belongs to (or ``None``)."""
+    row = storage.query_one(
+        "SELECT * FROM password_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
+        (hashlib.sha256((token or "").encode()).hexdigest(), time.time()),
+    )
+    if row is None:
+        return None
+    user = get_user(storage, row["user_id"])
+    return user if user and user["active"] else None
+
+
+def use_password_link(storage: Storage, token: str, new_password: str) -> dict[str, Any]:
+    user = password_link_user(storage, token)
+    if user is None:
+        raise ValueError("This link has expired or was already used. Ask HR for a new one.")
+    if len(new_password) < 8:
+        raise ValueError("Password must be at least 8 characters.")
+    change_password(storage, user["id"], new_password)
+    storage.execute("UPDATE password_tokens SET used_at = ? WHERE token_hash = ?",
+                    (time.time(), hashlib.sha256(token.encode()).hexdigest()))
+    storage.audit(actor=user["username"], action="password_set_via_link", entity="user", entity_id=user["id"])
+    return user
 
 
 def disable_employee_login(storage: Storage, employee_id: int) -> bool:

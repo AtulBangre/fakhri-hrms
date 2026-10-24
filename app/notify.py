@@ -99,12 +99,22 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
             f"<table role='presentation' cellpadding='0' cellspacing='0' style='margin:14px 0'>"
             f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Username</td>"
             f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['username'])}</b></td></tr>"
-            f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Password</td>"
-            f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx.get('password') or '(set by HR)')}</b></td></tr>"
-            f"</table>"
-            f"<p><a href='{base}/login' style='display:inline-block;background:{BRAND['primary']};color:#fff;"
-            f"padding:10px 18px;border-radius:8px;text-decoration:none'>Open my portal</a></p>"
-            f"<p style='color:{BRAND['muted']};font-size:12px'>Please change the password after your first sign-in.</p>"
+            + (
+                f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Password</td>"
+                f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['password'])}</b></td></tr>"
+                if ctx.get("password") and not ctx.get("link") else ""
+            )
+            + "</table>"
+            + (
+                f"<p><a href='{base}{escape(ctx['link'])}' style='display:inline-block;background:{BRAND['primary']};"
+                f"color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none'>Set my password</a></p>"
+                f"<p style='color:{BRAND['muted']};font-size:12px'>The link works once and expires in "
+                f"{escape(str(ctx.get('hours', 72)))} hours. You can sign in with your username or this email address.</p>"
+                if ctx.get("link") else
+                f"<p><a href='{base}/login' style='display:inline-block;background:{BRAND['primary']};color:#fff;"
+                f"padding:10px 18px;border-radius:8px;text-decoration:none'>Open my portal</a></p>"
+                f"<p style='color:{BRAND['muted']};font-size:12px'>Please change the password after your first sign-in.</p>"
+            )
         )
         footer = "Ask HR if you did not expect this message."
 

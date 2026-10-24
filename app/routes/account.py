@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Request
 
+from .. import auth
 from ..auth import SessionUser, current_user, require_employee, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..services import account as account_service
@@ -64,6 +65,72 @@ def reset_password_submit(
             username_value=username, error=message,
         )
     return redirect("/login", ok=message)
+
+
+# ------------------------------------------------- set-password link (C3)
+@router.get("/set-password")
+def set_password_page(request: Request, token: str = "", storage=Depends(get_storage)):
+    user = auth.password_link_user(storage, token)
+    return render(request, "set_password.html", active="login", user=None, token=token,
+                  link_user=user, error=None if user else "This link has expired or was already used. Ask HR for a new one.")
+
+
+@router.post("/set-password")
+def set_password_submit(
+    request: Request,
+    token: str = Form(""),
+    password: str = Form(""),
+    confirm: str = Form(""),
+    storage=Depends(get_storage),
+):
+    user = auth.password_link_user(storage, token)
+    if password != confirm:
+        return render(request, "set_password.html", active="login", user=None, token=token,
+                      link_user=user, error="Both passwords must match.")
+    try:
+        user = auth.use_password_link(storage, token, password)
+    except ValueError as exc:
+        return render(request, "set_password.html", active="login", user=None, token=token,
+                      link_user=user, error=str(exc))
+    return redirect("/login", ok=f"Password set — sign in as {user['username']}.")
+
+
+# ------------------------------------------------- employee: change password
+@router.get("/me/password")
+def my_password_page(request: Request, user: SessionUser = Depends(require_employee)):
+    return render(request, "me_password.html", active="me-profile", user=user)
+
+
+@router.post("/me/password")
+def my_password_submit(
+    request: Request,
+    user: SessionUser = Depends(require_employee),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+    current: str = Form(""),
+    password: str = Form(""),
+    confirm: str = Form(""),
+):
+    verify_form_csrf(user, csrf)
+    row = auth.get_user(storage, user.id)
+    if row is None or not auth.verify_password(current, row["password_hash"], row["salt"]):
+        return redirect("/me/password", err="Your current password is not correct.")
+    if len(password) < 8:
+        return redirect("/me/password", err="The new password must be at least 8 characters.")
+    if password != confirm:
+        return redirect("/me/password", err="Both new passwords must match.")
+    if password == current:
+        return redirect("/me/password", err="Choose a password different from the current one.")
+    auth.change_password(storage, user.id, password)  # ends every other session
+    storage.audit(actor=user.username, action="password_changed", entity="user", entity_id=user.id)
+    # keep *this* browser signed in with a fresh cookie for the new session version
+    fresh = auth.get_user(storage, user.id)
+    lifetime = settings.hr_session_hours * 3600
+    token, _ = auth.create_session_token(fresh, settings, lifetime_seconds=lifetime)
+    response = redirect("/me/profile", ok="Password changed. Other devices have been signed out.")
+    auth.set_session_cookie(response, token, settings, max_age=lifetime)
+    return response
 
 
 # ------------------------------------------------------- employee: my profile

@@ -13,7 +13,7 @@
 </div>
 
 {% set f = form or {} %}
-<form method="post" action="{{ '/employees/' ~ employee.id if employee else '/employees' }}">
+<form method="post" action="{{ '/employees/' ~ employee.id if employee else '/employees' }}" enctype="multipart/form-data">
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
 
   <div class="grid grid-sidebar">
@@ -27,8 +27,8 @@
               <input id="name" name="name" type="text" required value="{{ f.get('name') or (employee.name if employee else '') }}" placeholder="Aarav Sharma">
             </div>
             <div class="field">
-              <label for="code">Employee code</label>
-              <input id="code" name="code" type="text" value="{{ f.get('code') or (employee.code if employee else suggested_code) }}">
+              <label for="code">Employee code *</label>
+              <input id="code" name="code" type="text" required value="{{ f.get('code') or (employee.code if employee else suggested_code) }}">
               <div class="hint">Used as the identity in the face collection — keep it stable.</div>
             </div>
           </div>
@@ -62,8 +62,8 @@
 
           <div class="form-row cols-3">
             <div class="field">
-              <label for="joined_on">Date of joining</label>
-              <input id="joined_on" name="joined_on" type="date"
+              <label for="joined_on">Date of joining *</label>
+              <input id="joined_on" name="joined_on" type="date" required
                      value="{{ f.get('joined_on') or (employee.joined_on if employee else today.isoformat()) }}">
             </div>
             <div class="field">
@@ -84,6 +84,11 @@
                   <option value="active" {{ 'selected' if employee.status == 'active' }}>Active</option>
                   <option value="inactive" {{ 'selected' if employee.status == 'inactive' }}>Inactive</option>
                 </select>
+                {% if employee.status == 'inactive' %}
+                  <label class="checkline mt-1"><input type="checkbox" name="enable_portal" value="1" checked> Also re-enable portal login when reactivating</label>
+                {% else %}
+                  <div class="hint">Inactive also disables their portal login.</div>
+                {% endif %}
               </div>
             {% endif %}
           </div>
@@ -95,7 +100,76 @@
         </div>
       </div>
 
+      <div class="card mb-3">
+        <div class="card-head"><h2>Personal &amp; bank details</h2><span class="spacer"></span>
+          <span class="small muted">optional — can be added later from the profile</span></div>
+        <div class="card-body">
+          <div class="field"><label for="address">Address</label>
+            <textarea id="address" name="address" rows="2" placeholder="House, street, city, PIN">{{ f.get('address') or (employee.address if employee else '') or '' }}</textarea></div>
+          <div class="form-row cols-3">
+            <div class="field"><label for="emergency_contact">Emergency contact</label>
+              <input id="emergency_contact" name="emergency_contact" type="text" placeholder="Name · relation · phone"
+                     value="{{ f.get('emergency_contact') or (employee.emergency_contact if employee else '') or '' }}"></div>
+            <div class="field"><label for="pan">PAN</label>
+              <input id="pan" name="pan" type="text" maxlength="10" placeholder="ABCDE1234F" style="text-transform:uppercase"
+                     value="{{ f.get('pan') or (employee.pan if employee else '') or '' }}"></div>
+            <div class="field"><label for="aadhaar">Aadhaar</label>
+              <input id="aadhaar" name="aadhaar" type="text" inputmode="numeric" maxlength="14" autocomplete="off"
+                     placeholder="{{ masked_aadhaar or '12-digit number' }}">
+              <div class="hint">Only the last 4 digits are stored{% if masked_aadhaar %} (on file: {{ masked_aadhaar }}){% endif %}.</div></div>
+          </div>
+          <div class="form-row cols-4">
+            <div class="field"><label for="bank_name">Bank</label>
+              <input id="bank_name" name="bank_name" type="text" value="{{ f.get('bank_name') or (employee.bank_name if employee else '') or '' }}"></div>
+            <div class="field"><label for="account_holder">Account holder</label>
+              <input id="account_holder" name="account_holder" type="text" value="{{ f.get('account_holder') or (employee.account_holder if employee else '') or '' }}"></div>
+            <div class="field"><label for="account_number">Account number</label>
+              <input id="account_number" name="account_number" type="text" inputmode="numeric" value="{{ f.get('account_number') or (employee.account_number if employee else '') or '' }}"></div>
+            <div class="field"><label for="ifsc">IFSC</label>
+              <input id="ifsc" name="ifsc" type="text" maxlength="11" placeholder="HDFC0001234" style="text-transform:uppercase"
+                     value="{{ f.get('ifsc') or (employee.ifsc if employee else '') or '' }}"></div>
+          </div>
+        </div>
+      </div>
+
       {% if not employee %}
+        <div class="card mb-3">
+          <div class="card-head"><h2>KYC documents</h2><span class="spacer"></span>
+            <label class="checkline small"><input type="checkbox" name="skip_documents" value="1" {{ 'checked' if f.get('skip_documents') }}
+              onchange="document.getElementById('kyc-files').hidden = this.checked"> Skip for now</label></div>
+          <div class="card-body" id="kyc-files" {{ 'hidden' if f.get('skip_documents') }}>
+            <div class="form-row cols-2">
+              <div class="field"><label for="doc_aadhaar">Aadhaar card</label><input id="doc_aadhaar" name="doc_aadhaar" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp"></div>
+              <div class="field"><label for="doc_pan">PAN card</label><input id="doc_pan" name="doc_pan" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp"></div>
+            </div>
+            <div class="form-row cols-2">
+              <div class="field"><label for="doc_resume">Resume / CV</label><input id="doc_resume" name="doc_resume" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp"></div>
+              <div class="field"><label for="doc_extra">
+                <select name="doc_extra_category" aria-label="Document type" style="width:auto;height:24px;font-size:.76rem">
+                  <option value="photo">Photo</option><option value="offer_letter">Offer letter</option>
+                </select></label>
+                <input id="doc_extra" name="doc_extra" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp"></div>
+            </div>
+            <div class="hint">PDF, JPG, PNG or WebP · up to 8 MB each. Anything skipped can be uploaded later by the employee from their profile.</div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-head"><h2>Portal login</h2></div>
+          <div class="card-body">
+            <label class="checkline mb-2"><input type="checkbox" name="create_login" value="1" {{ 'checked' if f.get('create_login', '1') }}> Create a self-service login</label>
+            <div class="form-row cols-2">
+              <div class="field"><label for="portal_username">Username</label>
+                <input id="portal_username" name="portal_username" type="text" autocapitalize="none"
+                       value="{{ f.get('portal_username') or '' }}" placeholder="employee code in lower case">
+                <div class="hint">They can also sign in with their email address.</div></div>
+              <div class="field"><label>&nbsp;</label>
+                <label class="checkline"><input type="checkbox" name="send_welcome" value="1" {{ 'checked' if f.get('send_welcome', '1') }}> Email a "set your password" link</label>
+                <div class="hint">Valid for 72 hours. Without an email address you will see the login details once.</div></div>
+            </div>
+          </div>
+        </div>
+
         <div class="card mb-3">
           <div class="card-head">
             <h2>Salary structure</h2>

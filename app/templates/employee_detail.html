@@ -318,6 +318,9 @@
         <form method="post" action="/employees/{{ employee.id }}/status" class="mb-2">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <input type="hidden" name="status" value="{{ 'inactive' if employee.status == 'active' else 'active' }}">
+          {% if employee.status != 'active' and ess_user %}
+            <label class="checkline mb-1"><input type="checkbox" name="enable_portal" value="1" checked> Also re-enable portal login</label>
+          {% endif %}
           <button class="btn btn-block" type="submit">
             {{ 'Mark inactive (stops gate scans)' if employee.status == 'active' else 'Reactivate employee' }}
           </button>

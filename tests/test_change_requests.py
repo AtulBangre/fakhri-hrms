@@ -91,3 +91,114 @@ def test_a3_documents_live_on_the_profile(ess_client: TestClient, storage: Stora
     response = ess_client.post("/me/documents", data={"_csrf": token, "category": "resume"},
                                files={"file": ("cv.pdf", PDF, "application/pdf")}, follow_redirects=False)
     assert response.headers["location"].startswith("/me/profile?") and "tab=documents" in response.headers["location"]
+
+
+# ----------------------------------------------------------------- C1
+import pytest  # noqa: E402
+
+from app import auth  # noqa: E402
+from app.services import employees as employees_service  # noqa: E402
+
+VALID_AADHAAR = "234567890124"  # passes the Verhoeff check
+
+
+def test_c1_identity_validation_and_masked_aadhaar(storage: Storage):
+    employee_id = employees_service.create_employee(storage, {
+        "name": "KYC Person", "pan": "abcde1234f", "ifsc": "hdfc0001234", "account_number": "1234 5678 9012",
+        "aadhaar": VALID_AADHAAR, "address": "12 MG Road", "bank_name": "HDFC",
+    })
+    employee = employees_service.get_employee(storage, employee_id)
+    assert employee["pan"] == "ABCDE1234F" and employee["ifsc"] == "HDFC0001234"
+    assert employee["account_number"] == "123456789012" and employee["aadhaar_last4"] == "0124"
+    assert VALID_AADHAAR not in str(storage.query("SELECT * FROM employees"))  # full number never stored
+    for bad in ({"pan": "ABC123"}, {"ifsc": "HDFC1234567"}, {"account_number": "12AB"},
+                {"aadhaar": "234567890123"}):
+        with pytest.raises(employees_service.ValidationError):
+            employees_service.create_employee(storage, {"name": "Bad", **bad})
+
+
+# ------------------------------------------------------------ C2 + C3
+def _onboard(hr_client, **extra):
+    token = csrf_of(hr_client, "/employees/new")
+    data = {"_csrf": token, "name": "New Joiner", "code": "NJ001", "joined_on": "2026-10-01",
+            "monthly_gross": "30000", "create_login": "1", "send_welcome": "1", **extra}
+    files = extra.pop("files", None) if "files" in extra else None
+    return hr_client.post("/employees", data={k: v for k, v in data.items() if k != "files"},
+                          files=files, follow_redirects=False)
+
+
+def test_c2_c3_onboarding_with_documents_and_email_link(hr_client: TestClient, storage: Storage):
+    response = _onboard(hr_client, email="joiner@example.com", pan="ABCDE1234F", files={
+        "doc_pan": ("pan.pdf", PDF, "application/pdf"),
+        "doc_resume": ("cv.pdf", PDF, "application/pdf"),
+        "doc_aadhaar": ("bad.exe", b"MZ not a document", "application/octet-stream"),
+    })
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert "2+document" in location and "bad.exe" in location  # saved anyway, failure reported
+    employee = employees_service.get_employee_by_code(storage, "NJ001")
+    assert {d["category"] for d in records.list_documents(storage, employee_id=employee["id"])} == {"pan", "resume"}
+    user = auth.get_user_for_employee(storage, employee["id"])
+    assert user["username"] == "nj001"
+    mail = storage.query_one("SELECT * FROM notifications WHERE category = 'welcome'")
+    assert mail["recipient"] == "joiner@example.com" and "/set-password?token=" in mail["body"]
+    assert "Password</td>" not in mail["body"]  # no password in the email
+
+
+def test_c2_skip_documents(hr_client: TestClient, storage: Storage):
+    _onboard(hr_client, skip_documents="1", files={"doc_pan": ("pan.pdf", PDF, "application/pdf")})
+    employee = employees_service.get_employee_by_code(storage, "NJ001")
+    assert records.list_documents(storage, employee_id=employee["id"]) == []
+
+
+def test_c3_without_email_hr_sees_credentials_once(hr_client: TestClient, storage: Storage):
+    response = _onboard(hr_client)
+    assert response.status_code == 200 and "shown once" in response.text
+    assert "nj001" in response.text
+    assert "password" not in str(response.headers.get("location", ""))
+
+
+def test_c3_required_fields(hr_client: TestClient):
+    token = csrf_of(hr_client, "/employees/new")
+    response = hr_client.post("/employees", data={"_csrf": token, "name": "No Salary", "code": "NS1",
+                                                 "joined_on": "2026-10-01"})
+    assert response.status_code == 422 and "monthly gross" in response.text
+
+
+def test_c3_set_password_link_is_single_use(client: TestClient, storage: Storage, staff, hr_user):
+    user, _ = auth.ensure_employee_login(storage, staff[0])
+    token = auth.issue_password_link(storage, user["id"])
+    assert client.get(f"/set-password?token={token}").status_code == 200
+    client.post("/set-password", data={"token": token, "password": "my-own-pass-1", "confirm": "my-own-pass-1"})
+    assert auth.authenticate(storage, user["username"], "my-own-pass-1")
+    again = client.post("/set-password", data={"token": token, "password": "other-pass-22", "confirm": "other-pass-22"})
+    assert "expired or was already used" in again.text
+
+
+def test_c3_login_with_email_and_change_password(client: TestClient, storage: Storage, staff, hr_user):
+    employees_service.update_employee(storage, staff[0]["id"], {"email": "aarav@example.com"})
+    user, _ = auth.ensure_employee_login(storage, staff[0], password="first-pass-1")
+    response = client.post("/login", data={"username": "aarav@example.com", "password": "first-pass-1"},
+                           follow_redirects=False)
+    assert response.status_code == 303
+    token = csrf_of(client, "/me/password")
+    wrong = client.post("/me/password", data={"_csrf": token, "current": "nope", "password": "second-pass-2",
+                                              "confirm": "second-pass-2"}, follow_redirects=False)
+    assert "err=" in wrong.headers["location"]
+    done = client.post("/me/password", data={"_csrf": token, "current": "first-pass-1", "password": "second-pass-2",
+                                             "confirm": "second-pass-2"}, follow_redirects=False)
+    assert "ok=" in done.headers["location"]
+    assert client.get("/me", follow_redirects=False).status_code == 200  # still signed in here
+    assert auth.authenticate(storage, user["username"], "second-pass-2")
+
+
+# ------------------------------------------------------------------ F2
+def test_f2_edit_form_status_change_handles_the_portal_login(hr_client: TestClient, storage: Storage, staff):
+    user, _ = auth.ensure_employee_login(storage, staff[0], password="portal-pass-1")
+    base = {"name": staff[0]["name"], "code": staff[0]["code"], "joined_on": staff[0]["joined_on"]}
+    token = csrf_of(hr_client, f"/employees/{staff[0]['id']}/edit")
+    hr_client.post(f"/employees/{staff[0]['id']}", data={"_csrf": token, **base, "status": "inactive"})
+    assert auth.get_user(storage, user["id"])["active"] == 0
+    hr_client.post(f"/employees/{staff[0]['id']}", data={"_csrf": token, **base, "status": "active",
+                                                         "enable_portal": "1"})
+    assert auth.get_user(storage, user["id"])["active"] == 1

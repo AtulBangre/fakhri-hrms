@@ -150,6 +150,61 @@ def stats(storage: Storage) -> dict[str, Any]:
     }
 
 
+# ------------------------------------------------------- identity & bank (C1)
+import re as _re
+
+_PAN = _re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+_IFSC = _re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
+
+# Verhoeff tables (the checksum Aadhaar numbers carry)
+_V_D = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],
+        [4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],
+        [8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]]
+_V_P = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],
+        [9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]]
+
+
+def verhoeff_ok(number: str) -> bool:
+    check = 0
+    for index, digit in enumerate(reversed(number)):
+        check = _V_D[check][_V_P[index % 8][int(digit)]]
+    return check == 0
+
+
+def clean_identity(data: dict[str, Any]) -> dict[str, Any]:
+    """Validate and normalise PAN, Aadhaar, IFSC and account number in ``data`` (in place).
+
+    Aadhaar: the full 12-digit number is checked (length + Verhoeff checksum) and
+    then **only the last four digits** are kept — the full number is never stored
+    (UIDAI rules); the card itself can be uploaded as a KYC document.
+    """
+    if data.get("pan"):
+        pan = str(data["pan"]).strip().upper().replace(" ", "")
+        if not _PAN.match(pan):
+            raise ValidationError("PAN must look like ABCDE1234F.")
+        data["pan"] = pan
+    if data.get("ifsc"):
+        ifsc = str(data["ifsc"]).strip().upper().replace(" ", "")
+        if not _IFSC.match(ifsc):
+            raise ValidationError("IFSC must look like HDFC0001234 (4 letters, 0, then 6 letters/digits).")
+        data["ifsc"] = ifsc
+    if data.get("account_number"):
+        account = str(data["account_number"]).replace(" ", "").replace("-", "")
+        if not account.isdigit() or not 9 <= len(account) <= 18:
+            raise ValidationError("Bank account number must be 9–18 digits.")
+        data["account_number"] = account
+    aadhaar = str(data.pop("aadhaar", "") or "").replace(" ", "").replace("-", "")
+    if aadhaar:
+        if not aadhaar.isdigit() or len(aadhaar) != 12 or aadhaar[0] in "01" or not verhoeff_ok(aadhaar):
+            raise ValidationError("That Aadhaar number is not valid — check the 12 digits.")
+        data["aadhaar_last4"] = aadhaar[-4:]
+    return data
+
+
+def masked_aadhaar(last4: str | None) -> str:
+    return f"XXXX-XXXX-{last4}" if last4 else ""
+
+
 # ------------------------------------------------------------------ mutation
 def _clean_date(value: str | None) -> str | None:
     if not value:
@@ -176,6 +231,7 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
     gross = float(data.get("monthly_gross") or 0)
     if gross < 0:
         raise ValidationError("Monthly salary cannot be negative.")
+    clean_identity(data)
 
     now = utcnow_iso()
     cursor = storage.execute(
@@ -192,6 +248,11 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
         ),
     )
     employee_id = int(cursor.lastrowid)
+
+    extra = {field: data[field] for field in PROFILE_FIELDS
+             if field not in ("email", "phone") and data.get(field)}
+    if extra:
+        update_employee(storage, employee_id, extra)
 
     if gross > 0:
         set_salary(
@@ -214,6 +275,7 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
 
 def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) -> None:
     employee = require_employee(storage, employee_id)
+    data = clean_identity(dict(data))
     updates: dict[str, Any] = {}
 
     if "name" in data:

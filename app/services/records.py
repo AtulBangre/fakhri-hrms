@@ -22,6 +22,7 @@ DOC_CATEGORIES = {
     "offer_letter": "Offer letter",
     "contract": "Contract",
     "resume": "Resume / CV",
+    "photo": "Photo",
     "other": "Other",
 }
 

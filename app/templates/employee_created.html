@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Employee added · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>{{ employee.name }} added</h1>
+    <div class="sub">{{ message }}</div>
+  </div>
+</div>
+
+{% if failed %}
+  <div class="alert alert-warn">{{ icon('alert') }}<div><strong>Not saved:</strong>
+    {% for item in failed %}<div>{{ item }}</div>{% endfor %}
+    <div class="small">Upload these again from the employee page, or let the employee do it from their profile.</div></div></div>
+{% endif %}
+
+<div class="card mb-3" style="max-width:560px">
+  <div class="card-head"><h2>Portal login — shown once</h2><span class="spacer"></span><span class="chip chip-warn">copy now</span></div>
+  <div class="card-body">
+    <p class="small muted">There is no email address to send a set-password link to, so hand these to
+      {{ employee.name.split(' ')[0] }} directly. They will not be shown again — reset the password from the employee page if they are lost.</p>
+    <div class="kv mb-2">
+      <div><span class="k">Sign-in page</span><span class="v mono">{{ settings.public_base_url.rstrip('/') }}/login</span></div>
+      <div><span class="k">Username</span><span class="v mono">{{ credentials.username }}</span></div>
+      <div><span class="k">Password</span><span class="v mono">{{ credentials.password }}</span></div>
+    </div>
+    <p class="small muted mb-0">Ask them to change it after the first sign-in (My profile → Change password).</p>
+  </div>
+</div>
+
+<div class="form-actions">
+  <a class="btn btn-primary" href="/employees/{{ employee.id }}">Continue to face enrolment</a>
+  <a class="btn" href="/employees/new">Add another employee</a>
+</div>
+{% endblock %}
