@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Organization Chart · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Organization Hierarchy</h1>
+    <div class="sub">{{ total_active }} active employees across {{ departments | length }} departments</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/employees">Employee List</a>
+    <a class="btn" href="/employees/bulk-update">Bulk Update</a>
+    <a class="btn btn-primary" href="/employees/new">Add Employee</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="field" style="max-width: 340px;">
+      <label for="orgSearch">Filter Team Members</label>
+      <input id="orgSearch" type="text" placeholder="Search by name, role or code...">
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2" id="orgTreeContainer">
+  {% for dept, members in departments.items() %}
+    <div class="card dept-card" data-dept="{{ dept | lower }}">
+      <div class="card-head">
+        <h2>{{ dept }}</h2>
+        <span class="spacer"></span>
+        <span class="chip chip-primary">{{ members | length }} members</span>
+      </div>
+      <div class="list">
+        {% for m in members %}
+          <div class="list-row member-node" data-search="{{ (m.name ~ ' ' ~ m.code ~ ' ' ~ (m.designation or '')) | lower }}">
+            <span class="avatar">{{ m.name | initials }}</span>
+            <div class="grow">
+              <a href="/employees/{{ m.id }}" style="color:inherit;text-decoration:none">
+                <strong>{{ m.name }}</strong>
+              </a>
+              <span class="sub muted">
+                {{ m.code }}{% if m.designation %} · <span style="color:var(--ink)">{{ m.designation }}</span>{% endif %}
+              </span>
+            </div>
+            <a class="btn btn-sm btn-ghost" href="/employees/{{ m.id }}">Profile</a>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% else %}
+    <div class="card">
+      <div class="card-body empty-state">No active employees found.</div>
+    </div>
+  {% endfor %}
+</div>
+
+<script>
+  (function() {
+    var search = document.getElementById("orgSearch");
+    if (!search) return;
+    search.addEventListener("input", function(e) {
+      var q = e.target.value.toLowerCase().trim();
+      var depts = document.querySelectorAll(".dept-card");
+      depts.forEach(function(dept) {
+        var nodes = dept.querySelectorAll(".member-node");
+        var visibleCount = 0;
+        nodes.forEach(function(node) {
+          var text = node.getAttribute("data-search") || "";
+          if (!q || text.indexOf(q) !== -1) {
+            node.style.display = "";
+            visibleCount++;
+          } else {
+            node.style.display = "none";
+          }
+        });
+        dept.style.display = (!q || visibleCount > 0) ? "" : "none";
+      });
+    });
+  })();
+</script>
+{% endblock %}

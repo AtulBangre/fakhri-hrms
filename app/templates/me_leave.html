@@ -102,6 +102,16 @@
         <div style="font-family:var(--font-heading);font-size:2.2rem;font-weight:600;line-height:1">
           {{ balance.available | number }}<span class="small muted">days available</span>
         </div>
+        <div class="quota-bar-wrap mt-2">
+          <div class="quota-bar-head">
+            <span class="muted small">Quota used</span>
+            <span class="small"><strong>{{ balance.used_paid | number }}</strong> / {{ balance.accrued | number }} days</span>
+          </div>
+          {% set pct = (((balance.used_paid or 0) / ([balance.accrued or 1, 1] | max)) * 100) | round | int %}
+          <div class="quota-bar-track">
+            <div class="quota-bar-fill" style="width: {{ [pct, 100] | min }}%; background: var(--primary);"></div>
+          </div>
+        </div>
         <div class="kv small mt-2">
           <div><span class="k">Earned so far</span><span class="v">{{ balance.accrued | number }}</span></div>
           <div><span class="k">Paid leave taken</span><span class="v">{{ balance.used_paid | number }}</span></div>

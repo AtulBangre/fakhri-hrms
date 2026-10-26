@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Bulk Employee Update · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Bulk Employee Update</h1>
+    <div class="sub">Batch reassign departments, shifts or managers across staff members</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/employees">Employee List</a>
+    <a class="btn" href="/employees/chart">Org Chart</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="filters" method="get" action="/employees/bulk-update">
+      <div class="field">
+        <label for="deptSelect">Filter Department</label>
+        <select id="deptSelect" name="department">
+          <option value="">All Departments</option>
+          {% for d in departments %}
+            <option value="{{ d }}" {{ 'selected' if selected_dept == d }}>{{ d }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit">Filter</button>
+      <a class="btn" href="/employees/bulk-update">Reset</a>
+    </form>
+  </div>
+</div>
+
+<form method="post" action="/employees/bulk-update" id="bulkForm">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+
+  <div class="card mb-3" style="border-top: 3px solid var(--primary);">
+    <div class="card-head">
+      <h3>Target Update Values</h3>
+      <span class="sub muted">Select one or more changes to apply to checked employees</span>
+    </div>
+    <div class="card-body">
+      <div class="form-row cols-2">
+        <div class="field">
+          <label for="new_department">Assign New Department</label>
+          <input id="new_department" name="new_department" type="text" placeholder="e.g. Operations, IT, Sales (leave blank to keep unchanged)">
+        </div>
+        <div class="field">
+          <label for="new_shift_id">Assign New Shift</label>
+          <select id="new_shift_id" name="new_shift_id">
+            <option value="">— Leave Shift Unchanged —</option>
+            {% for s in shifts %}
+              <option value="{{ s.id }}">{{ s.name }} ({{ s.start_time }} – {{ s.end_time }})</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card flush">
+    <div class="card-head">
+      <h3>Select Employees (<span id="selectedCount">0</span> selected)</h3>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-sm" id="toggleAllBtn">Select All</button>
+      <button type="submit" class="btn btn-sm btn-primary" id="applyBtn" disabled>Apply Updates</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data stack">
+        <thead>
+          <tr>
+            <th style="width: 44px; text-align: center;"><input type="checkbox" id="selectAllHeader"></th>
+            <th>Employee</th>
+            <th>Current Department</th>
+            <th>Designation</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for emp in employees %}
+            <tr>
+              <td style="text-align: center;">
+                <input type="checkbox" name="employee_ids" value="{{ emp.id }}" class="emp-checkbox">
+              </td>
+              <td data-label="Employee">
+                <a href="/employees/{{ emp.id }}"><strong>{{ emp.name }}</strong></a>
+                <span class="sub muted">{{ emp.code }}</span>
+              </td>
+              <td data-label="Department">{{ emp.department or '—' }}</td>
+              <td data-label="Designation">{{ emp.designation or '—' }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="empty-state">No matching active employees found.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</form>
+
+<script>
+  (function() {
+    var checkAllHeader = document.getElementById("selectAllHeader");
+    var toggleAllBtn = document.getElementById("toggleAllBtn");
+    var checkboxes = document.querySelectorAll(".emp-checkbox");
+    var countSpan = document.getElementById("selectedCount");
+    var applyBtn = document.getElementById("applyBtn");
+
+    function updateCount() {
+      var checked = document.querySelectorAll(".emp-checkbox:checked");
+      countSpan.textContent = checked.length;
+      applyBtn.disabled = checked.length === 0;
+    }
+
+    if (checkAllHeader) {
+      checkAllHeader.addEventListener("change", function() {
+        checkboxes.forEach(function(cb) { cb.checked = checkAllHeader.checked; });
+        updateCount();
+      });
+    }
+
+    if (toggleAllBtn) {
+      toggleAllBtn.addEventListener("click", function() {
+        var allChecked = Array.from(checkboxes).every(function(cb) { return cb.checked; });
+        checkboxes.forEach(function(cb) { cb.checked = !allChecked; });
+        if (checkAllHeader) checkAllHeader.checked = !allChecked;
+        updateCount();
+      });
+    }
+
+    checkboxes.forEach(function(cb) {
+      cb.addEventListener("change", updateCount);
+    });
+  })();
+</script>
+{% endblock %}

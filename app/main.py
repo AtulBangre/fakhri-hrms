@@ -28,7 +28,7 @@ from .deps import STATIC_DIR, get_session, templates
 from .face import FaceService
 from .notify import NotificationWorker
 from .routes import (
-    account, admin, attendance, auth_routes, dashboard, employees,
+    account, admin, ai_hr, attendance, auth_routes, dashboard, employees,
     appraisals, engagement, exits, field, kiosk, leave, me, meta, payroll, records, regularizations, tax,
 )
 
@@ -206,6 +206,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(field.router)
     app.include_router(admin.router)
     app.include_router(kiosk.router)
+    app.include_router(ai_hr.router)
 
     return app
 

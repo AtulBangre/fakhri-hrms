@@ -481,6 +481,19 @@ CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS shifts (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                 TEXT NOT NULL UNIQUE,
+    start_time           TEXT NOT NULL,
+    end_time             TEXT NOT NULL,
+    grace_minutes        INTEGER NOT NULL DEFAULT 15,
+    half_day_minutes     INTEGER NOT NULL DEFAULT 240,
+    overtime_min_minutes INTEGER NOT NULL DEFAULT 60,
+    is_default           INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_shifts_default ON shifts(is_default);
 """
 
 
@@ -680,6 +693,8 @@ class Storage:
             ("face_key", "TEXT"),
             ("self_punch_mode", "TEXT NOT NULL DEFAULT 'inherit'"),
             ("photo_filename", "TEXT"),
+            ("shift_id", "INTEGER REFERENCES shifts(id)"),
+            ("manager_id", "INTEGER REFERENCES employees(id)"),
         ],
     }
 
@@ -817,6 +832,13 @@ class Storage:
             for key, default, *_ in SETTING_DEFS:
                 self._conn.execute(
                     "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)", (key, default)
+                )
+            shift_count = self._conn.execute("SELECT COUNT(*) FROM shifts").fetchone()[0]
+            if shift_count == 0:
+                self._conn.execute(
+                    "INSERT INTO shifts (name, start_time, end_time, grace_minutes, half_day_minutes, overtime_min_minutes, is_default, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    ("General Shift", "09:30", "18:30", 15, 240, 60, 1, utcnow_iso()),
                 )
             self._conn.commit()
 

@@ -45,6 +45,7 @@ PATHS: dict[str, str] = {
     "chevron-left": '<path d="M15 18l-6-6 6-6"/>',
     "chevron-right": '<path d="M9 18l6-6-6-6"/>',
     "search": '<circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>',
+    "sparkles": '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3l1.9 5.8 1.9-5.8a2 2 0 0 1 1.3-1.3l5.8-1.9-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z"/>',
 }
 
 

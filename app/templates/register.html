@@ -5,12 +5,12 @@
 <div class="page-head">
   <div class="titles">
     <h1>Monthly register</h1>
-    <div class="sub">{{ register.label }} · {{ register.rows | length }} employees · P present · ½ half day · L leave · A absent · W week off · H holiday</div>
+    <div class="sub">{{ register.label }} · {{ register.rows | length }} employees · Click any day to quick-mark attendance or regularize</div>
   </div>
   <div class="page-actions">
     <a class="btn" href="/attendance/register.csv?{{ csv_query }}">Full CSV</a>
     <a class="btn" href="/attendance/summary.csv?{{ csv_query }}">Summary CSV</a>
-    <a class="btn" href="/payroll?period={{ register.period }}">Payroll</a>
+    <a class="btn btn-primary" href="/payroll?period={{ register.period }}">Payroll</a>
   </div>
 </div>
 
@@ -32,12 +32,16 @@
       </div>
       <button class="btn btn-primary" type="submit">Show</button>
       <a class="btn" href="/attendance/register">This month</a>
+      <div class="field" style="margin-left:auto">
+        <label for="empFilter">Quick Search</label>
+        <input id="empFilter" type="text" placeholder="Filter by name/code..." style="min-width: 190px;">
+      </div>
     </form>
   </div>
 </div>
 
 <div class="register-wrap">
-  <table class="register">
+  <table class="register" id="registerTable">
     <thead>
       <tr>
         <th class="sticky-col">Employee</th>
@@ -53,14 +57,19 @@
     </thead>
     <tbody>
       {% for row in register.rows %}
-        <tr>
+        <tr class="emp-row" data-search="{{ (row.employee.name ~ ' ' ~ row.employee.code ~ ' ' ~ (row.employee.department or '')) | lower }}">
           <td class="sticky-col">
             <a href="/employees/{{ row.employee.id }}"><strong>{{ row.employee.name }}</strong></a>
             <span class="sub muted" style="display:block">{{ row.employee.code }}{% if row.employee.department %} · {{ row.employee.department }}{% endif %}</span>
           </td>
           {% for cell, day in row.cells | zip(register.days) %}
-            <td class="cell {{ cell.css }} {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
-                title="{{ day.iso }} — {{ cell.title }}">
+            <td class="cell {{ cell.css }} interactive-cell {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
+                data-emp-id="{{ row.employee.id }}"
+                data-emp-name="{{ row.employee.name }}"
+                data-date="{{ day.iso }}"
+                data-status="{{ 'present' if cell.code == 'P' else ('half_day' if cell.code == '½' else ('leave' if cell.code == 'L' else ('absent' if cell.code == 'A' else 'present'))) }}"
+                data-code="{{ cell.code }}"
+                title="{{ day.iso }} — {{ cell.title }} (Click to quick edit)">
               {{ cell.code }}
             </td>
           {% endfor %}
@@ -88,7 +97,7 @@
 
 <div class="grid grid-2 mt-3">
   <div class="card">
-    <div class="card-head"><h3>Legend</h3></div>
+    <div class="card-head"><h3>Legend & Quick Actions</h3></div>
     <div class="card-body pill-row">
       <span class="chip chip-ok">P · present</span>
       <span class="chip chip-warn">½ · half day</span>
@@ -96,9 +105,10 @@
       <span class="chip chip-danger">A · absent</span>
       <span class="chip chip-muted">W · week off</span>
       <span class="chip chip-muted">H · holiday</span>
-      <span class="chip chip-ghost">· · not marked yet</span>
+      <span class="chip chip-ghost">· · not marked</span>
       <span class="chip chip-ghost">– · not employed</span>
     </div>
+    <div class="card-foot small muted">Tip: Click any attendance cell above to instantly adjust or regularize that day's record.</div>
   </div>
   <div class="card">
     <div class="card-head"><h3>How payable days are counted</h3></div>
@@ -110,4 +120,128 @@
     </div>
   </div>
 </div>
+
+<!-- Quick Mark / Regularize Modal -->
+<div id="quickMarkModal" class="modal-overlay">
+  <div class="modal-box" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h3 id="modalEmpTitle">Quick attendance edit</h3>
+      <button type="button" class="btn btn-sm btn-ghost" id="closeModalBtn">✕</button>
+    </div>
+    <form method="post" action="/attendance/mark">
+      <div class="modal-body">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="employee_id" id="modalEmpId">
+        <input type="hidden" name="work_date" id="modalWorkDate">
+        <input type="hidden" name="return_url" value="{{ request.url }}">
+
+        <div class="kv mb-3">
+          <div><span class="k">Employee</span><span class="v" id="modalEmpNameDisplay">—</span></div>
+          <div><span class="k">Date</span><span class="v" id="modalDateDisplay">—</span></div>
+          <div><span class="k">Current record</span><span class="v" id="modalCurrentCodeDisplay">—</span></div>
+        </div>
+
+        <div class="form-row cols-2">
+          <div class="field">
+            <label for="modalStatus">Set Status</label>
+            <select id="modalStatus" name="status" required>
+              <option value="present">Present (Full Day)</option>
+              <option value="half_day">Half Day</option>
+              <option value="leave">Approved Leave</option>
+              <option value="absent">Absent (Loss of Pay)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="modalLeaveType">Leave Type (if leave/HD)</label>
+            <select id="modalLeaveType" name="leave_type">
+              <option value="">— Not Applicable —</option>
+              <option value="paid">Paid Leave (PL)</option>
+              <option value="sick">Sick Leave (SL)</option>
+              <option value="casual">Casual Leave (CL)</option>
+              <option value="unpaid">Unpaid Leave (LWP)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row cols-2">
+          <div class="field">
+            <label for="modalCheckIn">Check-in time</label>
+            <input id="modalCheckIn" name="check_in" type="time">
+          </div>
+          <div class="field">
+            <label for="modalCheckOut">Check-out time</label>
+            <input id="modalCheckOut" name="check_out" type="time">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="modalNote">Reason / Note</label>
+          <input id="modalNote" name="note" type="text" placeholder="e.g. Regularized by HR or approved half-day">
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save record</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (function() {
+    // 1. Live Filter
+    var filterInput = document.getElementById("empFilter");
+    if (filterInput) {
+      filterInput.addEventListener("input", function(e) {
+        var query = e.target.value.toLowerCase().trim();
+        var rows = document.querySelectorAll("#registerTable tbody tr.emp-row");
+        rows.forEach(function(row) {
+          var searchTxt = row.getAttribute("data-search") || "";
+          row.style.display = searchTxt.indexOf(query) !== -1 ? "" : "none";
+        });
+      });
+    }
+
+    // 2. Interactive Modal
+    var modal = document.getElementById("quickMarkModal");
+    var closeBtn = document.getElementById("closeModalBtn");
+    var cancelBtn = document.getElementById("cancelModalBtn");
+
+    function closeModal() {
+      if (modal) modal.classList.remove("open");
+    }
+
+    if (closeBtn) closeBtn.addEventListener("click", closeModal);
+    if (cancelBtn) cancelBtn.addEventListener("click", closeModal);
+    if (modal) {
+      modal.addEventListener("click", function(e) {
+        if (e.target === modal) closeModal();
+      });
+    }
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") closeModal();
+    });
+
+    document.querySelectorAll("td.interactive-cell").forEach(function(cell) {
+      cell.addEventListener("click", function() {
+        var empId = cell.getAttribute("data-emp-id");
+        var empName = cell.getAttribute("data-emp-name");
+        var date = cell.getAttribute("data-date");
+        var status = cell.getAttribute("data-status");
+        var code = cell.getAttribute("data-code");
+
+        document.getElementById("modalEmpId").value = empId || "";
+        document.getElementById("modalWorkDate").value = date || "";
+        document.getElementById("modalEmpNameDisplay").textContent = empName || "—";
+        document.getElementById("modalDateDisplay").textContent = date || "—";
+        document.getElementById("modalCurrentCodeDisplay").textContent = code || "—";
+        
+        var statusSelect = document.getElementById("modalStatus");
+        if (statusSelect && status) statusSelect.value = status;
+        
+        modal.classList.add("open");
+      });
+    });
+  })();
+</script>
 {% endblock %}

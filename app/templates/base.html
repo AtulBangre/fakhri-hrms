@@ -142,6 +142,92 @@
   </nav>
 </div>
 
+{% if user and (user.is_hr or user.is_employee) %}
+  <!-- Floating Ask HR Assistant Button -->
+  <button type="button" class="ask-hr-fab no-print" id="openAskHrBtn" aria-label="Ask HR Assistant">
+    {{ icon('sparkles') }} <span>Ask HR</span>
+  </button>
+
+  <!-- Ask HR Floating Drawer -->
+  <div id="askHrDrawer" class="ask-hr-drawer no-print">
+    <div class="ask-hr-head">
+      <div style="display:flex;align-items:center;gap:7px">
+        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--primary)"></span>
+        <strong>Fakhri HR Assistant</strong>
+      </div>
+      <button type="button" class="btn btn-sm btn-ghost" id="closeAskHrBtn">✕</button>
+    </div>
+    <div class="ask-hr-messages" id="askHrMessages">
+      <div class="ask-hr-msg bot">
+        Hello {{ user.display_name.split(' ')[0] if user.display_name else 'there' }}! How can I help you today? You can ask about your leave balance, shift rules, company holidays or attendance.
+      </div>
+    </div>
+    <div style="padding:.4rem .8rem;background:var(--subtle);border-top:1px solid var(--border);display:flex;gap:4px;overflow-x:auto;">
+      <button type="button" class="chip chip-ghost" style="cursor:pointer;white-space:nowrap" onclick="sendQuickQuery('My leave balance')">Leave balance</button>
+      <button type="button" class="chip chip-ghost" style="cursor:pointer;white-space:nowrap" onclick="sendQuickQuery('Upcoming holidays')">Holidays</button>
+      <button type="button" class="chip chip-ghost" style="cursor:pointer;white-space:nowrap" onclick="sendQuickQuery('Shift timing')">Shift timing</button>
+    </div>
+    <form class="ask-hr-input-bar" id="askHrForm" onsubmit="event.preventDefault(); submitAskHr();">
+      <input type="text" id="askHrInput" placeholder="Ask a question..." autocomplete="off">
+      <button type="submit" class="btn btn-sm btn-primary">Send</button>
+    </form>
+  </div>
+
+  <script>
+    (function() {
+      var drawer = document.getElementById("askHrDrawer");
+      var openBtn = document.getElementById("openAskHrBtn");
+      var closeBtn = document.getElementById("closeAskHrBtn");
+      var input = document.getElementById("askHrInput");
+      var msgContainer = document.getElementById("askHrMessages");
+
+      function openDrawer() { if (drawer) drawer.classList.add("open"); if (input) input.focus(); }
+      function closeDrawer() { if (drawer) drawer.classList.remove("open"); }
+
+      if (openBtn) openBtn.addEventListener("click", openDrawer);
+      if (closeBtn) closeBtn.addEventListener("click", closeDrawer);
+
+      window.sendQuickQuery = function(text) {
+        if (input) input.value = text;
+        submitAskHr();
+      };
+
+      window.submitAskHr = function() {
+        if (!input) return;
+        var val = input.value.trim();
+        if (!val) return;
+        input.value = "";
+
+        var userDiv = document.createElement("div");
+        userDiv.className = "ask-hr-msg user";
+        userDiv.textContent = val;
+        msgContainer.appendChild(userDiv);
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+
+        var botDiv = document.createElement("div");
+        botDiv.className = "ask-hr-msg bot";
+        botDiv.textContent = "Thinking...";
+        msgContainer.appendChild(botDiv);
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+
+        fetch("/api/ai-hr/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: val })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          botDiv.textContent = data.answer || "No response received.";
+          msgContainer.scrollTop = msgContainer.scrollHeight;
+        })
+        .catch(function() {
+          botDiv.textContent = "Unable to process query right now. Please check your network connection.";
+        });
+      };
+    })();
+  </script>
+{% endif %}
+
 <script src="/static/js/pwa.js?v={{ asset_version }}" defer></script>
 <script src="/static/js/app.js?v={{ asset_version }}" defer></script>
 {% block scripts %}{% endblock %}

@@ -82,28 +82,29 @@
       </div>
     </div>
 
-    <div class="card flush mb-3">
+    <div class="card flush mb-3" id="liveScansCard">
       <div class="card-head">
-        <h2>Today's scans</h2>
+        <h2><span class="live-dot on" style="margin-right:6px"></span>Live Biometric Gate Feed</h2>
         <span class="spacer"></span>
-        <a class="btn btn-sm" href="/attendance">Open board</a>
+        <span class="badge-count" id="liveScanCount" style="background:var(--success-soft);color:var(--success);font-weight:600;font-size:0.75rem">LIVE</span>
+        <a class="btn btn-sm" href="/attendance" style="margin-left:8px">Full Board</a>
       </div>
       <div class="table-wrap">
         <table class="data stack">
           <thead><tr><th>Employee</th><th>In</th><th>Out</th><th>Status</th></tr></thead>
-          <tbody>
+          <tbody id="liveScansBody">
           {% for row in board.recent %}
             <tr>
               <td data-label="Employee">
                 <a href="/employees/{{ row.employee_id }}"><strong>{{ row.name }}</strong></a>
                 <span class="sub">{{ row.code }}{% if row.device_label %} · {{ row.device_label }}{% endif %}</span>
               </td>
-              <td data-label="In">{{ row.check_in_label }}</td>
+              <td data-label="In"><span class="badge-count" style="font-size:0.75rem">{{ row.check_in_label }}</span></td>
               <td data-label="Out">{{ row.check_out_label }}</td>
               <td data-label="Status"><span class="{{ row.status | chip }}">{{ STATUS_LABELS.get(row.status, row.status) }}</span></td>
             </tr>
           {% else %}
-            <tr><td colspan="4" class="empty-state">No scans yet today.</td></tr>
+            <tr><td colspan="4" class="empty-state">No scans yet today. Ready at the gate kiosk.</td></tr>
           {% endfor %}
           </tbody>
         </table>
@@ -189,4 +190,35 @@
     </div>
   </div>
 </div>
+
+<script>
+  (function() {
+    // Live Biometric Poller: updates the gate scans table every 10s seamlessly
+    var tbody = document.getElementById("liveScansBody");
+    if (!tbody) return;
+
+    function pollScans() {
+      fetch("/api/dashboard/live-scans")
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (!data || !data.recent || data.recent.length === 0) return;
+          var html = "";
+          data.recent.forEach(function(row) {
+            var chipClass = "chip " + (row.status === "present" ? "chip-ok" : (row.status === "half_day" ? "chip-warn" : (row.status === "leave" ? "chip-info" : "chip-danger")));
+            var device = row.device_label ? " · " + row.device_label : "";
+            html += "<tr>" +
+              "<td data-label='Employee'><a href='/employees/" + row.employee_id + "'><strong>" + (row.name || "") + "</strong></a><span class='sub'>" + (row.code || "") + device + "</span></td>" +
+              "<td data-label='In'><span class='badge-count' style='font-size:0.75rem'>" + (row.check_in_label || "—") + "</span></td>" +
+              "<td data-label='Out'>" + (row.check_out_label || "—") + "</td>" +
+              "<td data-label='Status'><span class='" + chipClass + "'>" + (row.status || "") + "</span></td>" +
+              "</tr>";
+          });
+          tbody.innerHTML = html;
+        })
+        .catch(function(err) { /* silent on transient error */ });
+    }
+
+    setInterval(pollScans, 10000);
+  })();
+</script>
 {% endblock %}

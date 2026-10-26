@@ -25,6 +25,28 @@
   </div>
 </div>
 
+<div class="payroll-stepper mb-3">
+  <div class="stepper-step completed">
+    <span class="stepper-num">✓</span>
+    <span>1. Inputs & Attendance</span>
+  </div>
+  <div class="stepper-divider {{ 'completed' if run else '' }}"></div>
+  <div class="stepper-step {{ 'active' if run and run.status == 'draft' else ('completed' if run and run.status in ('finalized', 'paid') else '') }}">
+    <span class="stepper-num">{{ '✓' if run and run.status in ('finalized', 'paid') else '2' }}</span>
+    <span>2. Calculated (Draft)</span>
+  </div>
+  <div class="stepper-divider {{ 'completed' if run and run.status in ('finalized', 'paid') else '' }}"></div>
+  <div class="stepper-step {{ 'active' if run and run.status == 'finalized' else ('completed' if run and run.status == 'paid' else '') }}">
+    <span class="stepper-num">{{ '✓' if run and run.status == 'paid' else '3' }}</span>
+    <span>3. Approved & Locked</span>
+  </div>
+  <div class="stepper-divider {{ 'completed' if run and run.status == 'paid' else '' }}"></div>
+  <div class="stepper-step {{ 'active' if run and run.status == 'paid' else '' }}">
+    <span class="stepper-num">4</span>
+    <span>4. Paid & Distributed</span>
+  </div>
+</div>
+
 <div class="card mb-3">
   <div class="card-body" style="padding:.55rem .85rem">
     <div class="inline-form" style="width:100%">

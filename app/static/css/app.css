@@ -828,6 +828,126 @@ details.disclosure > form, details.disclosure > div:not(.card-body) { padding: .
 .face-thumb { width: 96px; height: 96px; border-radius: var(--radius); object-fit: cover; border: 1px solid var(--border); background: #f1efee; }
 .statement td:first-child { width: 70%; }
 
+/* ------------------------------------------------ enterprise UX enhancements */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(24, 24, 27, .45);
+  backdrop-filter: blur(2px); z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 1rem;
+  opacity: 0; pointer-events: none; transition: opacity .18s ease;
+}
+.modal-overlay.open { opacity: 1; pointer-events: auto; }
+.modal-box {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); width: 100%; max-width: 480px; max-height: 90vh;
+  overflow-y: auto; transform: scale(.96); transition: transform .18s ease;
+}
+.modal-overlay.open .modal-box { transform: scale(1); }
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .9rem 1.1rem; border-bottom: 1px solid var(--border);
+}
+.modal-head h3 { margin: 0; font-size: 1rem; }
+.modal-body { padding: 1.1rem; }
+.modal-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: .6rem;
+  padding: .75rem 1.1rem; border-top: 1px solid var(--border); background: var(--subtle);
+}
+
+/* Interactive register pills */
+table.register td.interactive-cell {
+  cursor: pointer; transition: transform .1s ease, box-shadow .1s ease;
+  user-select: none; position: relative;
+}
+table.register td.interactive-cell:hover {
+  transform: scale(1.18); z-index: 10;
+  box-shadow: 0 3px 10px rgba(0,0,0,.15);
+  outline: 2px solid var(--primary);
+  border-radius: 3px;
+}
+
+/* Payroll 4-Stage Stepper */
+.payroll-stepper {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: .9rem 1.25rem; margin-bottom: 1.25rem; flex-wrap: wrap; gap: .5rem;
+}
+.stepper-step {
+  display: flex; align-items: center; gap: .55rem; font-size: .82rem;
+  color: var(--muted); font-weight: 500;
+}
+.stepper-step.active { color: var(--primary); font-weight: 600; }
+.stepper-step.completed { color: var(--success); }
+.stepper-num {
+  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font-size: .74rem; font-weight: 700; background: var(--surface); border: 1px solid var(--border);
+}
+.stepper-step.active .stepper-num {
+  background: var(--primary); color: #fff; border-color: var(--primary);
+}
+.stepper-step.completed .stepper-num {
+  background: var(--success); color: #fff; border-color: var(--success);
+}
+.stepper-divider {
+  flex: 1; height: 2px; background: var(--border); margin: 0 .6rem; min-width: 20px;
+}
+.stepper-divider.completed { background: var(--success); }
+
+/* Dual-Column Payslip Card */
+.dual-payslip-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem;
+}
+@media (max-width: 720px) {
+  .dual-payslip-grid { grid-template-columns: 1fr; }
+  .payroll-stepper { flex-direction: column; align-items: flex-start; }
+  .stepper-divider { display: none; }
+}
+
+/* Quota Progress Bar */
+.quota-bar-wrap { margin-bottom: .8rem; }
+.quota-bar-head { display: flex; justify-content: space-between; font-size: .8rem; margin-bottom: .25rem; }
+.quota-bar-track { height: 7px; background: #ecebea; border-radius: 999px; overflow: hidden; }
+.quota-bar-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
+
+/* Ask HR Floating Drawer */
+.ask-hr-fab {
+  position: fixed; bottom: 20px; right: 20px; z-index: 90;
+  background: var(--primary); color: #fff; border: 1px solid var(--primary-dark);
+  border-radius: 999px; padding: 9px 16px; font-size: .84rem; font-weight: 600;
+  display: flex; align-items: center; gap: 7px; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(135, 8, 8, .35); transition: transform .15s ease, background .15s ease;
+}
+.ask-hr-fab:hover { background: var(--primary-dark); transform: translateY(-2px); }
+.ask-hr-drawer {
+  position: fixed; top: 0; bottom: 0; right: 0; width: 380px; max-width: 92vw;
+  background: var(--card); border-left: 1px solid var(--border);
+  box-shadow: -8px 0 32px rgba(0,0,0,.18); z-index: 105;
+  display: flex; flex-direction: column; transform: translateX(105%);
+  transition: transform .24s cubic-bezier(.16, 1, .3, 1);
+}
+.ask-hr-drawer.open { transform: translateX(0); }
+.ask-hr-head {
+  padding: .9rem 1.1rem; border-bottom: 1px solid var(--border);
+  background: var(--subtle); display: flex; align-items: center; justify-content: space-between;
+}
+.ask-hr-messages {
+  flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .75rem;
+}
+.ask-hr-msg {
+  padding: .65rem .85rem; border-radius: var(--radius); font-size: .84rem; max-width: 86%;
+  line-height: 1.45;
+}
+.ask-hr-msg.bot {
+  background: var(--surface); color: var(--ink); border: 1px solid var(--border); align-self: flex-start;
+}
+.ask-hr-msg.user {
+  background: var(--primary); color: #fff; align-self: flex-end;
+}
+.ask-hr-input-bar {
+  padding: .75rem; border-top: 1px solid var(--border); background: var(--card);
+  display: flex; gap: .5rem;
+}
+.ask-hr-input-bar input { flex: 1; }
+
 /* ------------------------------------------------------------------- print */
 @media print {
   .sidebar, .topbar, .bottom-nav, .no-print, .page-actions, .drawer, .drawer-backdrop { display: none !important; }

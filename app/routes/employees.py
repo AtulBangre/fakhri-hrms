@@ -61,6 +61,77 @@ def list_page(
     )
 
 
+@router.get("/chart")
+def org_chart(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    rows = storage.query(
+        "SELECT id, code, name, department, designation, manager_id, status FROM employees WHERE status = 'active' ORDER BY department, name"
+    )
+    dept_map: dict[str, list[dict]] = {}
+    for r in rows:
+        d = r["department"] or "General"
+        dept_map.setdefault(d, []).append(dict(r))
+
+    return render(
+        request,
+        "org_chart.html",
+        active="employees",
+        user=user,
+        departments=dept_map,
+        total_active=len(rows),
+    )
+
+
+@router.get("/bulk-update")
+def bulk_update_page(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    department: str | None = None,
+):
+    where = "WHERE status = 'active'"
+    params = []
+    if department:
+        where += " AND department = ?"
+        params.append(department)
+    people = storage.query(f"SELECT id, code, name, department, designation, shift_id FROM employees {where} ORDER BY name", params)
+    shifts = storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name")
+    return render(
+        request,
+        "employee_bulk_update.html",
+        active="employees",
+        user=user,
+        employees=people,
+        shifts=shifts,
+        departments=employees_service.departments(storage),
+        selected_dept=department or "",
+    )
+
+
+@router.post("/bulk-update")
+def bulk_update_apply(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+    employee_ids: list[int] = Form(...),
+    new_department: str = Form(""),
+    new_shift_id: str = Form(""),
+):
+    auth.verify_form_csrf(user, csrf)
+    with storage.transaction():
+        for emp_id in employee_ids:
+            if new_department.strip():
+                storage.execute_tx("UPDATE employees SET department = ? WHERE id = ?", (new_department.strip(), emp_id))
+            if new_shift_id.strip():
+                storage.execute_tx("UPDATE employees SET shift_id = ? WHERE id = ?", (int(new_shift_id), emp_id))
+    storage.audit(actor=user.username, action="bulk_update_employees", detail=f"Updated {len(employee_ids)} employees")
+    return redirect("/employees", ok=f"Successfully updated {len(employee_ids)} employees.")
+
+
 @router.get("/new")
 def new_page(request: Request, user: SessionUser = Depends(require_hr), storage=Depends(get_storage)):
     return render(

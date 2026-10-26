@@ -54,6 +54,19 @@ def dashboard(
     )
 
 
+@router.get("/api/dashboard/live-scans")
+def live_scans(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    board = attendance_service.dashboard(storage, settings)
+    return {
+        "recent": board.get("recent", []),
+        "counts": board.get("counts", {}),
+    }
+
+
 @router.get("/audit")
 def audit_log(
     request: Request,
