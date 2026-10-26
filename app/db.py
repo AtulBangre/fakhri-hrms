@@ -485,7 +485,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 
 
 def utcnow_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat() + "Z"
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 class Storage:

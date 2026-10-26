@@ -348,7 +348,7 @@ def kiosk_devices(storage: Storage) -> list[dict]:
     devices = []
     for device, seen in sorted(beats.items()):
         try:
-            age = (now - datetime.fromisoformat(seen.replace("Z", "+00:00"))).total_seconds()
+            age = (now - datetime.fromisoformat(seen.replace("+00:00Z", "+00:00").replace("Z", "+00:00"))).total_seconds()
         except ValueError:
             continue
         devices.append({"device": device, "seen_at": seen, "age_seconds": int(age),
