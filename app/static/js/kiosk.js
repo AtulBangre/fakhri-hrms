@@ -250,6 +250,11 @@
         beep("bad");
         pausedUntil = Date.now() + HOLD_ERROR_MS;
         break;
+      case "spoof_detected":
+        show("bad", "Real Face Required", "photos or screens rejected", HOLD_ERROR_MS + 1000);
+        beep("bad");
+        pausedUntil = Date.now() + HOLD_ERROR_MS + 1000;
+        break;
       case "connection":
         show("bad", "Connection problem", "server did not answer", HOLD_ERROR_MS);
         setState("bad");

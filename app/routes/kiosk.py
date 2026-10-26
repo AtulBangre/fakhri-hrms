@@ -143,6 +143,26 @@ def kiosk_scan(
             status_code=502,
         )
 
+    if not identification.is_live:
+        reason = identification.spoof_reason or "Photo or screen replay detected"
+        storage.audit(
+            actor=user.username,
+            action="kiosk_spoof_rejected",
+            entity="kiosk",
+            detail=f"device={device} reason={reason} score={identification.liveness_score}",
+        )
+        return JSONResponse(
+            {
+                "ok": False,
+                "action": "spoof_detected",
+                "kind": "error",
+                "message": f"Real face required — photo or screen detected ({reason}).",
+                "similarity": identification.similarity,
+                "liveness_score": identification.liveness_score,
+                "server_time": orgtime.local_now(settings).strftime("%H:%M:%S"),
+            }
+        )
+
     if not identification.matched or not identification.external_id:
         no_face = (identification.faces_in_probe or 0) == 0
         message = (

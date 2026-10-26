@@ -52,6 +52,9 @@ class IdentificationResult:
     gallery_size: int = 0
     candidates: list[dict] = field(default_factory=list)
     message: str | None = None
+    is_live: bool = True
+    liveness_score: float = 1.0
+    spoof_reason: str | None = None
 
     @property
     def employee_code(self) -> str | None:
@@ -245,6 +248,9 @@ class FaceService:
                     faces_in_probe=int(body.get("faces_in_probe") or 0),
                     gallery_size=int(body.get("gallery_size") or 0),
                     candidates=body.get("candidates") or [],
+                    is_live=bool(body.get("is_live", True)),
+                    liveness_score=float(body.get("liveness_score", 1.0)),
+                    spoof_reason=body.get("spoof_reason"),
                 )
         except httpx.HTTPError as exc:
             raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
