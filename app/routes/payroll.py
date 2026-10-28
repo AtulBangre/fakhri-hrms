@@ -210,6 +210,38 @@ def export(
     )
 
 
+@router.get("/export.zip")
+def export_zip(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    period: str | None = None,
+):
+    period = period or orgtime.period_of(orgtime.today(settings))
+    zip_bytes = payroll.export_payslips_zip(storage, settings, period)
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="payslips-{period}.zip"'},
+    )
+
+
+@router.get("/export-ecr.txt")
+def export_ecr(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    period: str | None = None,
+):
+    period = period or orgtime.period_of(orgtime.today(settings))
+    ecr_text = payroll.export_epfo_ecr(storage, period)
+    return PlainTextResponse(
+        ecr_text,
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="epfo-ecr-{period}.txt"'},
+    )
+
+
 @router.post("/email")
 def email_payslips(
     request: Request,

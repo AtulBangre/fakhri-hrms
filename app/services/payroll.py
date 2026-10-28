@@ -663,3 +663,79 @@ def _csv_safe(value: object) -> str:
     if any(ch in text for ch in (",", '"', "\n")):
         return '"' + text.replace('"', '""') + '"'
     return text
+
+
+def export_payslips_zip(storage: Storage, settings: Settings, period: str) -> bytes:
+    """Pack all employee payslips for a period into a single ZIP file containing PDFs."""
+    import io
+    import zipfile
+    from .. import pdf
+
+    slips = list_slips(storage, period)
+    run = get_run(storage, period)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for slip_summary in slips:
+            full_slip = get_slip(storage, slip_summary["id"])
+            if not full_slip:
+                continue
+            pdf_bytes = pdf.render_payslip(
+                full_slip,
+                settings=settings,
+                org_name=settings.org_name,
+                period_label=orgtime.month_label(period),
+            )
+            filename = pdf.filename_for(full_slip)
+            zf.writestr(filename, pdf_bytes)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def export_epfo_ecr(storage: Storage, period: str) -> str:
+    """Generate standard EPFO Electronic Challan cum Return (ECR) text format.
+    
+    Fields separated by '#~#':
+    UAN, Member Name, Gross Wages, EPF Wages, EPS Wages, EDLI Wages,
+    EE Share (12%), EPS Share (8.33%), ER Share (3.67%), NCP Days (LOP), Refund
+    """
+    slips = list_slips(storage, period)
+    lines: list[str] = []
+    for slip in slips:
+        emp = employees_service.require_employee(storage, slip["employee_id"])
+        uan = str(emp.get("pf_uan") or emp.get("uan") or emp.get("code") or "").strip()
+        name = slip["name"].replace("#", "").replace("~", "")
+        gross = int(round(float(slip.get("earned_gross") or 0)))
+        pf = float(slip.get("pf") or 0)
+        
+        # EPF wages capped at 15000 standard ceiling if PF is active
+        if pf > 0:
+            epf_wages = int(round(min(gross, 15000)))
+            eps_wages = epf_wages
+            edli_wages = epf_wages
+            ee_share = int(round(pf))
+            eps_share = int(round(min(epf_wages * 0.0833, 1250)))
+            er_share = max(ee_share - eps_share, 0)
+        else:
+            epf_wages = 0
+            eps_wages = 0
+            edli_wages = 0
+            ee_share = 0
+            eps_share = 0
+            er_share = 0
+            
+        ncp_days = int(round(float(slip.get("lop_days") or 0)))
+        fields = [
+            uan,
+            name,
+            str(gross),
+            str(epf_wages),
+            str(eps_wages),
+            str(edli_wages),
+            str(ee_share),
+            str(eps_share),
+            str(er_share),
+            str(ncp_days),
+            "0",  # Refund of advances
+        ]
+        lines.append("#~#".join(fields))
+    return "\n".join(lines) + ("\n" if lines else "")

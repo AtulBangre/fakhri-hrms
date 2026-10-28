@@ -144,3 +144,72 @@ def test_ai_hr_assistant_queries(client_and_storage):
     assert res.status_code == 200
     data = res.json()
     assert "today's stats" in data["answer"].lower()
+
+
+def test_leave_quotas_breakdown(client_and_storage):
+    client, storage = client_and_storage
+    _login_hr(client)
+
+    from app.services import leave as leave_service
+    emp_id = storage.scalar(
+        "INSERT INTO employees (code, name, department, monthly_gross, joined_on, created_at, updated_at) "
+        "VALUES ('EMP201', 'Leave Tester', 'Tech', 60000, '2026-01-01', '2026-01-01', '2026-01-01') RETURNING id"
+    )
+    bal = leave_service.balance(storage, client.app.state.settings, emp_id)
+    assert "quotas" in bal
+    assert len(bal["quotas"]) == 3
+    codes = [q["code"] for q in bal["quotas"]]
+    assert "PL" in codes
+    assert "SL" in codes
+    assert "CL" in codes
+
+
+def test_payroll_zip_and_ecr_exports(client_and_storage):
+    client, storage = client_and_storage
+    _login_hr(client)
+
+    from app.services import payroll as payroll_service
+    # Seed an employee and payroll run
+    emp_id = storage.scalar(
+        "INSERT INTO employees (code, name, department, monthly_gross, joined_on, created_at, updated_at) "
+        "VALUES ('EMP301', 'Pay Tester', 'HR', 50000, '2026-01-01', '2026-01-01', '2026-01-01') RETURNING id"
+    )
+    storage.execute(
+        "INSERT INTO salary_revisions (employee_id, monthly_gross, basic, effective_from, created_at) "
+        "VALUES (?, 50000, 25000, '2026-01-01', '2026-01-01')",
+        (emp_id,),
+    )
+    run_id = storage.scalar(
+        "INSERT INTO payroll_runs (period, status, basis_days, total_gross, generated_at) "
+        "VALUES ('2026-08', 'draft', 31, 50000, '2026-08-31') RETURNING id"
+    )
+    storage.execute(
+        "INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, monthly_gross, earned_gross, net_pay, created_at, updated_at) "
+        "VALUES (?, ?, '2026-08', 31, 31, 50000, 50000, 50000, '2026-08-31', '2026-08-31')",
+        (run_id, emp_id),
+    )
+
+    # 1. Test ZIP export
+    zip_res = client.get("/payroll/export.zip?period=2026-08")
+    assert zip_res.status_code == 200
+    assert zip_res.headers["content-type"] == "application/zip"
+    import zipfile, io
+    zf = zipfile.ZipFile(io.BytesIO(zip_res.content))
+    assert len(zf.namelist()) >= 1
+    assert any("payslip" in name.lower() for name in zf.namelist())
+
+    # 2. Test ECR export
+    ecr_res = client.get("/payroll/export-ecr.txt?period=2026-08")
+    assert ecr_res.status_code == 200
+    assert "EMP301" in ecr_res.text or "Pay Tester" in ecr_res.text
+    assert "#~#" in ecr_res.text
+
+
+def test_attendance_register_filter_ui(client_and_storage):
+    client, _ = client_and_storage
+    _login_hr(client)
+
+    res = client.get("/attendance/register")
+    assert res.status_code == 200
+    assert "statusQuickFilter" in res.text
+    assert "Filter Exceptions" in res.text

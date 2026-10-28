@@ -179,7 +179,12 @@
               <td data-label="Paid taken" class="num">{{ item.used_paid | number }}</td>
               <td data-label="Unpaid taken" class="num">{{ item.used_unpaid | number }}</td>
               <td data-label="Balance" class="num">
-                <span class="chip {{ 'chip-ok' if item.balance >= 0 else 'chip-danger' }}">{{ item.balance | number }}</span>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+                  <span class="chip {{ 'chip-ok' if item.balance >= 0 else 'chip-danger' }}" style="font-weight:700">{{ item.balance | number }}</span>
+                  <div style="width:65px;height:5px;background:#e5e7eb;border-radius:999px;overflow:hidden" title="PL quota consumed: {{ item.quotas[0].pct if item.quotas else 0 }}%">
+                    <div style="height:100%;width:{{ [item.quotas[0].pct if item.quotas else 0, 100] | min }}%;background:var(--primary)"></div>
+                  </div>
+                </div>
               </td>
             </tr>
           {% else %}

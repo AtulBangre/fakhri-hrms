@@ -33,8 +33,17 @@
       <button class="btn btn-primary" type="submit">Show</button>
       <a class="btn" href="/attendance/register">This month</a>
       <div class="field" style="margin-left:auto">
+        <label for="statusQuickFilter">Filter Exceptions</label>
+        <select id="statusQuickFilter">
+          <option value="">All statuses</option>
+          <option value="A">Has Absent (A)</option>
+          <option value="½">Has Half-Day (½)</option>
+          <option value="L">Has Leave (L)</option>
+        </select>
+      </div>
+      <div class="field">
         <label for="empFilter">Quick Search</label>
-        <input id="empFilter" type="text" placeholder="Filter by name/code..." style="min-width: 190px;">
+        <input id="empFilter" type="text" placeholder="Filter by name/code..." style="min-width: 170px;">
       </div>
     </form>
   </div>
@@ -57,7 +66,8 @@
     </thead>
     <tbody>
       {% for row in register.rows %}
-        <tr class="emp-row" data-search="{{ (row.employee.name ~ ' ' ~ row.employee.code ~ ' ' ~ (row.employee.department or '')) | lower }}">
+        <tr class="emp-row" data-search="{{ (row.employee.name ~ ' ' ~ row.employee.code ~ ' ' ~ (row.employee.department or '')) | lower }}"
+            data-codes="{% for c in row.cells %}{{ c.code }} {% endfor %}">
           <td class="sticky-col">
             <a href="/employees/{{ row.employee.id }}"><strong>{{ row.employee.name }}</strong></a>
             <span class="sub muted" style="display:block">{{ row.employee.code }}{% if row.employee.department %} · {{ row.employee.department }}{% endif %}</span>
@@ -189,18 +199,25 @@
 
 <script>
   (function() {
-    // 1. Live Filter
+    // 1. Live Filters
     var filterInput = document.getElementById("empFilter");
-    if (filterInput) {
-      filterInput.addEventListener("input", function(e) {
-        var query = e.target.value.toLowerCase().trim();
-        var rows = document.querySelectorAll("#registerTable tbody tr.emp-row");
-        rows.forEach(function(row) {
-          var searchTxt = row.getAttribute("data-search") || "";
-          row.style.display = searchTxt.indexOf(query) !== -1 ? "" : "none";
-        });
+    var statusFilter = document.getElementById("statusQuickFilter");
+
+    function applyFilters() {
+      var query = filterInput ? filterInput.value.toLowerCase().trim() : "";
+      var requiredCode = statusFilter ? statusFilter.value : "";
+      var rows = document.querySelectorAll("#registerTable tbody tr.emp-row");
+      rows.forEach(function(row) {
+        var searchTxt = row.getAttribute("data-search") || "";
+        var codes = row.getAttribute("data-codes") || "";
+        var matchesText = !query || searchTxt.indexOf(query) !== -1;
+        var matchesStatus = !requiredCode || codes.indexOf(requiredCode) !== -1;
+        row.style.display = (matchesText && matchesStatus) ? "" : "none";
       });
     }
+
+    if (filterInput) filterInput.addEventListener("input", applyFilters);
+    if (statusFilter) statusFilter.addEventListener("change", applyFilters);
 
     // 2. Interactive Modal
     var modal = document.getElementById("quickMarkModal");

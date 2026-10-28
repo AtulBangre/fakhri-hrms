@@ -457,6 +457,67 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             (employee_id,),
         )
     )
+
+    used_pl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'paid'",
+            (employee_id,),
+        ) or 0
+    )
+    used_sl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'sick'",
+            (employee_id,),
+        ) or 0
+    )
+    used_cl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'casual'",
+            (employee_id,),
+        ) or 0
+    )
+    annual_sl = storage.get_float("sl_annual_quota", 7.0)
+    annual_cl = storage.get_float("cl_annual_quota", 8.0)
+
+    quotas = [
+        {
+            "code": "PL",
+            "name": "Paid Leave",
+            "used": round(used_pl, 1),
+            "allocated": round(accrued, 1),
+            "remaining": max(round(accrued - used_pl, 1), 0),
+            "pct": min(int(round((used_pl / max(accrued, 1)) * 100)), 100),
+            "color": "var(--primary)",
+            "bg": "var(--primary-soft)",
+            "border": "var(--primary-soft-border)",
+        },
+        {
+            "code": "SL",
+            "name": "Sick Leave",
+            "used": round(used_sl, 1),
+            "allocated": round(annual_sl, 1),
+            "remaining": max(round(annual_sl - used_sl, 1), 0),
+            "pct": min(int(round((used_sl / max(annual_sl, 1)) * 100)), 100),
+            "color": "#0D9488",
+            "bg": "#F0FDFA",
+            "border": "#99F6E4",
+        },
+        {
+            "code": "CL",
+            "name": "Casual Leave",
+            "used": round(used_cl, 1),
+            "allocated": round(annual_cl, 1),
+            "remaining": max(round(annual_cl - used_cl, 1), 0),
+            "pct": min(int(round((used_cl / max(annual_cl, 1)) * 100)), 100),
+            "color": "#D97706",
+            "bg": "#FFFBEB",
+            "border": "#FDE68A",
+        },
+    ]
+
     return {
         "accrual_per_month": accrual,
         "months_of_service": months,
@@ -467,6 +528,7 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         "balance": round(accrued - used_paid, 2),
         "pending_paid": round(pending_paid, 2),
         "available": round(accrued - used_paid - pending_paid, 2),
+        "quotas": quotas,
         "joined_on": employee.get("joined_on"),
         "as_of": as_of.isoformat(),
     }
