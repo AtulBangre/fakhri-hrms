@@ -18,6 +18,8 @@ initial_credentials.txt
 data/uploads/
 data/*.txt
 .env
+.env.*
+.env.production
 
 # Generated icons can be rebuilt with `python cli.py make-icons`
 # (kept in git on purpose so the PWA works after a clone without running it)
