@@ -164,6 +164,15 @@ def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
                 pass
 
 
+def get_data_version(storage: Storage) -> int:
+    try:
+        with sqlite3.connect(storage.db_path, timeout=5) as conn:
+            row = conn.execute("PRAGMA data_version").fetchone()
+            return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
 class SupabaseSyncWorker:
     """Background daemon thread that periodically replicates SQLite to Supabase."""
 
@@ -174,6 +183,7 @@ class SupabaseSyncWorker:
         self._wake_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_synced: float = 0
+        self._last_data_version: int | None = None
 
     def start(self) -> None:
         if not self.settings.supabase_sync_enabled or not HAS_PSYCOPG2:
@@ -202,6 +212,7 @@ class SupabaseSyncWorker:
         if not self._stop_event.is_set():
             sync_all(self.storage, self.settings)
             self._last_synced = time.time()
+            self._last_data_version = get_data_version(self.storage)
 
         while not self._stop_event.is_set():
             self._wake_event.wait(timeout=self.settings.supabase_sync_interval)
@@ -210,6 +221,12 @@ class SupabaseSyncWorker:
             if self._stop_event.is_set():
                 break
 
+            curr_ver = get_data_version(self.storage)
+            if self._last_data_version is not None and curr_ver == self._last_data_version:
+                logger.debug("Database data_version unchanged (%d), skipping Supabase sync", curr_ver)
+                continue
+
             sync_all(self.storage, self.settings)
             self._last_synced = time.time()
+            self._last_data_version = curr_ver
 
