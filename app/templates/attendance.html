@@ -147,8 +147,8 @@
                 <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
                 <input type="hidden" name="work_date" value="{{ day_iso }}">
                 <input type="hidden" name="status" value="present">
-                <input type="hidden" name="check_in" value="{{ shift_start }}">
-                <input type="hidden" name="check_out" value="{{ shift_end }}">
+                <input type="hidden" name="check_in" value="{{ row.check_in or shift_start }}">
+                <input type="hidden" name="check_out" value="{{ row.check_out or shift_end }}">
                 <input type="hidden" name="return_day" value="{{ day_iso }}">
                 <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present">Present</button>
               </form>

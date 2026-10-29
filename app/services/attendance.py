@@ -670,15 +670,26 @@ def mark_manual(
         check_out = parsed.strftime("%H:%M:%S")
 
     worked = orgtime.minutes_between(check_in, check_out) if (check_in and check_out) else None
+    existing = get_row(storage, employee_id, day)
     late, fine = 0, 0.0
-    if check_in and status == orgtime.STATUS_PRESENT and orgtime.day_kind(storage, day) == "working":
+    if check_in and orgtime.day_kind(storage, day) == "working":
         assessed = orgtime.late_assessment(storage, datetime.combine(day, orgtime.parse_clock(check_in)))
         late, fine = assessed["late_minutes"], assessed["fine"]
-        if assessed["half_day"]:
-            status = orgtime.STATUS_HALF_DAY  # late-arrival policy: a half day, no fine
+        if status == orgtime.STATUS_PRESENT:
+            if assessed["half_day"]:
+                status = orgtime.STATUS_HALF_DAY  # late-arrival policy: a half day, no fine
+                if not note:
+                    note = "late arrival — half day"
+        elif status == orgtime.STATUS_HALF_DAY:
+            existing_note = existing.get("note") if existing else None
+            is_late_half_day = (note == "late arrival — half day") or (existing_note == "late arrival — half day")
+            if is_late_half_day and not assessed["half_day"]:
+                # The updated check-in time is no longer late enough for half day; promote to present.
+                status = orgtime.STATUS_PRESENT
+                if note == "late arrival — half day":
+                    note = None
 
     now = utcnow_iso()
-    existing = get_row(storage, employee_id, day)
     if existing and existing.get("leave_id"):
         if not release_leave:
             raise LeaveDayConflict(

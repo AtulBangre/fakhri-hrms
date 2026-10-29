@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from app import auth, notify
 from app.config import SETTING_DEFS
 from app.db import Storage
-from app.services import employees as employees_service, leave as leave_service, orgtime
+from app.services import attendance as attendance_service, employees as employees_service, leave as leave_service, orgtime
 from tests.conftest import HR_PASSWORD, HR_USERNAME
 from tests.helpers import csrf_of
 
@@ -218,4 +218,39 @@ def test_attendance_clear_get_redirect(hr_client: TestClient):
     resp = hr_client.get("/attendance/clear", follow_redirects=False)
     assert resp.status_code == 303
     assert "/attendance" in resp.headers["location"]
+
+
+def test_manual_time_update_promotes_late_half_day_to_present(storage: Storage):
+    """Verify that when an employee was marked half-day due to late arrival,
+    and HR edits check-in to an on-time hour, it automatically promotes to Present."""
+    emp_id = employees_service.create_employee(storage, {
+        "name": "Test Emp",
+        "code": "TST001",
+        "joined_on": "2026-01-01",
+    })
+    # Simulate a late scan that resulted in half_day
+    storage.execute(
+        """
+        INSERT INTO attendance (employee_id, work_date, status, check_in, late_minutes, source, note, created_at, updated_at)
+        VALUES (?, '2026-10-29', 'half_day', '17:59:00', 449, 'scan', 'late arrival — half day', '2026-10-29T12:00:00', '2026-10-29T12:00:00')
+        """,
+        (emp_id,)
+    )
+
+    # HR updates check-in time to 10:01 (on time) while form may have still had status='half_day'
+    attendance_service.mark_manual(
+        storage,
+        employee_id=emp_id,
+        work_date="2026-10-29",
+        status="half_day",
+        check_in="10:01",
+        note="late arrival — half day",
+        actor="hr",
+    )
+
+    row = attendance_service.get_row(storage, emp_id, "2026-10-29")
+    assert row["status"] == "present"
+    assert row["check_in"] == "10:01:00"
+    assert row["note"] is None
+
 
