@@ -394,6 +394,12 @@ def cmd_sync_supabase(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def cmd_production_reset(args: argparse.Namespace, settings: Settings) -> int:
+    from scripts.production_reset import reset_production
+    reset_production()
+    return 0
+
+
 # --------------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -461,6 +467,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sync_sb = sub.add_parser("sync-supabase", help="replicate local SQLite database to Supabase Cloud")
     sync_sb.set_defaults(func=cmd_sync_supabase)
+
+    prod_reset = sub.add_parser("production-reset", help="reset database to clean state with single HR admin account")
+    prod_reset.set_defaults(func=cmd_production_reset)
 
     return parser
 

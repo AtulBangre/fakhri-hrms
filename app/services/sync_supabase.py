@@ -94,8 +94,21 @@ def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
 
                 rows = s_cur.execute(f'SELECT * FROM "{tbl}"').fetchall()
                 if not rows:
+                    try:
+                        pg_cur.execute(f'TRUNCATE TABLE "{tbl}" CASCADE')
+                    except Exception:
+                        pass
                     results[tbl] = 0
                     continue
+
+                if pks and len(pks) == 1:
+                    pk_raw = pks[0].strip('"')
+                    local_ids = [row[pk_raw] for row in rows if row[pk_raw] is not None]
+                    if local_ids:
+                        try:
+                            pg_cur.execute(f'DELETE FROM "{tbl}" WHERE "{pk_raw}" NOT IN %s', (tuple(local_ids),))
+                        except Exception:
+                            pass
 
                 placeholders = ", ".join(["%s"] * len(col_names))
                 cols_escaped = ", ".join([f'"{c}"' for c in col_names])

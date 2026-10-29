@@ -322,7 +322,10 @@ def create_user(
 
 def get_user_by_username(storage: Storage, username: str) -> dict[str, Any] | None:
     clean = username.strip().lower()
-    user = storage.query_one("SELECT * FROM users WHERE username = ?", (clean,))
+    user = storage.query_one(
+        "SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(COALESCE(email, '')) = ?",
+        (clean, clean),
+    )
     if user:
         return user
     user = storage.query_one(
@@ -458,13 +461,10 @@ CREDENTIALS_FILE = "initial_credentials.txt"
 
 
 def ensure_default_users(storage: Storage, settings: Settings) -> list[tuple[str, str, str]]:
-    """Create the first HR and kiosk logins if the users table is empty.
+    """Create the first HR and kiosk logins if the users table is empty."""
+    if storage.scalar("SELECT COUNT(*) FROM users", default=0) > 0:
+        return []
 
-    Returns ``[(role, username, password), ...]`` for anything newly created so
-    the caller can show the operator. Passwords are also written to
-    ``data/initial_credentials.txt`` (0600) because a printed log line is easy to
-    lose.
-    """
     created: list[tuple[str, str, str]] = []
 
     if get_user_by_username(storage, settings.default_hr_username) is None:
