@@ -346,6 +346,15 @@ def request_leave(
             from_date=leave["from_date"], to_date=leave["to_date"],
             days=leave["days"], reason=reason or "",
         )
+        if employee.get("email"):
+            notify.queue_email(
+                storage, employee["email"], "leave_applied_confirmation",
+                settings=settings, category="leave_requested",
+                name=(employee.get("name") or "").split(" ")[0] or "there",
+                leave_type=orgtime.LEAVE_LABELS.get(leave_type, leave_type),
+                from_date=leave["from_date"], to_date=leave["to_date"],
+                days=leave["days"],
+            )
 
     return redirect(
         "/me/leave",

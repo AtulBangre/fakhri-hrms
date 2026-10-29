@@ -93,6 +93,19 @@
             {% endif %}
           </div>
 
+          <div class="field">
+            <label for="shift_id">Work Shift</label>
+            <select id="shift_id" name="shift_id">
+              <option value="">Company Default Shift</option>
+              {% for s in shifts %}
+                <option value="{{ s.id }}" {{ 'selected' if (f.get('shift_id') or (employee.shift_id if employee else None)) == s.id }}>
+                  {{ s.name }} ({{ s.start_time }} – {{ s.end_time }}){% if s.is_default %} [Default]{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+            <div class="hint">Attendance and late rules will follow this shift.</div>
+          </div>
+
           {% if employee %}
           <div class="field">
             <label for="self_punch_mode">Where can they mark attendance?</label>
@@ -139,6 +152,33 @@
             <div class="field"><label for="ifsc">IFSC</label>
               <input id="ifsc" name="ifsc" type="text" maxlength="11" placeholder="HDFC0001234" style="text-transform:uppercase"
                      value="{{ f.get('ifsc') or (employee.ifsc if employee else '') or '' }}"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-head"><h2>Custom Leave Quotas (Optional)</h2><span class="spacer"></span>
+          <span class="small muted">leave blank to follow company defaults</span></div>
+        <div class="card-body">
+          <div class="form-row cols-3">
+            <div class="field">
+              <label for="custom_pl_accrual">Paid Leave (PL) / Month</label>
+              <input id="custom_pl_accrual" name="custom_pl_accrual" type="number" step="0.5" min="0" placeholder="Default: 1.5"
+                     value="{{ f.get('custom_pl_accrual') or (employee.custom_pl_accrual if employee else '') or '' }}">
+              <div class="hint">Accrues dynamically per month of service.</div>
+            </div>
+            <div class="field">
+              <label for="custom_sl_quota">Sick Leave (SL) / Year</label>
+              <input id="custom_sl_quota" name="custom_sl_quota" type="number" step="0.5" min="0" placeholder="Default: 7.0"
+                     value="{{ f.get('custom_sl_quota') or (employee.custom_sl_quota if employee else '') or '' }}">
+              <div class="hint">Annual quota reset each financial year.</div>
+            </div>
+            <div class="field">
+              <label for="custom_cl_quota">Casual Leave (CL) / Year</label>
+              <input id="custom_cl_quota" name="custom_cl_quota" type="number" step="0.5" min="0" placeholder="Default: 8.0"
+                     value="{{ f.get('custom_cl_quota') or (employee.custom_cl_quota if employee else '') or '' }}">
+              <div class="hint">Annual quota reset each financial year.</div>
+            </div>
           </div>
         </div>
       </div>

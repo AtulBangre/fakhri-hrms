@@ -213,6 +213,10 @@ SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
      "Earliest day of the month a run may be finalised or paid. 0 = the last day of the month."),
     ("pl_accrual_per_month", "1.5", "Paid leave accrual / month", "number",
      "Leave balance = months of service x this value - paid leave taken."),
+    ("sl_annual_quota", "7.0", "Sick leave quota / year", "number",
+     "Annual sick leave quota granted to each employee."),
+    ("cl_annual_quota", "8.0", "Casual leave quota / year", "number",
+     "Annual casual leave quota granted to each employee."),
     ("week_off_days", "6", "Weekly off days", "weekdays",
      "Tick every day that is always off — e.g. Saturday + Sunday for a 5-day week. Changes apply to draft "
      "and future months; finalised payroll months keep their figures."),

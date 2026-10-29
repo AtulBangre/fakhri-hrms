@@ -695,6 +695,9 @@ class Storage:
             ("photo_filename", "TEXT"),
             ("shift_id", "INTEGER REFERENCES shifts(id)"),
             ("manager_id", "INTEGER REFERENCES employees(id)"),
+            ("custom_pl_accrual", "REAL"),
+            ("custom_sl_quota", "REAL"),
+            ("custom_cl_quota", "REAL"),
         ],
     }
 

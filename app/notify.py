@@ -142,6 +142,19 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
             f"padding:10px 18px;border-radius:8px;text-decoration:none'>Review &amp; approve</a></p>"
         )
 
+    elif template == "leave_applied_confirmation":
+        subject = f"Leave Request Submitted ({ctx['days']} day(s))"
+        body = (
+            f"<p>Hi {escape(ctx['name'])},</p>"
+            f"<p>Your leave request has been submitted to HR for review.</p>"
+            f"<ul><li><b>Type:</b> {escape(ctx['leave_type'])}</li>"
+            f"<li><b>Dates:</b> {escape(ctx['from_date'])} → {escape(ctx['to_date'])}</li>"
+            f"<li><b>Days:</b> {escape(str(ctx['days']))}</li></ul>"
+            f"<p><a href='{base}/me/leave' style='display:inline-block;background:{BRAND['primary']};color:#fff;"
+            f"padding:10px 18px;border-radius:8px;text-decoration:none'>View leave in portal</a></p>"
+        )
+        footer = "You will receive an email once HR reviews and decides your request."
+
     elif template == "leave_decided":
         decision = ctx["decision"]
         subject = f"Your leave was {decision}"
@@ -346,6 +359,11 @@ def _whatsapp_text(template: str, settings: Settings, **ctx: Any) -> str:
         return (
             f"*{settings.org_name}* — attendance marked OUT at {ctx['time']}. "
             f"Worked {ctx.get('worked') or '—'}."
+        )
+    if template == "leave_applied_confirmation":
+        return (
+            f"*{settings.org_name}* — Your leave request for {ctx['days']} day(s) "
+            f"({ctx['from_date']} → {ctx['to_date']}) has been submitted to HR."
         )
     if template == "leave_decided":
         return (

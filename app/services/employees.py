@@ -270,6 +270,9 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
 
     extra = {field: data[field] for field in PROFILE_FIELDS
              if field not in ("email", "phone") and data.get(field)}
+    for field in ("shift_id", "custom_pl_accrual", "custom_sl_quota", "custom_cl_quota", "self_punch_mode"):
+        if field in data and data[field] is not None and str(data[field]).strip() != "":
+            extra[field] = data[field]
     if extra:
         update_employee(storage, employee_id, extra)
 
@@ -338,6 +341,15 @@ def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) ->
 
     if "joined_on" in data:
         updates["joined_on"] = _clean_date(data.get("joined_on"))
+
+    if "shift_id" in data:
+        sid = data["shift_id"]
+        updates["shift_id"] = int(sid) if sid is not None and str(sid).strip() != "" else None
+
+    for qfield in ("custom_pl_accrual", "custom_sl_quota", "custom_cl_quota"):
+        if qfield in data:
+            val = data[qfield]
+            updates[qfield] = float(val) if val is not None and str(val).strip() != "" else None
 
     if not updates:
         return

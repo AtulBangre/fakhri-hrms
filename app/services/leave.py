@@ -415,7 +415,8 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
     """Accrued vs taken paid leave, counted from the joining date."""
     employee = employees_service.require_employee(storage, employee_id)
     as_of = as_of or orgtime.today(settings)
-    accrual = storage.get_float("pl_accrual_per_month", 1.5)
+    custom_pl = employee.get("custom_pl_accrual")
+    accrual = float(custom_pl) if custom_pl is not None and str(custom_pl).strip() != "" else storage.get_float("pl_accrual_per_month", 1.5)
 
     joined = orgtime.parse_date(employee["joined_on"]) if employee.get("joined_on") else as_of.replace(day=1)
     if as_of < joined:
@@ -479,8 +480,11 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             (employee_id,),
         ) or 0
     )
-    annual_sl = storage.get_float("sl_annual_quota", 7.0)
-    annual_cl = storage.get_float("cl_annual_quota", 8.0)
+    custom_sl = employee.get("custom_sl_quota")
+    annual_sl = float(custom_sl) if custom_sl is not None and str(custom_sl).strip() != "" else storage.get_float("sl_annual_quota", 7.0)
+
+    custom_cl = employee.get("custom_cl_quota")
+    annual_cl = float(custom_cl) if custom_cl is not None and str(custom_cl).strip() != "" else storage.get_float("cl_annual_quota", 8.0)
 
     quotas = [
         {

@@ -144,6 +144,7 @@ def new_page(request: Request, user: SessionUser = Depends(require_hr), storage=
         departments=employees_service.departments(storage),
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
+        shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
         form={},
     )
 
@@ -160,6 +161,7 @@ def _form_error(request, user, storage, data, message):
         departments=employees_service.departments(storage),
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
+        shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
         status_code=422,
     )
 
@@ -190,6 +192,10 @@ async def create(
         "pf": _as_float(text("pf")), "esi": _as_float(text("esi")),
         "professional_tax": _as_float(text("professional_tax")), "notes": text("notes"),
         "statutory_mode": text("statutory_mode", "auto"), "_actor": user.username,
+        "shift_id": text("shift_id") or None,
+        "custom_pl_accrual": text("custom_pl_accrual") or None,
+        "custom_sl_quota": text("custom_sl_quota") or None,
+        "custom_cl_quota": text("custom_cl_quota") or None,
         **{field: text(field) for field in IDENTITY_FIELDS},
         "skip_documents": text("skip_documents"), "create_login": text("create_login"),
         "send_welcome": text("send_welcome"), "portal_username": text("portal_username"),
@@ -298,6 +304,7 @@ def edit_page(
         departments=employees_service.departments(storage),
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
+        shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
         form={},
         masked_aadhaar=employees_service.masked_aadhaar(employee.get("aadhaar_last4")),
         self_punch_labels=employees_service.SELF_PUNCH_LABELS,
@@ -391,6 +398,10 @@ def update(
     ifsc: str = Form(""),
     enable_portal: str = Form(""),
     self_punch_mode: str = Form(""),
+    shift_id: str = Form(""),
+    custom_pl_accrual: str = Form(""),
+    custom_sl_quota: str = Form(""),
+    custom_cl_quota: str = Form(""),
 ):
     from ..auth import verify_form_csrf
 
@@ -404,6 +415,10 @@ def update(
         "notes": notes, "_actor": user.username, "address": address, "emergency_contact": emergency_contact,
         "pan": pan, "bank_name": bank_name, "account_holder": account_holder,
         "account_number": account_number, "ifsc": ifsc,
+        "shift_id": int(shift_id) if shift_id.strip() else None,
+        "custom_pl_accrual": float(custom_pl_accrual) if custom_pl_accrual.strip() else None,
+        "custom_sl_quota": float(custom_sl_quota) if custom_sl_quota.strip() else None,
+        "custom_cl_quota": float(custom_cl_quota) if custom_cl_quota.strip() else None,
     }
     if aadhaar.strip():  # empty means "keep what is on file"
         data["aadhaar"] = aadhaar

@@ -208,6 +208,54 @@
     </div>
 
     <div class="card mb-3">
+      <div class="card-head"><h3>Work Shifts</h3><span class="spacer"></span>
+        <span class="small muted">{{ shifts|length }} shift(s)</span></div>
+      <div class="card-body">
+        <form method="post" action="/settings/shifts" class="mb-3">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="field"><label for="shift_name">Shift Name</label>
+            <input id="shift_name" name="name" type="text" required placeholder="e.g. Night Shift / Morning Shift"></div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="s_start">Start Time</label><input id="s_start" name="start_time" type="time" required value="09:30"></div>
+            <div class="field"><label for="s_end">End Time</label><input id="s_end" name="end_time" type="time" required value="18:30"></div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="s_grace">Grace (mins)</label><input id="s_grace" name="grace_minutes" type="number" min="0" value="15"></div>
+            <div class="field"><label for="s_half">Half-day (mins)</label><input id="s_half" name="half_day_minutes" type="number" min="0" value="240"></div>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit">+ Add Shift</button>
+        </form>
+
+        <div class="kv">
+          {% for s in shifts %}
+            <div style="flex-direction:column;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border)">
+              <div style="display:flex;width:100%;justify-content:space-between;align-items:center">
+                <strong>{{ s.name }}</strong>
+                <div>
+                  {% if s.is_default %}
+                    <span class="chip chip-primary">Default</span>
+                  {% else %}
+                    <form method="post" action="/settings/shifts/{{ s.id }}/default" style="display:inline">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <button class="btn btn-sm btn-ghost" type="submit">Make default</button>
+                    </form>
+                    <form method="post" action="/settings/shifts/{{ s.id }}/delete" style="display:inline" data-confirm="Delete shift '{{ s.name }}'?">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <button class="btn btn-sm btn-ghost" style="color:var(--danger)" type="submit">✕</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="small muted" style="margin-top:2px">
+                {{ s.start_time }} – {{ s.end_time }} · Grace: {{ s.grace_minutes }}m · Half-day: {{ s.half_day_minutes }}m
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
       <div class="card-head"><h3>Holidays</h3><span class="spacer"></span>
         <span class="small muted">Week off: {{ week_off_label }}</span></div>
       <div class="card-body">

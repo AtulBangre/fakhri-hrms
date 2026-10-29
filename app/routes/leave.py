@@ -89,6 +89,8 @@ def apply(
         return redirect("/leave", err=str(exc), period=period or None)
 
     leave = result["leave"]
+    if settings.notify_leave_email:
+        _notify_decision(storage, settings, leave, "approved")
     message = (
         f"{leave['employee_name']}: {leave['days']:g} day(s) "
         f"{orgtime.LEAVE_LABELS.get(leave_type, leave_type).lower()} applied."

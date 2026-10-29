@@ -92,6 +92,21 @@ def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
                 create_sql = f'CREATE TABLE IF NOT EXISTS "{tbl}" ({", ".join(col_defs)}{pk_clause});'
                 pg_cur.execute(create_sql)
 
+                # Ensure missing columns in PostgreSQL are added
+                pg_cur.execute(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+                    (tbl,)
+                )
+                existing_pg_cols = {r[0] for r in pg_cur.fetchall()}
+                for c in cols_info:
+                    c_name = c["name"]
+                    if c_name not in existing_pg_cols:
+                        c_type = map_type(c["type"])
+                        try:
+                            pg_cur.execute(f'ALTER TABLE "{tbl}" ADD COLUMN IF NOT EXISTS "{c_name}" {c_type}')
+                        except Exception:
+                            pass
+
                 rows = s_cur.execute(f'SELECT * FROM "{tbl}"').fetchall()
                 if not rows:
                     try:
