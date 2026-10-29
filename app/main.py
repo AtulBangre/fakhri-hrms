@@ -27,6 +27,7 @@ from .db import Storage
 from .deps import STATIC_DIR, get_session, templates
 from .face import FaceService
 from .notify import NotificationWorker
+from .services.sync_supabase import SupabaseSyncWorker
 from .routes import (
     account, admin, ai_hr, attendance, auth_routes, dashboard, employees,
     appraisals, engagement, exits, field, kiosk, leave, me, meta, payroll, records, regularizations, tax,
@@ -66,6 +67,8 @@ async def lifespan(app: FastAPI):
     app.state.face = FaceService(settings)
     app.state.notifier = NotificationWorker(app.state.storage, settings)
     app.state.notifier.start()
+    app.state.supabase_sync = SupabaseSyncWorker(app.state.storage, settings)
+    app.state.supabase_sync.start()
 
     created = ensure_default_users(app.state.storage, settings)
     health = app.state.face.health()
@@ -97,6 +100,8 @@ async def lifespan(app: FastAPI):
     finally:
         if hasattr(app.state.face, "close"):
             app.state.face.close()
+        if hasattr(app.state, "supabase_sync"):
+            app.state.supabase_sync.stop()
         app.state.notifier.stop()
         app.state.storage.close()
         logger.info("HRMS stopped")

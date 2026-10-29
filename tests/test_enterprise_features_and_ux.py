@@ -213,3 +213,18 @@ def test_attendance_register_filter_ui(client_and_storage):
     assert res.status_code == 200
     assert "statusQuickFilter" in res.text
     assert "Filter Exceptions" in res.text
+
+
+def test_supabase_sync_helpers(client_and_storage):
+    from app.services.sync_supabase import map_type, SupabaseSyncWorker
+
+    assert map_type("INTEGER") == "BIGINT"
+    assert map_type("REAL") == "DOUBLE PRECISION"
+    assert map_type("TEXT") == "TEXT"
+
+    _, storage = client_and_storage
+    settings = Settings(supabase_sync_enabled=False)
+    worker = SupabaseSyncWorker(storage, settings)
+    worker.start()
+    worker.trigger()
+    worker.stop()

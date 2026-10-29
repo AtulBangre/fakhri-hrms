@@ -380,6 +380,20 @@ def cmd_seed_demo(args: argparse.Namespace, settings: Settings) -> int:
     return seed(settings, employees=args.employees, enrol=args.enrol, reset=args.reset)
 
 
+def cmd_sync_supabase(args: argparse.Namespace, settings: Settings) -> int:
+    from app.services.sync_supabase import sync_all
+
+    storage = Storage(settings)
+    print("Syncing SQLite database to Supabase Cloud...")
+    res = sync_all(storage, settings)
+    if not res:
+        warn("No tables synced. Check Supabase connection or credentials.")
+        return 1
+    total = sum(res.values())
+    ok(f"Synced {total} rows across {len(res)} tables to Supabase Cloud.")
+    return 0
+
+
 # --------------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -444,6 +458,9 @@ def build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--enrol", action="store_true", help="also enrol faces via the face service")
     seed.add_argument("--reset", action="store_true", help="delete existing demo employees first")
     seed.set_defaults(func=cmd_seed_demo)
+
+    sync_sb = sub.add_parser("sync-supabase", help="replicate local SQLite database to Supabase Cloud")
+    sync_sb.set_defaults(func=cmd_sync_supabase)
 
     return parser
 

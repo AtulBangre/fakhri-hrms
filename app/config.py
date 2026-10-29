@@ -151,6 +151,12 @@ class Settings:
     #: marked. Turn it on only if your gate staff need it to verify a match.
     kiosk_show_name: bool = field(default_factory=lambda: _env_bool("HRMS_KIOSK_SHOW_NAME", False))
 
+    # --- Supabase Cloud Sync ---------------------------------------------
+    supabase_url: str = field(default_factory=lambda: _env("HRMS_SUPABASE_URL", "https://talpikqopqcrnyfvveit.supabase.co"))
+    supabase_db_url: str = field(default_factory=lambda: _env("HRMS_SUPABASE_DB_URL", "postgresql://postgres.talpikqopqcrnyfvveit:Kuldeep%40123@aws-0-eu-west-2.pooler.supabase.com:5432/postgres"))
+    supabase_sync_enabled: bool = field(default_factory=lambda: _env_bool("HRMS_SUPABASE_SYNC_ENABLED", True))
+    supabase_sync_interval: int = field(default_factory=lambda: int(_env("HRMS_SUPABASE_SYNC_INTERVAL", "60")))
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / self.db_filename

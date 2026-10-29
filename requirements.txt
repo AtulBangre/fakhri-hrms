@@ -7,3 +7,4 @@ httpx==0.28.1
 pillow==12.3.0
 python-dotenv==1.2.4
 fpdf2>=2.7.9
+psycopg2-binary>=2.9.9
