@@ -91,7 +91,7 @@ class Settings:
     secure_cookies: bool = field(default_factory=lambda: _env_bool("HRMS_SECURE_COOKIES", False))
 
     # --- misc -------------------------------------------------------------
-    public_base_url: str = field(default_factory=lambda: _env("HRMS_PUBLIC_BASE_URL", "http://127.0.0.1:8100"))
+    public_base_url: str = field(default_factory=lambda: _env("HRMS_PUBLIC_BASE_URL", "https://hrms.fakhriitservices.com"))
     log_level: str = field(default_factory=lambda: _env("HRMS_LOG_LEVEL", "INFO"))
     #: Interactive API docs at /api/docs — off unless explicitly enabled (SEC-07).
     api_docs: bool = field(default_factory=lambda: _env_bool("HRMS_API_DOCS", False))

@@ -34,12 +34,16 @@
       <div class="stat"><div class="label">Worked hours</div><div class="value">{{ (summary.worked_minutes / 60) | round(0) | int }}h</div><div class="foot">{{ period_label }}</div></div>
     </div>
 
-    <div class="card mb-3">
-      <div class="card-head">
-        <h2>Salary structure</h2>
+    <details class="card mb-3 disclosure">
+      <summary class="card-head" style="cursor:pointer;list-style:none;display:flex;align-items:center;user-select:none">
+        <h2 style="margin:0;display:flex;align-items:center;gap:.5rem">
+          <span>Salary structure</span>
+          <span class="small muted" style="font-weight:normal;font-size:.82rem">(click to view / edit)</span>
+        </h2>
         <span class="spacer"></span>
         <span class="chip chip-primary">current: {{ employee.monthly_gross | money }}/month</span>
-      </div>
+        <span style="font-size:.85rem;margin-left:.75rem;color:var(--muted)">▼</span>
+      </summary>
       <div class="card-body">
         <form method="post" action="/employees/{{ employee.id }}/salary">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -77,7 +81,7 @@
           <span class="small muted">Old structures stay in history and are used for past payroll months.</span>
         </form>
       </div>
-    </div>
+    </details>
 
     <div class="card flush mb-3">
       <div class="card-head"><h2>Salary history</h2></div>

@@ -100,6 +100,16 @@ def mark(
     return redirect("/attendance", day=target, ok=msg)
 
 
+@router.get("/clear")
+def clear_get(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    return_day: str = "",
+    work_date: str = "",
+):
+    return redirect("/attendance", day=return_day or work_date or None)
+
+
 @router.post("/clear")
 def clear(
     request: Request,
@@ -113,7 +123,7 @@ def clear(
     verify_form_csrf(user, csrf)
     try:
         attendance_service.clear_day(storage, employee_id=employee_id, work_date=work_date, actor=user.username)
-    except employees_service.ValidationError as exc:
+    except Exception as exc:
         return redirect("/attendance", day=return_day or work_date, err=str(exc))
     return redirect("/attendance", day=return_day or work_date, ok="Entry removed.")
 

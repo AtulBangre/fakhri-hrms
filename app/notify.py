@@ -92,43 +92,52 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
     org = escape(settings.org_name)
 
     if template == "welcome":
-        subject = f"Welcome to {settings.org_name} — your HR portal is ready"
+        subject = f"Welcome to {settings.org_name} — Your Employee Portal Credentials"
+        emp_code = escape(ctx.get('code') or '')
         body = (
-            f"<p>Hi {escape(ctx['name'])},</p>"
-            f"<p>Your employee portal is ready. Use it to see your attendance, download payslips and apply for leave.</p>"
-            f"<table role='presentation' cellpadding='0' cellspacing='0' style='margin:14px 0'>"
-            f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Portal URL</td>"
-            f"<td style='padding:4px 12px;font-family:monospace'><a href='{base}/login'>{base}/login</a></td></tr>"
-            f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Username</td>"
-            f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['username'])}</b></td></tr>"
+            f"<p>Hi <b>{escape(ctx['name'])}</b>,</p>"
+            f"<p>Welcome to <b>{org}</b>! Your official employee self-service portal account is now active.</p>"
+            f"<p>You can use your portal to track daily attendance, punch check-ins, apply for leave, and view or download your monthly payslips.</p>"
+            f"<table role='presentation' cellpadding='0' cellspacing='0' style='margin:18px 0;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 18px;width:100%;max-width:520px'>"
+            f"<tr><td colspan='2' style='padding-bottom:10px;font-size:12px;font-weight:700;color:{BRAND['muted']};text-transform:uppercase;letter-spacing:0.5px'>Login Credentials</td></tr>"
+            f"<tr><td style='padding:5px 0;color:{BRAND['muted']};width:130px'>Portal URL</td>"
+            f"<td style='padding:5px 12px;font-family:monospace'><a href='{base}/login' style='color:{BRAND['primary']};font-weight:bold;text-decoration:none'>{base}/login</a></td></tr>"
             + (
-                f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Login Email</td>"
-                f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['email'])}</b></td></tr>"
+                f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Employee Code</td>"
+                f"<td style='padding:5px 12px;font-family:monospace'><b>{emp_code}</b></td></tr>"
+                if emp_code else ""
+            )
+            + f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Username</td>"
+            f"<td style='padding:5px 12px;font-family:monospace'><b>{escape(ctx['username'])}</b></td></tr>"
+            + (
+                f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Login Email</td>"
+                f"<td style='padding:5px 12px;font-family:monospace'><b>{escape(ctx['email'])}</b></td></tr>"
                 if ctx.get("email") else ""
             )
             + (
-                f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Login Mobile</td>"
-                f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['phone'])}</b></td></tr>"
+                f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Login Mobile</td>"
+                f"<td style='padding:5px 12px;font-family:monospace'><b>{escape(ctx['phone'])}</b></td></tr>"
                 if ctx.get("phone") else ""
             )
             + (
-                f"<tr><td style='padding:4px 0;color:{BRAND['muted']}'>Password</td>"
-                f"<td style='padding:4px 12px;font-family:monospace'><b>{escape(ctx['password'])}</b></td></tr>"
+                f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Password</td>"
+                f"<td style='padding:5px 12px;font-family:monospace;font-size:15px;color:{BRAND['primary']}'><b>{escape(ctx['password'])}</b></td></tr>"
                 if ctx.get("password") else ""
             )
             + "</table>"
             + (
                 f"<p><a href='{base}{escape(ctx['link'])}' style='display:inline-block;background:{BRAND['primary']};"
-                f"color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none'>Set my password</a></p>"
+                f"color:#fff;padding:12px 22px;border-radius:8px;font-weight:600;text-decoration:none'>Set my password</a></p>"
                 f"<p style='color:{BRAND['muted']};font-size:12px'>The link works once and expires in "
-                f"{escape(str(ctx.get('hours', 72)))} hours. You can sign in with your email, mobile number or username.</p>"
+                f"{escape(str(ctx.get('hours', 72)))} hours.</p>"
                 if ctx.get("link") else
                 f"<p><a href='{base}/login' style='display:inline-block;background:{BRAND['primary']};color:#fff;"
-                f"padding:10px 18px;border-radius:8px;text-decoration:none'>Open Employee Portal</a></p>"
-                f"<p style='color:{BRAND['muted']};font-size:12px'>You can sign in using your <b>Email</b>, <b>Mobile Number</b>, or <b>Username</b> with the password above.</p>"
+                f"padding:12px 24px;border-radius:8px;font-weight:600;text-decoration:none'>Open Employee Portal →</a></p>"
+                f"<p style='color:{BRAND['muted']};font-size:12px;line-height:1.5'>You can sign in using your <b>Email</b>, <b>Mobile Number</b>, or <b>Username</b> with the password above.<br>"
+                f"For security, please change your password after logging in from your portal profile.</p>"
             )
         )
-        footer = "Ask HR if you did not expect this message."
+        footer = "If you have questions, reply directly to this email or contact HR at hr@fakhriitservices.com."
 
     elif template == "leave_requested":
         subject = f"Leave request from {ctx['name']} ({ctx['days']} day(s))"
@@ -384,13 +393,15 @@ def _whatsapp_text(template: str, settings: Settings, **ctx: Any) -> str:
         pw = ctx.get("password") or "—"
         parts = [f"*{settings.org_name}* — Welcome {ctx['name']}! Your employee portal login is ready.\n"]
         parts.append(f"Portal: {base}/login")
+        if ctx.get("code"):
+            parts.append(f"Employee Code: {ctx['code']}")
         parts.append(f"Username: {ctx['username']}")
         if ctx.get("email"):
             parts.append(f"Email: {ctx['email']}")
         if ctx.get("phone"):
             parts.append(f"Mobile: {ctx['phone']}")
         parts.append(f"Password: {pw}")
-        parts.append("\nYou can sign in with your email or mobile number using this password.")
+        parts.append("\nYou can sign in with your email, mobile number, or username using this password.")
         return "\n".join(parts)
     return _sanitise(ctx.get("message") or "Notification from HRMS")
 
@@ -450,10 +461,22 @@ def _attachments_for(storage: Storage, settings: Settings, row: dict[str, Any]) 
     return [(filename_for(slip), data)]
 
 
+def _clean_email_address(raw: str | None) -> str:
+    """Extract a pure email address from strings like 'Name <email@dom.com>' or '\"email@dom.com\"'."""
+    if not raw:
+        return ""
+    import email.utils
+    clean_raw = raw.strip().strip('"').strip("'")
+    _, addr = email.utils.parseaddr(clean_raw)
+    return (addr or clean_raw).strip().strip('"').strip("'")
+
+
 def _send_email(storage: Storage, settings: Settings, row: dict[str, Any]) -> str:
     """Deliver one email. Returns a short driver receipt for the log."""
     to = row["recipient"]
     attachments = _attachments_for(storage, settings, row)
+    reply_to_addr = "hr@fakhriitservices.com"
+    org_display = settings.org_name or "Fakhri IT Services"
 
     if not settings.smtp_host:
         # console driver: keep a real .eml on disk so it can be inspected
@@ -461,9 +484,13 @@ def _send_email(storage: Storage, settings: Settings, row: dict[str, Any]) -> st
         outbox.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
         safe = re.sub(r"[^a-zA-Z0-9._-]", "_", to)[:40]
+        from_addr = _clean_email_address(settings.smtp_from) or f"hrms@{org_display.lower().replace(' ', '')}.local"
         message = EmailMessage()
-        message["From"] = formataddr((settings.org_name, settings.smtp_from or f"hrms@{settings.org_name.lower().replace(' ', '')}.local"))
+        message["From"] = formataddr((org_display, from_addr))
         message["To"] = to
+        message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_addr))
+        if to.strip().lower() != reply_to_addr.lower():
+            message["Bcc"] = reply_to_addr
         message["Subject"] = row["subject"] or "(no subject)"
         message["Message-ID"] = make_msgid(domain="hrms.local")
         message.set_content(_plain(row["body"]))
@@ -474,9 +501,13 @@ def _send_email(storage: Storage, settings: Settings, row: dict[str, Any]) -> st
         path.write_bytes(bytes(message))
         return f"written to {path.relative_to(settings.data_dir)}"
 
+    from_addr = _clean_email_address(settings.smtp_from or settings.smtp_user)
     message = EmailMessage()
-    message["From"] = formataddr((settings.org_name, settings.smtp_from or settings.smtp_user))
+    message["From"] = formataddr((org_display, from_addr))
     message["To"] = to
+    message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_addr))
+    if to.strip().lower() != reply_to_addr.lower():
+        message["Bcc"] = reply_to_addr
     message["Subject"] = row["subject"] or "(no subject)"
     message["Message-ID"] = make_msgid()
     message.set_content(_plain(row["body"]))

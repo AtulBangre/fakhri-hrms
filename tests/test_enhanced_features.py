@@ -180,3 +180,42 @@ def test_individual_employee_custom_leave_quota_override(storage: Storage, setti
     assert q2["PL"] == 17.5
     assert q2["SL"] == 12.0
     assert q2["CL"] == 15.0
+
+
+def test_email_reply_to_and_bcc_hr(storage: Storage, settings, tmp_path):
+    """Verify outgoing emails carry proper Reply-To, Bcc to hr@fakhriitservices.com, and clean From."""
+    from email import policy
+    from email.parser import BytesParser
+    from pathlib import Path
+
+    settings.data_dir = tmp_path
+    settings.smtp_host = ""  # console driver writes to outbox
+    settings.smtp_from = '"Fakhri HRMS <k6263638053@gmail.com>"'
+    settings.org_name = "Fakhri IT Services"
+
+    row_id = notify.queue_email(
+        storage, "emp@example.com", "welcome", settings=settings,
+        category="welcome", name="Aman", username="aman01", password="SecretPassword1!",
+    )
+    assert row_id is not None
+    notify.dispatch(storage, settings, limit=10)
+
+    outbox = Path(settings.data_dir) / "outbox"
+    eml_files = list(outbox.glob("*.eml"))
+    assert len(eml_files) > 0
+
+    msg = BytesParser(policy=policy.default).parsebytes(eml_files[-1].read_bytes())
+    assert "Fakhri IT Services" in msg["From"]
+    assert "k6263638053@gmail.com" in msg["From"]
+    assert "Not Provided" not in msg["From"]
+    assert "hr@fakhriitservices.com" in msg["Reply-To"]
+    assert "hr@fakhriitservices.com" in msg["Bcc"]
+    assert "https://hrms.fakhriitservices.com/login" in msg.get_body().get_content()
+
+
+def test_attendance_clear_get_redirect(hr_client: TestClient):
+    """Verify GET /attendance/clear safely redirects to /attendance without 405 error."""
+    resp = hr_client.get("/attendance/clear", follow_redirects=False)
+    assert resp.status_code == 303
+    assert "/attendance" in resp.headers["location"]
+

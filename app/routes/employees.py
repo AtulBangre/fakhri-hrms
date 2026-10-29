@@ -249,6 +249,7 @@ async def create(
                 notify.queue_email(
                     storage, employee["email"], "welcome", settings=settings, category="welcome",
                     name=employee["name"].split(" ")[0],
+                    code=employee.get("code") or "",
                     username=portal_user["username"],
                     password=password,
                     email=employee["email"],
@@ -260,6 +261,7 @@ async def create(
                     notify.queue_whatsapp(
                         storage, employee["phone"], "welcome", settings=settings,
                         name=employee["name"].split(" ")[0],
+                        code=employee.get("code") or "",
                         username=portal_user["username"],
                         password=password,
                         email=employee.get("email"),
