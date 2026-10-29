@@ -184,3 +184,4 @@ class SupabaseSyncWorker:
 
             sync_all(self.storage, self.settings)
             self._last_synced = time.time()
+
