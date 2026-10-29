@@ -17,7 +17,7 @@ import httpx
 from app.auth import hash_password
 from app.config import get_settings
 from app.db import Storage, utcnow_iso
-from app.services.sync_supabase import sync_to_supabase
+from app.services.sync_supabase import sync_all
 
 
 def reset_production() -> None:
@@ -134,7 +134,7 @@ def reset_production() -> None:
     # Replicate clean state to Supabase Cloud
     if settings.supabase_sync_enabled and settings.supabase_db_url:
         print("Replicating clean state to Supabase Cloud...")
-        res = sync_to_supabase(storage, settings)
+        res = sync_all(storage, settings)
         print(f"Supabase sync complete: {res}")
 
     print("\n" + "=" * 60)
