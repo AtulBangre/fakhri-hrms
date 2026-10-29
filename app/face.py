@@ -17,6 +17,7 @@ of pretending to work.
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
@@ -78,6 +79,7 @@ class FaceService:
         self.collection = settings.face_collection
         self.timeout = settings.face_timeout
         self._collection_ready = False
+        self._cached_health: tuple[float, dict] | None = None
         self._pool = httpx.Client(base_url=self.base_url, headers=self._headers, timeout=self.timeout)
 
     def close(self) -> None:
@@ -112,19 +114,29 @@ class FaceService:
         return FaceServiceError(message, status_code=response.status_code, code=code)
 
     # ---------------------------------------------------------------- health
-    def health(self) -> dict:
-        """Return ``{"ok": bool, "detail": str, ...}`` — never raises."""
+    def health(self, force: bool = False) -> dict:
+        """Return ``{"ok": bool, "detail": str, ...}`` — never raises.
+        Caches health for 15s so page navigations do not block on external HTTP calls.
+        """
+        now = time.monotonic()
+        if not force and self._cached_health is not None:
+            cached_at, cached_res = self._cached_health
+            if (now - cached_at) < 15.0:
+                return cached_res
+
         # Short timeout: this backs status badges, which must not stall a page.
-        quick = min(5.0, float(self.timeout))
+        quick = min(3.0, float(self.timeout))
         try:
             with self._client() as client:
                 root = client.get("/", timeout=quick)
                 if root.status_code >= 400:
                     error = self._error_from_response(root)
-                    return {"ok": False, "detail": error.message, "status_code": root.status_code}
+                    res = {"ok": False, "detail": error.message, "status_code": root.status_code}
+                    self._cached_health = (now, res)
+                    return res
                 info = root.json()
                 ready = client.get("/readyz", timeout=quick)
-                return {
+                res = {
                     "ok": ready.status_code == 200,
                     "detail": "connected",
                     "auth_mode": info.get("auth_mode"),
@@ -132,8 +144,12 @@ class FaceService:
                     "version": info.get("version"),
                     "collection": self.collection,
                 }
+                self._cached_health = (now, res)
+                return res
         except httpx.HTTPError as exc:
-            return {"ok": False, "detail": f"cannot reach {self.base_url}: {exc.__class__.__name__}"}
+            res = {"ok": False, "detail": f"cannot reach {self.base_url}: {exc.__class__.__name__}"}
+            self._cached_health = (now, res)
+            return res
 
     # ----------------------------------------------------------- collections
     def ensure_collection(self) -> None:

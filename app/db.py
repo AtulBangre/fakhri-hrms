@@ -19,6 +19,8 @@ from .config import SETTING_DEFS, Settings
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -517,6 +519,12 @@ class Storage:
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         with self._lock:
+            self._conn.execute("PRAGMA journal_mode=WAL;")
+            self._conn.execute("PRAGMA synchronous=NORMAL;")
+            self._conn.execute("PRAGMA busy_timeout=5000;")
+            self._conn.execute("PRAGMA cache_size=-64000;")
+            self._conn.execute("PRAGMA temp_store=MEMORY;")
+            self._conn.execute("PRAGMA foreign_keys=ON;")
             self._conn.executescript(SCHEMA)
             self._conn.commit()
         self._migrate()

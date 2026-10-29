@@ -21,6 +21,13 @@ services:
       FACEAPI_AUTH_ENABLED: "false"
       FACEAPI_LOG_LEVEL: INFO
       FACEAPI_DATA_DIR: /app/data
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 350M
     volumes:
       - faceapi-data:/app/data
     healthcheck:
@@ -48,7 +55,7 @@ services:
       HRMS_FACEAPI_URL: "http://faceapi:8000"
       HRMS_DATA_DIR: /app/data
       PORT: "8100"
-      WORKERS: "1"
+      WORKERS: "2"
     ports:
       - "${HOST_PORT:-8100}:8100"
     volumes:
