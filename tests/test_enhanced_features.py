@@ -331,4 +331,77 @@ def test_pagarbook_attendance_rules(storage: Storage):
     assert r4["note"] == "approved client visit"
 
 
+def test_bulk_employee_import_with_18_month_salary(storage: Storage, settings):
+    """Verify bulk employee import:
+    - Generates template with 18 salary columns.
+    - Successfully creates employees and records only filled salary months.
+    - Captures failed rows with clear error reasons.
+    """
+    from app.services import employees_bulk
+
+    # 1. Template generation
+    template = employees_bulk.generate_sample_csv(storage, settings)
+    assert "name,code,joined_on" in template
+    assert "salary_" in template
+
+    # 2. Prepare test CSV
+    csv_content = """name,code,joined_on,monthly_gross,department,designation,salary_2026_10,salary_2026_09,salary_2026_08,salary_2026_07
+Amit Verma,BLKE001,2026-07-01,60000,Engineering,Lead Architect,60000,60000,60000,60000
+Sneha Roy,BLKE002,2026-08-15,45000,Design,UI Designer,45000,45000,,
+,BLKE003,2026-01-01,50000,Sales,Rep,50000,,,
+"""
+    result = employees_bulk.import_employees_csv(storage, settings, csv_content, actor="hr_test")
+    assert result["total"] == 3
+    assert result["success_count"] == 2
+    assert result["failed_count"] == 1
+
+    # Check Amit Verma (all 4 salary months filled)
+    emp1 = employees_service.get_employee_by_code(storage, "BLKE001")
+    assert emp1 is not None
+    assert emp1["name"] == "Amit Verma"
+    slips1 = storage.query("SELECT * FROM payslips WHERE employee_id = ? ORDER BY period", (emp1["id"],))
+    assert len(slips1) == 4
+    assert {s["period"] for s in slips1} == {"2026-07", "2026-08", "2026-09", "2026-10"}
+    assert slips1[0]["net_pay"] == 60000.0
+
+    # Check Sneha Roy (only 2 months filled: 2026-10 and 2026-09, empty months skipped)
+    emp2 = employees_service.get_employee_by_code(storage, "BLKE002")
+    assert emp2 is not None
+    assert emp2["name"] == "Sneha Roy"
+    slips2 = storage.query("SELECT * FROM payslips WHERE employee_id = ? ORDER BY period", (emp2["id"],))
+    assert len(slips2) == 2
+    assert {s["period"] for s in slips2} == {"2026-09", "2026-10"}
+    assert slips2[0]["net_pay"] == 45000.0
+
+    # Check Failed Row (missing name)
+    failed = result["failed_rows"][0]
+    assert failed["row"] == 4
+    assert "name is required" in failed["error"].lower()
+
+
+def test_bulk_upload_http_endpoints(hr_client: TestClient):
+    """Verify HTTP GET /employees/bulk-template and POST /employees/bulk-upload."""
+    # 1. Download template
+    res = hr_client.get("/employees/bulk-template")
+    assert res.status_code == 200
+    assert "text/csv" in res.headers["content-type"]
+    assert "salary_" in res.text
+
+    # 2. Upload valid CSV with CSRF
+    token = csrf_of(hr_client, "/employees")
+    csv_bytes = b"name,code,joined_on,monthly_gross,salary_2026_10\nKiran Rao,BLKE099,2026-05-01,70000,70000\n"
+    res_upload = hr_client.post(
+        "/employees/bulk-upload",
+        data={"_csrf": token},
+        files={"file": ("test.csv", csv_bytes, "text/csv")},
+    )
+    assert res_upload.status_code == 200
+    data = res_upload.json()
+    assert data["ok"] is True
+    assert data["success_count"] == 1
+    assert data["failed_count"] == 0
+
+
+
+
 

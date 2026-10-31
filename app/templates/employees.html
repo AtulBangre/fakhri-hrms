@@ -12,6 +12,7 @@
     <a class="btn" href="/employees/chart">Org Chart</a>
     <a class="btn" href="/employees/bulk-update">Bulk Update</a>
     <a class="btn" href="/attendance/register">Monthly register</a>
+    <button class="btn" id="openBulkUploadBtn" type="button">Bulk Upload</button>
     <a class="btn btn-primary" href="/employees/new">Add employee</a>
   </div>
 </div>
@@ -113,4 +114,284 @@
   </div>
   {{ pager_bar(pager, '/employees', filters) }}
 </div>
+
+<!-- Bulk Upload Employees Modal -->
+<div id="bulkUploadModal" class="modal-overlay">
+  <div class="modal-box modal-lg" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <div style="display:flex;align-items:center;gap:.6rem">
+        <h3 style="margin:0">Bulk Upload Employees</h3>
+        <span class="chip chip-muted" style="font-size:.7rem">18-Month Salary Support</span>
+      </div>
+      <button type="button" class="btn btn-sm btn-ghost" id="closeBulkUploadBtn">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Step 1: Info & Template Download -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:.85rem 1rem;margin-bottom:1rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:600;font-size:.86rem;color:var(--ink)">1. Download CSV Template</div>
+            <div class="sub muted" style="font-size:.76rem">Includes core employee fields + columns for the last 18 months' disbursed salary.</div>
+          </div>
+          <a href="/employees/bulk-template" class="btn btn-sm" download>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:.3rem;vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Download Sample CSV
+          </a>
+        </div>
+      </div>
+
+      <!-- Step 2: Upload Area -->
+      <form id="bulkUploadForm">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <div class="field mb-3" id="fileSelectField">
+          <label style="font-weight:600;font-size:.86rem;margin-bottom:.4rem;display:block">2. Choose Completed CSV File</label>
+          <div id="dropZone" style="border:2px dashed var(--border-strong);border-radius:var(--radius);padding:1.6rem 1rem;text-align:center;cursor:pointer;background:#fff;transition:border-color .15s ease, background .15s ease">
+            <input type="file" id="csvFileInput" name="file" accept=".csv,text/csv" style="display:none" required>
+            <div id="dropPrompt">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.8" style="margin:0 auto .5rem;display:block"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              <div style="font-size:.88rem;font-weight:600;color:var(--ink)">Click to browse or drop CSV here</div>
+              <div class="muted small mt-1">Empty salary columns will be skipped automatically.</div>
+            </div>
+            <div id="fileSelectedInfo" class="hidden" style="font-weight:600;color:var(--primary);font-size:.9rem">
+              <span id="selectedFileName"></span>
+              <button type="button" class="btn btn-xs btn-ghost" id="clearFileBtn" style="margin-left:.6rem">Change</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress Spinner -->
+        <div id="uploadProgress" class="hidden mb-3" style="text-align:center;padding:1.5rem">
+          <div class="spinner" style="margin:0 auto .8rem"></div>
+          <div style="font-weight:600;font-size:.92rem;color:var(--ink)">Importing employees & generating historical salary slips…</div>
+          <div class="sub muted small mt-1">Please wait, this will take just a few seconds.</div>
+        </div>
+
+        <!-- Step 3: Results Summary -->
+        <div id="uploadResults" class="hidden mb-3">
+          <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:.75rem;margin-bottom:1rem">
+            <div class="stat" style="padding:.6rem .8rem;text-align:center;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border)">
+              <div class="label" style="font-size:.72rem">Total Processed</div>
+              <div id="resTotal" style="font-size:1.3rem;font-weight:700">0</div>
+            </div>
+            <div class="stat" style="padding:.6rem .8rem;text-align:center;background:var(--success-soft);border-radius:var(--radius);border:1px solid rgba(15,123,82,.2)">
+              <div class="label" style="font-size:.72rem;color:var(--success)">Successful</div>
+              <div id="resSuccess" style="font-size:1.3rem;font-weight:700;color:var(--success)">0</div>
+            </div>
+            <div class="stat" style="padding:.6rem .8rem;text-align:center;background:var(--danger-soft);border-radius:var(--radius);border:1px solid rgba(201,29,29,.2)">
+              <div class="label" style="font-size:.72rem;color:var(--danger)">Failed</div>
+              <div id="resFailed" style="font-size:1.3rem;font-weight:700;color:var(--danger)">0</div>
+            </div>
+          </div>
+
+          <div id="failedSection" class="hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+              <h4 style="margin:0;color:var(--danger);font-size:.86rem;font-weight:600">Failed Rows & Error Details</h4>
+              <button type="button" id="downloadFailedBtn" class="btn btn-xs btn-danger">
+                Download Failed Rows CSV
+              </button>
+            </div>
+            <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);font-size:.78rem;background:#fff">
+              <table class="data compact" style="margin:0;width:100%">
+                <thead>
+                  <tr style="background:var(--surface)"><th>Row</th><th>Employee</th><th>Error Reason</th></tr>
+                </thead>
+                <tbody id="failedRowsTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="cancelBulkUploadBtn">Cancel</button>
+          <button type="submit" id="submitBulkUploadBtn" class="btn btn-primary" disabled>Upload & Import</button>
+          <button type="button" id="refreshAfterUploadBtn" class="btn btn-primary hidden" onclick="window.location.reload()">Done (Refresh Employee List)</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var modal = document.getElementById("bulkUploadModal");
+  var openBtn = document.getElementById("openBulkUploadBtn");
+  var closeBtn = document.getElementById("closeBulkUploadBtn");
+  var cancelBtn = document.getElementById("cancelBulkUploadBtn");
+  var dropZone = document.getElementById("dropZone");
+  var fileInput = document.getElementById("csvFileInput");
+  var dropPrompt = document.getElementById("dropPrompt");
+  var fileSelectedInfo = document.getElementById("fileSelectedInfo");
+  var selectedFileName = document.getElementById("selectedFileName");
+  var clearFileBtn = document.getElementById("clearFileBtn");
+  var submitBtn = document.getElementById("submitBulkUploadBtn");
+  var form = document.getElementById("bulkUploadForm");
+  var progress = document.getElementById("uploadProgress");
+  var results = document.getElementById("uploadResults");
+  var fileSelectField = document.getElementById("fileSelectField");
+  var refreshBtn = document.getElementById("refreshAfterUploadBtn");
+  var failedSection = document.getElementById("failedSection");
+  var failedTbody = document.getElementById("failedRowsTbody");
+  var downloadFailedBtn = document.getElementById("downloadFailedBtn");
+
+  var lastFailedRows = [];
+  var lastOriginalHeaders = [];
+
+  function openModal() {
+    if (modal) modal.classList.add("open");
+  }
+
+  function closeModal() {
+    if (modal) modal.classList.remove("open");
+  }
+
+  if (openBtn) openBtn.addEventListener("click", openModal);
+  if (closeBtn) closeBtn.addEventListener("click", closeModal);
+  if (cancelBtn) cancelBtn.addEventListener("click", closeModal);
+  if (modal) {
+    modal.addEventListener("click", function(e) {
+      if (e.target === modal) closeModal();
+    });
+  }
+
+  if (dropZone) {
+    dropZone.addEventListener("click", function(e) {
+      if (e.target !== clearFileBtn) fileInput.click();
+    });
+    dropZone.addEventListener("dragover", function(e) {
+      e.preventDefault();
+      dropZone.style.borderColor = "var(--primary)";
+      dropZone.style.background = "var(--surface)";
+    });
+    dropZone.addEventListener("dragleave", function(e) {
+      e.preventDefault();
+      dropZone.style.borderColor = "var(--border-strong)";
+      dropZone.style.background = "#fff";
+    });
+    dropZone.addEventListener("drop", function(e) {
+      e.preventDefault();
+      dropZone.style.borderColor = "var(--border-strong)";
+      dropZone.style.background = "#fff";
+      if (e.dataTransfer.files && e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        handleFileChosen();
+      }
+    });
+  }
+
+  if (fileInput) fileInput.addEventListener("change", handleFileChosen);
+
+  function handleFileChosen() {
+    if (fileInput.files && fileInput.files[0]) {
+      var file = fileInput.files[0];
+      selectedFileName.textContent = file.name + " (" + Math.round(file.size / 1024) + " KB)";
+      dropPrompt.classList.add("hidden");
+      fileSelectedInfo.classList.remove("hidden");
+      submitBtn.disabled = false;
+    }
+  }
+
+  if (clearFileBtn) {
+    clearFileBtn.addEventListener("click", function(e) {
+      e.stopPropagation();
+      fileInput.value = "";
+      dropPrompt.classList.remove("hidden");
+      fileSelectedInfo.classList.add("hidden");
+      submitBtn.disabled = true;
+    });
+  }
+
+  if (form) {
+    form.addEventListener("submit", function(e) {
+      e.preventDefault();
+      if (!fileInput.files || !fileInput.files[0]) return;
+
+      var formData = new FormData(form);
+      fileSelectField.classList.add("hidden");
+      submitBtn.classList.add("hidden");
+      cancelBtn.classList.add("hidden");
+      progress.classList.remove("hidden");
+      results.classList.add("hidden");
+
+      fetch("/employees/bulk-upload", {
+        method: "POST",
+        body: formData,
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        progress.classList.add("hidden");
+        results.classList.remove("hidden");
+        refreshBtn.classList.remove("hidden");
+
+        if (!data.ok) {
+          alert(data.error || "Upload failed. Please check the file.");
+          fileSelectField.classList.remove("hidden");
+          submitBtn.classList.remove("hidden");
+          cancelBtn.classList.remove("hidden");
+          refreshBtn.classList.add("hidden");
+          return;
+        }
+
+        document.getElementById("resTotal").textContent = data.total;
+        document.getElementById("resSuccess").textContent = data.success_count;
+        document.getElementById("resFailed").textContent = data.failed_count;
+
+        lastFailedRows = data.failed_rows || [];
+        lastOriginalHeaders = data.original_headers || [];
+
+        if (lastFailedRows.length > 0) {
+          failedSection.classList.remove("hidden");
+          failedTbody.innerHTML = "";
+          lastFailedRows.forEach(function(item) {
+            var tr = document.createElement("tr");
+            tr.innerHTML = "<td><strong>" + item.row + "</strong></td>" +
+                           "<td>" + (item.name || item.code || "—") + "</td>" +
+                           "<td style='color:var(--danger)'>" + item.error + "</td>";
+            failedTbody.appendChild(tr);
+          });
+        } else {
+          failedSection.classList.add("hidden");
+        }
+      })
+      .catch(function(err) {
+        progress.classList.add("hidden");
+        fileSelectField.classList.remove("hidden");
+        submitBtn.classList.remove("hidden");
+        cancelBtn.classList.remove("hidden");
+        alert("Upload error: " + err.message);
+      });
+    });
+  }
+
+  if (downloadFailedBtn) {
+    downloadFailedBtn.addEventListener("click", function() {
+      if (!lastFailedRows || lastFailedRows.length === 0) return;
+
+      var headers = lastOriginalHeaders.slice();
+      if (headers.indexOf("error_reason") === -1) {
+        headers.push("error_reason");
+      }
+
+      var rows = [headers.join(",")];
+      lastFailedRows.forEach(function(item) {
+        var raw = item.raw_data || {};
+        var line = headers.map(function(h) {
+          var val = h === "error_reason" ? item.error : (raw[h] !== undefined ? raw[h] : "");
+          var str = String(val).replace(/"/g, '""');
+          return '"' + str + '"';
+        });
+        rows.push(line.join(","));
+      });
+
+      var csvContent = "data:text/csv;charset=utf-8," + encodeURIComponent(rows.join("\n"));
+      var link = document.createElement("a");
+      link.setAttribute("href", csvContent);
+      link.setAttribute("download", "failed_employees.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+  }
+})();
+</script>
 {% endblock %}

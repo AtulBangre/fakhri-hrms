@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
 
 from .. import auth, notify
 from ..auth import SessionUser, generate_password, get_user_for_employee, require_hr
@@ -12,6 +13,7 @@ from ..services import records
 from ..uploads import UploadError, read_capped
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
+from ..services import employees_bulk
 from ..services import leave as leave_service
 from ..services import appraisal as appraisal_service
 from ..services import exits as exits_service
@@ -130,6 +132,45 @@ def bulk_update_apply(
                 storage.execute_tx("UPDATE employees SET shift_id = ? WHERE id = ?", (int(new_shift_id), emp_id))
     storage.audit(actor=user.username, action="bulk_update_employees", detail=f"Updated {len(employee_ids)} employees")
     return redirect("/employees", ok=f"Successfully updated {len(employee_ids)} employees.")
+
+
+@router.get("/bulk-template")
+def bulk_template(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    """Download standard CSV template with last 18 months salary headers for bulk employee import."""
+    content = employees_bulk.generate_sample_csv(storage, settings)
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=employees_bulk_upload_template.csv"},
+    )
+
+
+@router.post("/bulk-upload")
+async def bulk_upload(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    """Bulk import employees and past 18-month disbursed salaries from CSV."""
+    from ..auth import verify_form_csrf
+
+    form = await request.form()
+    verify_form_csrf(user, str(form.get("_csrf") or ""))
+    file_item = form.get("file")
+    if not file_item or not getattr(file_item, "filename", ""):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "Please select a valid CSV file to upload."})
+
+    try:
+        content = (await file_item.read()).decode("utf-8-sig", errors="replace")
+        res = employees_bulk.import_employees_csv(storage, settings, content, actor=user.username)
+        return JSONResponse(content={"ok": True, **res})
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
 
 @router.get("/new")

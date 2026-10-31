@@ -844,6 +844,14 @@ details.disclosure > form, details.disclosure > div:not(.card-body) { padding: .
   overflow-y: auto; transform: scale(.96); transition: transform .18s ease;
 }
 .modal-overlay.open .modal-box { transform: scale(1); }
+.modal-box.modal-lg { max-width: 620px; }
+.spinner {
+  width: 26px; height: 26px; border: 3px solid rgba(135, 8, 8, .2);
+  border-top-color: var(--primary); border-radius: 50%;
+  animation: spin .8s linear infinite; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn-xs { height: 22px; padding: 0 .45rem; font-size: .72rem; }
 .modal-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: .9rem 1.1rem; border-bottom: 1px solid var(--border);
