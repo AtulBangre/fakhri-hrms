@@ -40,7 +40,10 @@
 <details class="disclosure">
   <summary>Manual attendance entry (corrections, forgot-to-scan, half day, leave)</summary>
   <div class="card-body">
-    <form method="post" action="/attendance/mark">
+    <form method="post" action="/attendance/mark" class="attendance-edit-form"
+          data-is-today="{{ 'true' if is_today else 'false' }}"
+          data-shift-start="{{ shift_start }}"
+          data-shift-end="{{ shift_end }}">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <input type="hidden" name="return_day" value="{{ day_iso }}">
       <div class="form-row cols-2">
@@ -60,17 +63,17 @@
       <div class="form-row cols-3">
         <div class="field">
           <label for="status">Status</label>
-          <select id="status" name="status" required>
+          <select id="status" name="status" class="att-status-select" required>
             {% for value in statuses %}
               <option value="{{ value }}">{{ STATUS_LABELS.get(value, value) }}</option>
             {% endfor %}
           </select>
         </div>
-        <div class="field"><label for="check_in">Check in</label><input id="check_in" name="check_in" type="time"></div>
-        <div class="field"><label for="check_out">Check out</label><input id="check_out" name="check_out" type="time"></div>
+        <div class="field field-check-in"><label for="check_in">Check in</label><input id="check_in" name="check_in" type="time"></div>
+        <div class="field field-check-out"><label for="check_out">Check out</label><input id="check_out" name="check_out" type="time"></div>
       </div>
       <div class="form-row cols-2">
-        <div class="field">
+        <div class="field field-leave-type">
           <label for="leave_type">Leave type (leave / half day only)</label>
           <select id="leave_type" name="leave_type">
             <option value="">—</option>
@@ -148,7 +151,8 @@
                 <input type="hidden" name="work_date" value="{{ day_iso }}">
                 <input type="hidden" name="status" value="present">
                 <input type="hidden" name="check_in" value="{{ row.check_in or shift_start }}">
-                <input type="hidden" name="check_out" value="{{ row.check_out or shift_end }}">
+                <input type="hidden" name="check_out" value="{{ row.check_out or ('' if is_today else shift_end) }}">
+                <input type="hidden" name="note" value="marked present by HR">
                 <input type="hidden" name="return_day" value="{{ day_iso }}">
                 <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present">Present</button>
               </form>

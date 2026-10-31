@@ -254,3 +254,81 @@ def test_manual_time_update_promotes_late_half_day_to_present(storage: Storage):
     assert row["note"] is None
 
 
+def test_pagarbook_attendance_rules(storage: Storage):
+    """Verify PagarBook-style attendance rules:
+    - Present with blank check-out leaves check_out and worked_minutes as None.
+    - Absent clears check_in, check_out, worked_minutes, and leave_type.
+    - On Leave clears check_in and check_out.
+    - Manual override with HR note is not downgraded to half-day.
+    """
+    emp_id = employees_service.create_employee(storage, {
+        "name": "PagarBook Emp",
+        "code": "PGB001",
+        "joined_on": "2026-01-01",
+    })
+
+    # 1. Present with no check-out (today / active shift)
+    attendance_service.mark_manual(
+        storage,
+        employee_id=emp_id,
+        work_date="2026-10-31",
+        status="present",
+        check_in="10:07",
+        check_out="",
+        actor="hr",
+    )
+    r1 = attendance_service.get_row(storage, emp_id, "2026-10-31")
+    assert r1["status"] == "present"
+    assert r1["check_in"] == "10:07:00"
+    assert r1["check_out"] is None
+    assert r1["worked_minutes"] is None
+
+    # 2. Marking absent clears times
+    attendance_service.mark_manual(
+        storage,
+        employee_id=emp_id,
+        work_date="2026-10-31",
+        status="absent",
+        check_in="10:07",
+        check_out="18:30",
+        actor="hr",
+    )
+    r2 = attendance_service.get_row(storage, emp_id, "2026-10-31")
+    assert r2["status"] == "absent"
+    assert r2["check_in"] is None
+    assert r2["check_out"] is None
+    assert r2["worked_minutes"] is None
+    assert r2["leave_type"] is None
+
+    # 3. Marking on leave clears times and sets leave_type
+    attendance_service.mark_manual(
+        storage,
+        employee_id=emp_id,
+        work_date="2026-10-31",
+        status="leave",
+        leave_type="sick",
+        check_in="10:07",
+        actor="hr",
+    )
+    r3 = attendance_service.get_row(storage, emp_id, "2026-10-31")
+    assert r3["status"] == "leave"
+    assert r3["check_in"] is None
+    assert r3["check_out"] is None
+    assert r3["leave_type"] == "sick"
+
+    # 4. Manual override note protects Present from late half-day downgrade
+    attendance_service.mark_manual(
+        storage,
+        employee_id=emp_id,
+        work_date="2026-10-30",
+        status="present",
+        check_in="11:45",
+        note="approved client visit",
+        actor="hr",
+    )
+    r4 = attendance_service.get_row(storage, emp_id, "2026-10-30")
+    assert r4["status"] == "present"
+    assert r4["note"] == "approved client visit"
+
+
+

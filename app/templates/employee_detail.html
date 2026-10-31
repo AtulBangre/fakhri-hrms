@@ -222,9 +222,10 @@
                       <input type="hidden" name="work_date" value="{{ item.iso }}">
                       <input type="hidden" name="status" value="present">
                       <input type="hidden" name="check_in" value="{{ item.raw_in or shift_start }}">
-                      <input type="hidden" name="check_out" value="{{ item.raw_out or shift_end }}">
+                      <input type="hidden" name="check_out" value="{{ item.raw_out or ('' if item.is_today else shift_end) }}">
+                      <input type="hidden" name="note" value="marked present by HR">
                       <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}">
-                      <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present ({{ item.raw_in or shift_start }} - {{ item.raw_out or shift_end }})">Mark Present</button>
+                      <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present">Mark Present</button>
                     </form>
                   {% endif %}
                   <button class="btn btn-sm" type="button" data-toggle-row="fix-att-{{ item.iso }}">Fix / Edit</button>
@@ -234,7 +235,12 @@
             {% if item.is_fixable %}
             <tr id="fix-att-{{ item.iso }}" class="hidden" style="background:var(--surface)">
               <td colspan="8" style="padding:1rem 1.25rem">
-                <form method="post" action="/attendance/mark">
+                <form method="post" action="/attendance/mark" class="attendance-edit-form"
+                      data-is-today="{{ 'true' if item.is_today else 'false' }}"
+                      data-shift-start="{{ shift_start }}"
+                      data-shift-end="{{ shift_end }}"
+                      data-original-in="{{ item.raw_in or '' }}"
+                      data-original-out="{{ item.raw_out or '' }}">
                   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                   <input type="hidden" name="employee_id" value="{{ employee.id }}">
                   <input type="hidden" name="work_date" value="{{ item.iso }}">
@@ -245,21 +251,21 @@
                   <div class="form-row cols-4">
                     <div class="field">
                       <label>Status</label>
-                      <select name="status">
+                      <select name="status" class="att-status-select">
                         {% for val in all_statuses %}
                           <option value="{{ val }}" {{ 'selected' if item.raw_status == val or (not item.raw_status and item.status == val) }}>{{ status_labels.get(val, val) }}</option>
                         {% endfor %}
                       </select>
                     </div>
-                    <div class="field">
+                    <div class="field field-check-in">
                       <label>Check in</label>
-                      <input name="check_in" type="time" value="{{ item.raw_in or shift_start }}">
+                      <input name="check_in" type="time" value="{{ item.raw_in or ('' if item.status in ('absent', 'leave') else shift_start) }}">
                     </div>
-                    <div class="field">
+                    <div class="field field-check-out">
                       <label>Check out</label>
-                      <input name="check_out" type="time" value="{{ item.raw_out or shift_end }}">
+                      <input name="check_out" type="time" value="{{ item.raw_out or ('' if item.is_today or item.status in ('absent', 'leave') else shift_end) }}">
                     </div>
-                    <div class="field">
+                    <div class="field field-leave-type">
                       <label>Leave type (if half/leave)</label>
                       <select name="leave_type">
                         <option value="">—</option>

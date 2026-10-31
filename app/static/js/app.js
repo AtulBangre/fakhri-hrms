@@ -194,12 +194,163 @@
     window.addEventListener("beforeunload", stop);
   }
 
+  /* -------------------------------------- dynamic attendance form synchronizer */
+  function initAttendanceForms() {
+    function syncForm(form, preserveUserInputs) {
+      var statusSelect = $("select[name='status']", form);
+      if (!statusSelect) return;
+      var status = statusSelect.value;
+      var isToday = form.getAttribute("data-is-today") === "true";
+      var shiftStart = form.getAttribute("data-shift-start") || "09:30";
+      var shiftEnd = form.getAttribute("data-shift-end") || "18:30";
+      var originalIn = form.getAttribute("data-original-in") || "";
+      var originalOut = form.getAttribute("data-original-out") || "";
+
+      var inInput = $("input[name='check_in']", form);
+      var outInput = $("input[name='check_out']", form);
+      var leaveSelect = $("select[name='leave_type']", form);
+      var inField = inInput ? inInput.closest(".field") : null;
+      var outField = outInput ? outInput.closest(".field") : null;
+      var leaveField = leaveSelect ? leaveSelect.closest(".field") : null;
+      var leaveLabel = leaveField ? $("label", leaveField) : null;
+
+      if (status === "present") {
+        if (inInput) {
+          inInput.disabled = false;
+          if (!preserveUserInputs && !inInput.value) {
+            inInput.value = originalIn || shiftStart;
+          }
+          if (inField) inField.classList.remove("field-disabled");
+        }
+        if (outInput) {
+          outInput.disabled = false;
+          if (!preserveUserInputs && !outInput.value) {
+            if (originalOut) {
+              outInput.value = originalOut;
+            } else if (!isToday) {
+              outInput.value = shiftEnd;
+            } else {
+              outInput.value = "";
+            }
+          }
+          if (outField) outField.classList.remove("field-disabled");
+        }
+        if (leaveSelect) {
+          leaveSelect.value = "";
+          leaveSelect.disabled = true;
+          if (leaveField) leaveField.classList.add("field-disabled");
+          if (leaveLabel) leaveLabel.textContent = "Leave type (N/A)";
+        }
+      } else if (status === "half_day") {
+        if (inInput) {
+          inInput.disabled = false;
+          if (!preserveUserInputs && !inInput.value) {
+            inInput.value = originalIn || shiftStart;
+          }
+          if (inField) inField.classList.remove("field-disabled");
+        }
+        if (outInput) {
+          outInput.disabled = false;
+          if (!preserveUserInputs && !outInput.value && originalOut) {
+            outInput.value = originalOut;
+          }
+          if (outField) outField.classList.remove("field-disabled");
+        }
+        if (leaveSelect) {
+          leaveSelect.disabled = false;
+          if (leaveField) leaveField.classList.remove("field-disabled");
+          if (leaveLabel) leaveLabel.textContent = "Leave deduction (half day)";
+        }
+      } else if (status === "absent") {
+        if (inInput) {
+          inInput.value = "";
+          inInput.disabled = true;
+          if (inField) inField.classList.add("field-disabled");
+        }
+        if (outInput) {
+          outInput.value = "";
+          outInput.disabled = true;
+          if (outField) outField.classList.add("field-disabled");
+        }
+        if (leaveSelect) {
+          leaveSelect.value = "";
+          leaveSelect.disabled = true;
+          if (leaveField) leaveField.classList.add("field-disabled");
+          if (leaveLabel) leaveLabel.textContent = "Leave type (N/A)";
+        }
+      } else if (status === "leave") {
+        if (inInput) {
+          inInput.value = "";
+          inInput.disabled = true;
+          if (inField) inField.classList.add("field-disabled");
+        }
+        if (outInput) {
+          outInput.value = "";
+          outInput.disabled = true;
+          if (outField) outField.classList.add("field-disabled");
+        }
+        if (leaveSelect) {
+          leaveSelect.disabled = false;
+          if (!leaveSelect.value) {
+            for (var i = 0; i < leaveSelect.options.length; i++) {
+              if (leaveSelect.options[i].value) {
+                leaveSelect.selectedIndex = i;
+                break;
+              }
+            }
+          }
+          if (leaveField) leaveField.classList.remove("field-disabled");
+          if (leaveLabel) leaveLabel.textContent = "Leave type *";
+        }
+      } else if (status === "week_off" || status === "holiday") {
+        if (inInput) {
+          inInput.disabled = false;
+          if (inField) inField.classList.remove("field-disabled");
+        }
+        if (outInput) {
+          outInput.disabled = false;
+          if (outField) outField.classList.remove("field-disabled");
+        }
+        if (leaveSelect) {
+          leaveSelect.value = "";
+          leaveSelect.disabled = true;
+          if (leaveField) leaveField.classList.add("field-disabled");
+          if (leaveLabel) leaveLabel.textContent = "Leave type (N/A)";
+        }
+      }
+    }
+
+    document.addEventListener("change", function (event) {
+      var target = event.target;
+      if (target && target.name === "status") {
+        var form = target.closest("form.attendance-edit-form, form[action*='/attendance/mark']");
+        if (form) syncForm(form, false);
+      }
+    });
+
+    $$("form.attendance-edit-form").forEach(function (form) {
+      syncForm(form, true);
+    });
+
+    document.addEventListener("click", function (event) {
+      var trigger = event.target.closest("[data-toggle-row]");
+      if (!trigger) return;
+      var targetId = trigger.getAttribute("data-toggle-row");
+      var row = document.getElementById(targetId);
+      if (row) {
+        var form = $("form.attendance-edit-form, form[action*='/attendance/mark']", row);
+        if (form) syncForm(form, true);
+      }
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     initDrawer();
     initAlerts();
     initConfirm();
     initRowToggles();
     initBulk();
+    initAttendanceForms();
   });
 
   window.FakhriHRMS = {

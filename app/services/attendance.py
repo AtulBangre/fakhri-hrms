@@ -658,6 +658,12 @@ def mark_manual(
 
     check_in = (check_in or "").strip() or None
     check_out = (check_out or "").strip() or None
+
+    # Absent and Leave never store punch times (PagarBook attendance standard)
+    if status in (orgtime.STATUS_ABSENT, orgtime.STATUS_LEAVE):
+        check_in = None
+        check_out = None
+
     if check_in:
         parsed = orgtime.parse_clock(check_in)
         if parsed is None:
@@ -676,7 +682,8 @@ def mark_manual(
         assessed = orgtime.late_assessment(storage, datetime.combine(day, orgtime.parse_clock(check_in)))
         late, fine = assessed["late_minutes"], assessed["fine"]
         if status == orgtime.STATUS_PRESENT:
-            if assessed["half_day"]:
+            is_manual_override = note and note != "late arrival — half day"
+            if assessed["half_day"] and not is_manual_override:
                 status = orgtime.STATUS_HALF_DAY  # late-arrival policy: a half day, no fine
                 if not note:
                     note = "late arrival — half day"

@@ -49,6 +49,7 @@ def daily(
         day=target,
         day_iso=target.isoformat(),
         day_label=orgtime.human_day(target),
+        is_today=(target == orgtime.today(settings)),
         kind=orgtime.day_kind(storage, target),
         holiday=orgtime.holiday_name(storage, target),
         rows=rows,
