@@ -548,7 +548,25 @@ class Storage:
             self._conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_users_employee ON users(employee_id)"
             )
+            self._sync_default_shift_with_settings()
             self._conn.commit()
+
+    def _sync_default_shift_with_settings(self) -> None:
+        """Keep the default shift timings in sync with organisation shift settings."""
+        try:
+            row = self._conn.execute("SELECT id, start_time, end_time FROM shifts WHERE is_default = 1").fetchone()
+            if row:
+                s_start = self.get_setting("shift_start", "")
+                s_end = self.get_setting("shift_end", "")
+                s_grace = self.get_int("late_grace_minutes", 15)
+                s_half = self.get_int("half_day_min_minutes", 240)
+                if s_start and s_end and (row["start_time"] != s_start or row["end_time"] != s_end):
+                    self._conn.execute(
+                        "UPDATE shifts SET start_time = ?, end_time = ?, grace_minutes = ?, half_day_minutes = ? WHERE id = ?",
+                        (s_start, s_end, s_grace, s_half, row["id"]),
+                    )
+        except Exception:
+            pass
 
     def _rebuild_users_if_needed(self) -> None:
         """Recreate ``users`` with the ``employee`` role, without breaking FKs.
@@ -846,10 +864,14 @@ class Storage:
                 )
             shift_count = self._conn.execute("SELECT COUNT(*) FROM shifts").fetchone()[0]
             if shift_count == 0:
+                s_start = self.get_setting("shift_start", "09:30")
+                s_end = self.get_setting("shift_end", "18:30")
+                s_grace = self.get_int("late_grace_minutes", 15)
+                s_half = self.get_int("half_day_min_minutes", 240)
                 self._conn.execute(
                     "INSERT INTO shifts (name, start_time, end_time, grace_minutes, half_day_minutes, overtime_min_minutes, is_default, created_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    ("General Shift", "09:30", "18:30", 15, 240, 60, 1, utcnow_iso()),
+                    ("General Shift", s_start, s_end, s_grace, s_half, 60, 1, utcnow_iso()),
                 )
             self._conn.commit()
 

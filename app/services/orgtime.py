@@ -351,7 +351,7 @@ def late_policy(storage: Storage) -> str:
     return mode if mode in LATE_POLICIES else "tiered_fine_only"
 
 
-def late_assessment(storage: Storage, moment: datetime) -> dict:
+def late_assessment(storage: Storage, moment: datetime, shift: dict | None = None) -> dict:
     """Late minutes, fine and automatic half day for a check-in at ``moment`` (Feature 4).
 
     * ``late_minutes`` counts from shift start + grace (as before).
@@ -363,8 +363,14 @@ def late_assessment(storage: Storage, moment: datetime) -> dict:
     """
     policy = late_policy(storage)
     arrival = moment.hour * 60 + moment.minute
-    start = shift_start_minutes(storage)
-    late = max(0, arrival - (start + storage.get_int("late_grace_minutes", 15)))
+    if shift and shift.get("start_time"):
+        parsed = parse_clock(shift["start_time"])
+        start = parsed.hour * 60 + parsed.minute if parsed else shift_start_minutes(storage)
+        grace = int(shift.get("grace_minutes") if shift.get("grace_minutes") is not None else storage.get_int("late_grace_minutes", 15))
+    else:
+        start = shift_start_minutes(storage)
+        grace = storage.get_int("late_grace_minutes", 15)
+    late = max(0, arrival - (start + grace))
     cutoff = storage.get_int("auto_half_day_late_minutes", 60)
     half_day = policy != "none" and cutoff > 0 and arrival >= start + cutoff
     fine = 0.0

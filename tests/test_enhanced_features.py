@@ -402,6 +402,91 @@ def test_bulk_upload_http_endpoints(hr_client: TestClient):
     assert data["failed_count"] == 0
 
 
+def test_shift_and_settings_synchronization(hr_client: TestClient, storage: Storage):
+    """Verify that shifts table and app_settings stay synchronized."""
+    # 1. Update settings values (e.g. shift_start=10:00, shift_end=19:00)
+    token = csrf_of(hr_client, "/settings")
+    res = hr_client.post(
+        "/settings/values",
+        data={
+            "_csrf": token,
+            "shift_start": "10:00",
+            "shift_end": "19:00",
+            "late_grace_minutes": "20",
+            "half_day_min_minutes": "250",
+        },
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    assert storage.get_setting("shift_start") == "10:00"
+    assert storage.get_setting("shift_end") == "19:00"
+
+    # Verify default shift in shifts table was auto-updated!
+    def_shift = storage.query_one("SELECT * FROM shifts WHERE is_default = 1")
+    assert def_shift is not None
+    assert def_shift["start_time"] == "10:00"
+    assert def_shift["end_time"] == "19:00"
+    assert def_shift["grace_minutes"] == 20
+    assert def_shift["half_day_minutes"] == 250
+
+    # 2. Test editing a shift
+    res_edit = hr_client.post(
+        f"/settings/shifts/{def_shift['id']}/edit",
+        data={
+            "_csrf": token,
+            "name": "General Office Shift",
+            "start_time": "10:15",
+            "end_time": "18:45",
+            "grace_minutes": "15",
+            "half_day_minutes": "240",
+        },
+        follow_redirects=False,
+    )
+    assert res_edit.status_code == 303
+    updated_shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (def_shift["id"],))
+    assert updated_shift["name"] == "General Office Shift"
+    assert updated_shift["start_time"] == "10:15"
+    assert updated_shift["end_time"] == "18:45"
+    # Since it was default, app_settings should also be updated
+    assert storage.get_setting("shift_start") == "10:15"
+    assert storage.get_setting("shift_end") == "18:45"
+
+    # 3. Test creating a new non-default shift and making it default
+    res_create = hr_client.post(
+        "/settings/shifts",
+        data={
+            "_csrf": token,
+            "name": "Evening Shift",
+            "start_time": "14:00",
+            "end_time": "22:00",
+            "grace_minutes": "10",
+            "half_day_minutes": "200",
+        },
+        follow_redirects=False,
+    )
+    assert res_create.status_code == 303
+    evening_shift = storage.query_one("SELECT * FROM shifts WHERE name = 'Evening Shift'")
+    assert evening_shift is not None
+
+    res_default = hr_client.post(
+        f"/settings/shifts/{evening_shift['id']}/default",
+        data={"_csrf": token},
+        follow_redirects=False,
+    )
+    assert res_default.status_code == 303
+    assert storage.get_setting("shift_start") == "14:00"
+    assert storage.get_setting("shift_end") == "22:00"
+
+    # Switch back to General Shift as default
+    hr_client.post(
+        f"/settings/shifts/{def_shift['id']}/default",
+        data={"_csrf": token},
+        follow_redirects=False,
+    )
+    assert storage.get_setting("shift_start") == "10:15"
+
+
+
 
 
 

@@ -383,6 +383,13 @@ def detail(
         "professional_tax": latest.get("professional_tax", 0) or 0,
         "statutory_mode": latest.get("statutory_mode") or "fixed",
     }
+    emp_shift = (
+        storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee.get("shift_id"),))
+        if employee.get("shift_id")
+        else None
+    )
+    shift_start = emp_shift["start_time"] if emp_shift else storage.get_setting("shift_start", "09:30")
+    shift_end = emp_shift["end_time"] if emp_shift else storage.get_setting("shift_end", "18:30")
     return render(
         request,
         "employee_detail.html",
@@ -403,8 +410,8 @@ def detail(
         today_kind=orgtime.day_kind(storage, today),
         today_row=attendance_service.get_row(storage, employee_id, today),
         attendance_days=attendance_service.employee_month_days(storage, settings, employee, period),
-        shift_start=storage.get_setting("shift_start", "09:30"),
-        shift_end=storage.get_setting("shift_end", "18:30"),
+        shift_start=shift_start,
+        shift_end=shift_end,
         leave_types=orgtime.ALL_LEAVE_TYPES,
         leave_labels=orgtime.LEAVE_LABELS,
         all_statuses=orgtime.ALL_STATUSES,

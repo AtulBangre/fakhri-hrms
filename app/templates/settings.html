@@ -216,25 +216,29 @@
           <div class="field"><label for="shift_name">Shift Name</label>
             <input id="shift_name" name="name" type="text" required placeholder="e.g. Night Shift / Morning Shift"></div>
           <div class="form-row cols-2">
-            <div class="field"><label for="s_start">Start Time</label><input id="s_start" name="start_time" type="time" required value="09:30"></div>
-            <div class="field"><label for="s_end">End Time</label><input id="s_end" name="end_time" type="time" required value="18:30"></div>
+            <div class="field"><label for="s_start">Start Time</label><input id="s_start" name="start_time" type="time" required value="{{ values.get('shift_start', '09:30') }}"></div>
+            <div class="field"><label for="s_end">End Time</label><input id="s_end" name="end_time" type="time" required value="{{ values.get('shift_end', '18:30') }}"></div>
           </div>
           <div class="form-row cols-2">
-            <div class="field"><label for="s_grace">Grace (mins)</label><input id="s_grace" name="grace_minutes" type="number" min="0" value="15"></div>
-            <div class="field"><label for="s_half">Half-day (mins)</label><input id="s_half" name="half_day_minutes" type="number" min="0" value="240"></div>
+            <div class="field"><label for="s_grace">Grace (mins)</label><input id="s_grace" name="grace_minutes" type="number" min="0" value="{{ values.get('late_grace_minutes', '15') }}"></div>
+            <div class="field"><label for="s_half">Half-day (mins)</label><input id="s_half" name="half_day_minutes" type="number" min="0" value="{{ values.get('half_day_min_minutes', '240') }}"></div>
           </div>
           <button class="btn btn-primary btn-block" type="submit">+ Add Shift</button>
         </form>
 
         <div class="kv">
           {% for s in shifts %}
-            <div style="flex-direction:column;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border)">
-              <div style="display:flex;width:100%;justify-content:space-between;align-items:center">
-                <strong>{{ s.name }}</strong>
+            <div style="flex-direction:column;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div style="display:flex;width:100%;justify-content:space-between;align-items:center;gap:.5rem">
                 <div>
+                  <strong>{{ s.name }}</strong>
                   {% if s.is_default %}
-                    <span class="chip chip-primary">Default</span>
-                  {% else %}
+                    <span class="chip chip-primary" style="margin-left:4px" title="Synced with Attendance &amp; payroll rules">Default</span>
+                  {% endif %}
+                </div>
+                <div style="display:flex;gap:4px;align-items:center">
+                  <button class="btn btn-sm btn-ghost" type="button" data-toggle-row="edit-shift-{{ s.id }}">Edit</button>
+                  {% if not s.is_default %}
                     <form method="post" action="/settings/shifts/{{ s.id }}/default" style="display:inline">
                       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                       <button class="btn btn-sm btn-ghost" type="submit">Make default</button>
@@ -248,6 +252,41 @@
               </div>
               <div class="small muted" style="margin-top:2px">
                 {{ s.start_time }} – {{ s.end_time }} · Grace: {{ s.grace_minutes }}m · Half-day: {{ s.half_day_minutes }}m
+              </div>
+
+              <div id="edit-shift-{{ s.id }}" class="hidden" style="margin-top:.75rem;padding:.75rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);width:100%">
+                <form method="post" action="/settings/shifts/{{ s.id }}/edit">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <div style="font-weight:600;font-size:.85rem;margin-bottom:.5rem;color:var(--ink)">Edit Shift: {{ s.name }}</div>
+                  <div class="field mb-1">
+                    <label>Shift Name</label>
+                    <input name="name" type="text" required value="{{ s.name }}">
+                  </div>
+                  <div class="form-row cols-2 mb-1">
+                    <div class="field">
+                      <label>Start Time</label>
+                      <input name="start_time" type="time" required value="{{ s.start_time }}">
+                    </div>
+                    <div class="field">
+                      <label>End Time</label>
+                      <input name="end_time" type="time" required value="{{ s.end_time }}">
+                    </div>
+                  </div>
+                  <div class="form-row cols-2 mb-1">
+                    <div class="field">
+                      <label>Grace (mins)</label>
+                      <input name="grace_minutes" type="number" min="0" value="{{ s.grace_minutes }}">
+                    </div>
+                    <div class="field">
+                      <label>Half-day (mins)</label>
+                      <input name="half_day_minutes" type="number" min="0" value="{{ s.half_day_minutes }}">
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:.5rem;margin-top:.5rem">
+                    <button class="btn btn-primary btn-sm" type="submit">Save Shift</button>
+                    <button class="btn btn-ghost btn-sm" type="button" data-toggle-row="edit-shift-{{ s.id }}">Cancel</button>
+                  </div>
+                </form>
               </div>
             </div>
           {% endfor %}

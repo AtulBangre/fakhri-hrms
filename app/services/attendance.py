@@ -556,7 +556,8 @@ def mark_by_face(
             )
 
         # Row exists without a check-in (e.g. HR marked absent, then the person showed up).
-        assessed = orgtime.late_assessment(storage, moment)
+        emp_shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee["shift_id"],)) if employee.get("shift_id") else None
+        assessed = orgtime.late_assessment(storage, moment, shift=emp_shift)
         status_in = orgtime.STATUS_HALF_DAY if assessed["half_day"] else orgtime.STATUS_PRESENT
         note = "face scan overrode a manual entry"
         storage.execute(
@@ -596,7 +597,8 @@ def mark_by_face(
     elif kind == orgtime.STATUS_HOLIDAY:
         note = "worked on a holiday"
     else:
-        assessed = orgtime.late_assessment(storage, moment)  # no late rules on an off day
+        emp_shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee["shift_id"],)) if employee.get("shift_id") else None
+        assessed = orgtime.late_assessment(storage, moment, shift=emp_shift)  # no late rules on an off day
     late = assessed["late_minutes"]
     status_in = orgtime.STATUS_HALF_DAY if assessed["half_day"] else orgtime.STATUS_PRESENT
     if assessed["half_day"]:
@@ -678,8 +680,9 @@ def mark_manual(
     worked = orgtime.minutes_between(check_in, check_out) if (check_in and check_out) else None
     existing = get_row(storage, employee_id, day)
     late, fine = 0, 0.0
+    emp_shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee["shift_id"],)) if employee.get("shift_id") else None
     if check_in and orgtime.day_kind(storage, day) == "working":
-        assessed = orgtime.late_assessment(storage, datetime.combine(day, orgtime.parse_clock(check_in)))
+        assessed = orgtime.late_assessment(storage, datetime.combine(day, orgtime.parse_clock(check_in)), shift=emp_shift)
         late, fine = assessed["late_minutes"], assessed["fine"]
         if status == orgtime.STATUS_PRESENT:
             is_manual_override = note and note != "late arrival — half day"

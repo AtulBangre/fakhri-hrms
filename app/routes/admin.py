@@ -119,6 +119,27 @@ async def save_values(
             storage.set_setting(key, value)
             changed.append(key)
     if changed:
+        # If shift timing or grace/half-day rules changed, keep the default shift in sync
+        if any(k in changed for k in ("shift_start", "shift_end", "late_grace_minutes", "half_day_min_minutes")):
+            default_shift = storage.query_one("SELECT id FROM shifts WHERE is_default = 1")
+            if default_shift:
+                updates = []
+                params = []
+                if "shift_start" in changed:
+                    updates.append("start_time = ?")
+                    params.append(storage.get_setting("shift_start", "09:30"))
+                if "shift_end" in changed:
+                    updates.append("end_time = ?")
+                    params.append(storage.get_setting("shift_end", "18:30"))
+                if "late_grace_minutes" in changed:
+                    updates.append("grace_minutes = ?")
+                    params.append(storage.get_int("late_grace_minutes", 15))
+                if "half_day_min_minutes" in changed:
+                    updates.append("half_day_minutes = ?")
+                    params.append(storage.get_int("half_day_min_minutes", 240))
+                if updates:
+                    params.append(default_shift["id"])
+                    storage.execute(f"UPDATE shifts SET {', '.join(updates)} WHERE id = ?", tuple(params))
         storage.audit(actor=user.username, action="update_settings", entity="settings",
                       detail=", ".join(changed)[:200])
         return redirect("/settings", ok=f"Saved {len(changed)} setting(s).")
@@ -283,8 +304,51 @@ def set_default_shift(
     with storage.transaction():
         storage.execute_tx("UPDATE shifts SET is_default = 0")
         storage.execute_tx("UPDATE shifts SET is_default = 1 WHERE id = ?", (shift_id,))
+        # Keep app_settings in sync with the new default shift
+        storage.set_setting("shift_start", shift["start_time"])
+        storage.set_setting("shift_end", shift["end_time"])
+        storage.set_setting("late_grace_minutes", str(shift["grace_minutes"]))
+        storage.set_setting("half_day_min_minutes", str(shift["half_day_minutes"]))
     storage.audit(actor=user.username, action="set_default_shift", detail=f"Set shift '{shift['name']}' as default")
-    return redirect("/settings", ok=f"Default shift set to '{shift['name']}'.")
+    return redirect("/settings", ok=f"Default shift set to '{shift['name']}' ({shift['start_time']} - {shift['end_time']}).")
+
+
+@router.post("/shifts/{shift_id}/edit")
+def edit_shift(
+    request: Request,
+    shift_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+    name: str = Form(...),
+    start_time: str = Form(...),
+    end_time: str = Form(...),
+    grace_minutes: int = Form(15),
+    half_day_minutes: int = Form(240),
+):
+    verify_form_csrf(user, csrf)
+    shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (shift_id,))
+    if not shift:
+        return redirect("/settings", err="Shift not found.")
+    clean_name = name.strip()
+    if not clean_name:
+        return redirect("/settings", err="Shift name is required.")
+    existing = storage.query_one("SELECT id FROM shifts WHERE lower(name) = lower(?) AND id != ?", (clean_name, shift_id))
+    if existing:
+        return redirect("/settings", err=f"Another shift with name '{clean_name}' already exists.")
+
+    storage.execute(
+        "UPDATE shifts SET name = ?, start_time = ?, end_time = ?, grace_minutes = ?, half_day_minutes = ? WHERE id = ?",
+        (clean_name, start_time.strip(), end_time.strip(), grace_minutes, half_day_minutes, shift_id),
+    )
+    if shift["is_default"]:
+        storage.set_setting("shift_start", start_time.strip())
+        storage.set_setting("shift_end", end_time.strip())
+        storage.set_setting("late_grace_minutes", str(grace_minutes))
+        storage.set_setting("half_day_min_minutes", str(half_day_minutes))
+
+    storage.audit(actor=user.username, action="edit_shift", detail=f"Updated shift '{clean_name}' ({start_time} - {end_time})")
+    return redirect("/settings", ok=f"Shift '{clean_name}' updated successfully.")
 
 
 @router.post("/shifts/{shift_id}/delete")
