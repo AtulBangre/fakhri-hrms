@@ -173,8 +173,8 @@
     var w = video.videoWidth, h = video.videoHeight;
     if (!w || !h) return done(null);
 
-    // ~720 px on the long edge is plenty for YuNet and keeps the upload small.
-    var scale = Math.min(1, 720 / Math.max(w, h));
+    // ~480 px on the long edge is optimal for fast YuNet detection and tiny payload (<20KB).
+    var scale = Math.min(1, 480 / Math.max(w, h));
     canvas.width = Math.round(w * scale);
     canvas.height = Math.round(h * scale);
     canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -193,7 +193,7 @@
         .then(function (out) { return out.body; })
         .catch(function () { return { action: "connection" }; })
         .then(function (body) { busy = false; done(body); });
-    }, "image/jpeg", 0.85);
+    }, "image/jpeg", 0.75);
   }
 
   function handle(body) {
