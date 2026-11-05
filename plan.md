@@ -4,7 +4,7 @@
 > **Core Directive**: 
 > 1. **Preserve Exact Brand Theme**: Keep Fakhri's signature **Maroon (`#870808`)** aesthetic, dense business UI, hairline borders, and neutral stone palette (`fakhriitservices.com` identity). **No purple or foreign brand colors.**
 > 2. **Adopt Enterprise Features & Modern UX**: Integrate all high-value workflows, ergonomic layouts, interactive steppers, visual cards, and user experience enhancements discovered from SignHR.
-> 3. **Retain Biometric Edge**: Maintain our native in-browser **ONNX YuNet + SFace** anti-spoofing facial recognition gate (<120ms identification, zero hardware cost).
+> 3. **Retain Biometric Edge**: Maintain our browser-camera kiosk backed by the server-side **FaceAPI service (YuNet + SFace, with MiniFASNet liveness)**. Liveness runs in shadow mode until it is calibrated on real cameras.
 
 ---
 
@@ -133,7 +133,7 @@ $$\text{[1. Inputs Verified]} \longrightarrow \text{[2. Calculated]} \longrighta
 ---
 
 ### Feature 6: Geofenced Mobile Punch for Field & Remote Staff
-- Complementing our in-browser **Biometric Face Kiosk** for office entry:
+- Complementing our **Biometric Face Kiosk** for office entry:
   - Mobile web punch with GPS coordinates verification against company branch radius (e.g. 150m).
   - Quick selfie capture to prevent buddy punching on mobile.
 

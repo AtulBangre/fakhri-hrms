@@ -152,10 +152,20 @@ class Settings:
     kiosk_show_name: bool = field(default_factory=lambda: _env_bool("HRMS_KIOSK_SHOW_NAME", False))
 
     # --- Supabase Cloud Sync ---------------------------------------------
-    supabase_url: str = field(default_factory=lambda: _env("HRMS_SUPABASE_URL", "https://talpikqopqcrnyfvveit.supabase.co"))
-    supabase_db_url: str = field(default_factory=lambda: _env("HRMS_SUPABASE_DB_URL", "postgresql://postgres.talpikqopqcrnyfvveit:Kuldeep%40123@aws-0-eu-west-2.pooler.supabase.com:5432/postgres"))
-    supabase_sync_enabled: bool = field(default_factory=lambda: _env_bool("HRMS_SUPABASE_SYNC_ENABLED", True))
+    #: OFF by default. Syncing rewrites the Postgres mirror, truncating and deleting
+    #: rows, so it only ever runs when explicitly enabled with a URL from the environment.
+    supabase_url: str = field(default_factory=lambda: _env("HRMS_SUPABASE_URL", ""))
+    supabase_db_url: str = field(default_factory=lambda: _env("HRMS_SUPABASE_DB_URL", ""))
+    supabase_sync_enabled: bool = field(default_factory=lambda: _env_bool("HRMS_SUPABASE_SYNC_ENABLED", False))
     supabase_sync_interval: int = field(default_factory=lambda: int(_env("HRMS_SUPABASE_SYNC_INTERVAL", "60")))
+
+    # --- Face match safety ------------------------------------------------
+    #: ``log`` records what the current-template check would do; ``enforce`` applies it.
+    #: Enforce only after scripts/face_gallery_report.py shows every active employee
+    #: has a matching template, because a missing ``face_id`` would lock them out.
+    face_template_check: str = field(default_factory=lambda: _env("HRMS_FACE_TEMPLATE_CHECK", "log").lower())
+    #: Show the head-turn prompt on the kiosk. Needs FaceAPI liveness to be calibrated.
+    kiosk_active_challenge: bool = field(default_factory=lambda: _env_bool("HRMS_KIOSK_ACTIVE_CHALLENGE", False))
 
     @property
     def db_path(self) -> Path:

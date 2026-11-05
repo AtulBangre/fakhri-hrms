@@ -28,7 +28,7 @@ font families (Poppins headings, Inter body).
 | 9 | **Ask HR Agentic AI Assistant** | Floating in-app AI assistant drawer answering natural language queries regarding leave balance, attendance logs, and policies |
 | 10 | **Mobile-first responsive PWA & Geofencing** | Sidebar on desktop, bottom tab bar on phones, installable manifests, GPS geofenced mobile punch for remote staff (`/field`) |
 | 11 | **HR & Gate Kiosk Roles** | `hr` role (full management), `kiosk` role (locked-down camera scanner), and `employee` role (self-service portal) |
-| 12 | **Hybrid SQLite WAL + Supabase Cloud Sync** | Local sub-millisecond SQLite WAL engine with asynchronous cloud sync to Supabase PostgreSQL for reporting and disaster recovery |
+| 12 | **Hybrid SQLite WAL + Supabase Cloud Sync** | Local SQLite WAL engine with an optional mirror to Supabase PostgreSQL, off by default. Enabling it rewrites the mirror and copies every table |
 
 ### Notifications, noticeboard and self-service
 
@@ -414,10 +414,11 @@ Art. 9, regulated by Illinois BIPA, India's DPDP Act and similar laws.
 * HRMS stores a **numeric template keyed to the employee code**, not a photo
   gallery — but the Face API holds the embeddings, so protect that database too.
   `../faceapi/docs/SELLING.md` §6 has the regime-by-regime checklist.
-* This is **not** liveness detection and **not** identity verification: a printed
-  photo of an enrolled face would be accepted. Use it for attendance convenience,
-  and keep a human/HR fallback. Do not use it as the sole control for a secure
-  door.
+* Liveness runs in **shadow mode** by default, so it only logs scores: a printed
+  photo of an enrolled face is not blocked until you calibrate it on your own
+  cameras and set `FACEAPI_LIVENESS_MODE=enforce`. No camera-only check stops every
+  attack. Keep a human/HR fallback, and do not use this as the sole control for a
+  secure door.
 * Keep the security settings short and honest: your customers' obligation is
   notice + consent + retention limits, and the HRMS gives you the delete actions
   to honour them.

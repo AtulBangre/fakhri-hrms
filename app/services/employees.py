@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from ..db import Storage, utcnow_iso
-from ..face import EnrolmentResult, FaceService, FaceServiceError
+from ..face import EnrolmentResult, FaceService, FaceServiceError, IdentificationResult
 from . import orgtime
 
 logger = logging.getLogger("hrms.employees")
@@ -506,22 +507,74 @@ class DuplicateFaceError(ValidationError):
         )
 
 
+@dataclass(slots=True)
+class FaceResolution:
+    """Who the kiosk may treat this scan as, using current templates only."""
+
+    employee: dict[str, Any] | None
+    similarity: float | None = None
+    #: Why nobody: no_candidates, stale_only, below_threshold or ambiguous
+    reason: str | None = None
+
+
+def resolve_face_match(storage: Storage, result: IdentificationResult) -> FaceResolution:
+    """Apply threshold + margin over each employee's **current** template.
+
+    Old templates cannot always be deleted, and row ids can be reused, so an
+    ``external_id`` alone can point at the wrong person. Only the HRMS knows which
+    template is current, so the final call on identity is made here.
+    """
+    candidates = list(result.candidates or [])
+    if not candidates and result.external_id:
+        candidates = [
+            {"external_id": result.external_id, "face_id": result.face_id, "similarity": result.similarity}
+        ]
+    if not candidates or result.threshold is None:
+        return FaceResolution(employee=None, reason="no_candidates")
+
+    best_per_employee: dict[int, tuple[dict[str, Any], float]] = {}
+    for candidate in candidates:
+        key, similarity = candidate.get("external_id"), candidate.get("similarity")
+        if not key or similarity is None:
+            continue
+        owner = get_employee_by_face_key(storage, key)
+        if owner is None or not owner.get("face_id") or owner["face_id"] != candidate.get("face_id"):
+            continue
+        if owner["id"] not in best_per_employee or float(similarity) > best_per_employee[owner["id"]][1]:
+            best_per_employee[owner["id"]] = (owner, float(similarity))
+
+    ranked = sorted(best_per_employee.values(), key=lambda item: item[1], reverse=True)
+    above = max(float(c.get("similarity") or 0.0) for c in candidates) >= float(result.threshold)
+    if not ranked:
+        return FaceResolution(employee=None, reason="stale_only" if above else "below_threshold")
+    employee, similarity = ranked[0]
+    if similarity < float(result.threshold):
+        return FaceResolution(employee=None, reason="stale_only" if above else "below_threshold")
+    if len(ranked) > 1 and similarity - ranked[1][1] < result.margin:
+        return FaceResolution(employee=None, reason="ambiguous")
+    return FaceResolution(employee=employee, similarity=similarity)
+
+
 def face_owner_conflict(storage: Storage, face_service: FaceService, employee_id: int,
                         image_bytes: bytes) -> dict[str, Any] | None:
     """The *other* employee this face already belongs to, if any (Feature 1).
 
     Every candidate the Face API scores at or above its own match threshold is
     checked — not just the best one — so a second account hiding behind the
-    employee's own template is still caught. Templates whose key no longer maps
-    to an employee (deleted records) are ignored.
+    employee's own template is still caught. Stale templates are ignored: one whose
+    key maps to no employee, or to an employee whose current template is different.
     """
     result = face_service.identify(image_bytes)
-    threshold = result.threshold if result.threshold is not None else 0.363
+    threshold = result.threshold
+    if threshold is None:  # no face in the photo, so nothing to compare
+        return None
     candidates = list(result.candidates or [])
     if result.matched and result.external_id and not any(
         c.get("external_id") == result.external_id for c in candidates
     ):
-        candidates.append({"external_id": result.external_id, "similarity": result.similarity})
+        candidates.append(
+            {"external_id": result.external_id, "similarity": result.similarity, "face_id": result.face_id}
+        )
     for candidate in candidates:
         similarity = candidate.get("similarity")
         key = candidate.get("external_id")
@@ -530,6 +583,9 @@ def face_owner_conflict(storage: Storage, face_service: FaceService, employee_id
         owner = get_employee_by_face_key(storage, key)
         if owner is None:
             logger.warning("face template %s matches an enrolment photo but has no employee", key)
+            continue
+        if candidate.get("face_id") and candidate["face_id"] != owner.get("face_id"):
+            logger.warning("stale face template for %s matches an enrolment photo; ignoring it", key)
             continue
         if owner["id"] != employee_id:
             return owner

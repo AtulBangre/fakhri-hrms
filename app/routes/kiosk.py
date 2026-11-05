@@ -13,8 +13,9 @@ Access model
 from __future__ import annotations
 
 import logging
+import time
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from ..auth import SessionUser, require_hr_or_kiosk
@@ -30,6 +31,28 @@ logger = logging.getLogger("hrms.kiosk")
 router = APIRouter(tags=["kiosk"])
 
 MAX_FRAME_BYTES = 8 * 1024 * 1024
+MAX_FRAMES = 8
+
+#: After this many spoofs in the window, the device pauses briefly.
+SPOOF_LIMIT = 5
+SPOOF_WINDOW_SECONDS = 60.0
+SPOOF_LOCK_SECONDS = 30.0
+
+RETRY_MESSAGES = {
+    "no_face": "No face found — look into the oval.",
+    "too_far": "Please step closer.",
+    "face_unclear": "Face not clear — look straight at the camera.",
+    "too_blurry": "Too blurry — hold still.",
+    "too_dark": "Too dark — move to better light.",
+    "too_bright": "Too bright — avoid direct light.",
+    "look_at_camera": "Please look straight at the camera first.",
+    "multiple_faces": "One person at a time, please.",
+    "challenge_expired": "That took too long — please try again.",
+    "challenge_used": "Please try again.",
+    "challenge_invalid": "Please try again.",
+    "liveness_error": "Could not check the scan — please try again.",
+    "try_again": "Please try again.",
+}
 
 
 def _confirmation(storage, settings) -> str:
@@ -94,11 +117,67 @@ def kiosk_screen(
         health=health,
         show_name=_confirmation(storage, settings) == "full",
         scan_mode=storage.get_setting("kiosk_scan_mode", "tap"),
+        active_challenge=settings.kiosk_active_challenge,
         shift_start=storage.get_setting("shift_start", "09:30"),
         debounce_seconds=settings.kiosk_debounce_seconds,
         server_time=orgtime.local_now(settings).strftime("%H:%M:%S"),
         today_label=orgtime.human_day(orgtime.today(settings)),
     )
+
+
+@router.post("/api/kiosk/challenge")
+def kiosk_challenge(
+    user: SessionUser = Depends(require_hr_or_kiosk),
+    face=Depends(get_face),
+):
+    """Start a head-turn challenge for the kiosk to show."""
+    try:
+        return JSONResponse({"ok": True, **face.create_challenge()})
+    except FaceServiceError as exc:
+        logger.warning("kiosk challenge failed: %s", exc.message)
+        return JSONResponse(
+            {"ok": False, "action": "service_down", "kind": "error",
+             "message": "Face service is unreachable. Attendance cannot be marked right now."},
+            status_code=503,
+        )
+
+
+def _read_frames(frames: list[UploadFile]) -> list[bytes]:
+    payloads = [read_capped(frame.file, limit=MAX_FRAME_BYTES) for frame in frames[:MAX_FRAMES]]
+    if sum(len(payload) for payload in payloads) > MAX_FRAME_BYTES:
+        raise UploadError("Frames too large.")
+    return payloads
+
+
+def _spoof_locked(request: Request, device: str) -> bool:
+    """Repeated spoofs pause this device for a moment. FaceAPI sees one key, not devices."""
+    state = getattr(request.app.state, "kiosk_spoofs", {})
+    locked_until = state.get(device, {}).get("locked_until", 0.0)
+    return time.monotonic() < locked_until
+
+
+def _record_spoof(request: Request, device: str) -> None:
+    if not hasattr(request.app.state, "kiosk_spoofs"):
+        request.app.state.kiosk_spoofs = {}
+    entry = request.app.state.kiosk_spoofs.setdefault(device, {"hits": [], "locked_until": 0.0})
+    now = time.monotonic()
+    entry["hits"] = [hit for hit in entry["hits"] if now - hit < SPOOF_WINDOW_SECONDS] + [now]
+    if len(entry["hits"]) >= SPOOF_LIMIT:
+        entry["locked_until"] = now + SPOOF_LOCK_SECONDS
+        entry["hits"] = []
+
+
+def _legacy_face_key(identification) -> str | None:
+    """Today's rule, kept for ``log`` mode: the top template above the threshold."""
+    if identification.external_id:
+        return identification.external_id
+    if identification.threshold is None:
+        return None
+    for candidate in identification.candidates or []:
+        similarity = candidate.get("similarity")
+        if candidate.get("external_id") and similarity is not None and similarity >= identification.threshold:
+            return candidate["external_id"]
+    return None
 
 
 @router.post("/api/kiosk/scan")
@@ -108,18 +187,32 @@ def kiosk_scan(
     storage=Depends(get_storage),
     settings=Depends(get_settings_dep),
     face=Depends(get_face),
-    image: UploadFile = File(...),
+    image: UploadFile | None = File(None),
+    frames: list[UploadFile] = File(default=[]),
+    challenge_token: str | None = Form(None),
 ):
-    """Identify the person in a captured frame and mark attendance."""
+    """Identify the person in the captured frame(s) and mark attendance."""
+    device = device_label_for(user)
+    if _spoof_locked(request, device):
+        return JSONResponse(
+            {"ok": False, "action": "spoof_lockout", "kind": "error",
+             "message": "Too many failed checks. Please wait a moment or ask HR."},
+            status_code=429,
+        )
+
     try:
-        payload = read_capped(image.file, limit=MAX_FRAME_BYTES)
+        if frames and challenge_token:
+            frame_payloads = _read_frames(frames)
+            payload = frame_payloads[0] if frame_payloads else b""  # capture starts facing the camera
+        else:
+            frame_payloads = []
+            payload = read_capped(image.file, limit=MAX_FRAME_BYTES) if image else b""
     except UploadError:
         return JSONResponse(
             {"ok": False, "action": "frame_too_large", "kind": "error",
              "message": "Frame too large — reduce the camera resolution."},
             status_code=413,
         )
-    device = device_label_for(user)
 
     if not payload:
         return JSONResponse(
@@ -128,7 +221,10 @@ def kiosk_scan(
         )
 
     try:
-        identification = face.identify(payload)
+        if frame_payloads:
+            identification = face.identify_secure(frame_payloads, challenge_token=challenge_token)
+        else:
+            identification = face.identify(payload, checks=True)
     except FaceServiceUnavailable as exc:
         logger.warning("kiosk scan failed: face service unavailable (%s)", exc)
         return JSONResponse(
@@ -143,8 +239,22 @@ def kiosk_scan(
             status_code=502,
         )
 
-    if not identification.is_live:
-        reason = identification.spoof_reason or "Photo or screen replay detected"
+    if identification.decision == "retry":
+        reason = identification.retry_reason or "try_again"
+        return JSONResponse(
+            {
+                "ok": False,
+                "action": "retry",
+                "kind": "warning",
+                "reason": reason,
+                "message": RETRY_MESSAGES.get(reason, RETRY_MESSAGES["try_again"]),
+                "server_time": orgtime.local_now(settings).strftime("%H:%M:%S"),
+            }
+        )
+
+    if identification.decision == "spoof" or identification.is_live is False:
+        reason = identification.spoof_reason or "liveness_failed"
+        _record_spoof(request, device)
         storage.audit(
             actor=user.username,
             action="kiosk_spoof_rejected",
@@ -156,14 +266,27 @@ def kiosk_scan(
                 "ok": False,
                 "action": "spoof_detected",
                 "kind": "error",
-                "message": f"Real face required — photo or screen detected ({reason}).",
-                "similarity": identification.similarity,
+                "message": "Liveness check failed. Face the camera yourself, or ask HR.",
                 "liveness_score": identification.liveness_score,
                 "server_time": orgtime.local_now(settings).strftime("%H:%M:%S"),
             }
         )
 
-    if not identification.matched or not identification.external_id:
+    resolution = employees_service.resolve_face_match(storage, identification)
+    enforce = settings.face_template_check == "enforce"
+    similarity = resolution.similarity if enforce else identification.similarity
+    legacy_key = None if enforce else _legacy_face_key(identification)
+
+    if enforce and resolution.reason == "stale_only":
+        storage.audit(actor=user.username, action="kiosk_template_mismatch", entity="kiosk",
+                      detail=f"device={device} best={identification.external_id} blocked: stale template")
+        return JSONResponse(
+            {"ok": False, "action": "unknown_employee", "kind": "error",
+             "message": "This face is enrolled but no longer linked to an employee. Ask HR to re-enrol."},
+            status_code=409,
+        )
+
+    if (enforce and resolution.employee is None) or (not enforce and not legacy_key):
         no_face = (identification.faces_in_probe or 0) == 0
         message = (
             "No face detected — look straight at the camera."
@@ -186,10 +309,23 @@ def kiosk_scan(
             }
         )
 
-    employee = employees_service.get_employee_by_face_key(storage, identification.external_id)
+    if enforce:
+        employee = resolution.employee
+    else:
+        employee = employees_service.get_employee_by_face_key(storage, legacy_key)
+        strict = resolution.employee
+        if employee is not None and (strict is None or strict["id"] != employee["id"]):
+            # log mode: show what enforce would have done, and change nothing else.
+            logger.warning("template check would differ: key=%s reason=%s", legacy_key, resolution.reason)
+            storage.audit(actor=user.username, action="kiosk_template_mismatch", entity="employee",
+                          entity_id=employee["id"],
+                          detail=f"device={device} key={legacy_key} would_block={resolution.reason}")
+        if similarity is None and identification.candidates:
+            similarity = identification.candidates[0].get("similarity")
+
     if employee is None:
         storage.audit(actor=user.username, action="kiosk_orphan_template", entity="employee",
-                      detail=f"code={identification.external_id} is in the face collection but not in HRMS")
+                      detail=f"code={legacy_key} is in the face collection but not in HRMS")
         return JSONResponse(
             {"ok": False, "action": "unknown_employee", "kind": "error",
              "message": "This face is enrolled but no longer linked to an employee. Ask HR to re-enrol."},
@@ -201,13 +337,13 @@ def kiosk_scan(
         settings,
         employee,
         device_label=device,
-        similarity=identification.similarity,
+        similarity=similarity,
         source="face",
         photo_bytes=payload,
     )
     storage.audit(
         actor=user.username, action=f"kiosk_{outcome.action}", entity="employee", entity_id=employee["id"],
-        detail=f"{employee['code']} sim={identification.similarity} device={device}",
+        detail=f"{employee['code']} sim={similarity} device={device} live={identification.is_live}",
     )
 
     _notify_punch(storage, settings, employee, outcome)
@@ -221,7 +357,7 @@ def kiosk_scan(
         body["message"] = {"check_in": "Checked in.", "check_out": "Checked out."}.get(outcome.action, "Noted.")
     body.update(
         {
-            "similarity": identification.similarity,
+            "similarity": similarity,
             "threshold": identification.threshold,
             "gallery_size": identification.gallery_size,
             "device": device,

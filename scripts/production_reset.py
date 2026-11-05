@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Reset database to a clean, production-ready state with a single HR admin account."""
+"""DESTRUCTIVE: erase all HR data and leave a single HR admin account.
+
+This deletes every employee, payroll, attendance and audit row, the uploads folder
+and every enrolled face. It refuses to run unless given ``--erase-all-data`` and
+``HRMS_RESET_HR_PASSWORD``, and stops if the face gallery cannot be cleared.
+
+ID sequences are deliberately kept. Reusing an employee id would point any face
+template left behind at the wrong person.
+"""
 
 from __future__ import annotations
 
@@ -17,10 +25,13 @@ import httpx
 from app.auth import hash_password
 from app.config import get_settings
 from app.db import Storage, utcnow_iso
-from app.services.sync_supabase import sync_all
 
 
 def reset_production() -> None:
+    hr_password = os.environ.get("HRMS_RESET_HR_PASSWORD", "")
+    if "--erase-all-data" not in sys.argv[1:] or len(hr_password) < 12:
+        sys.exit("Refusing to run. Pass --erase-all-data and set HRMS_RESET_HR_PASSWORD (12+ characters).")
+
     settings = get_settings()
     db_path = Path(settings.db_path)
     print(f"Target database: {db_path}")
@@ -68,14 +79,11 @@ def reset_production() -> None:
         for tbl in tables_to_purge:
             try:
                 storage._conn.execute(f'DELETE FROM "{tbl}";')
-                # Reset sqlite sequence counter
-                storage._conn.execute(f"DELETE FROM sqlite_sequence WHERE name='{tbl}';")
             except sqlite3.OperationalError:
                 pass
 
         # Create single HR administrator
         hr_email = "hr@fakhriitservices.com"
-        hr_password = "Disha.fakhri@786"
         pw_hash, salt = hash_password(hr_password)
         now = utcnow_iso()
 
@@ -123,25 +131,26 @@ def reset_production() -> None:
     if cred_file.exists():
         cred_file.unlink()
 
-    # Reset FaceAPI collections if reachable
+    # A gallery left behind is how an old face ends up showing a new person's details.
+    headers = {"X-API-Key": settings.faceapi_key} if settings.faceapi_key else {}
+    faceapi_url = settings.faceapi_url.rstrip("/")
     try:
-        faceapi_url = settings.faceapi_url.rstrip("/")
-        resp = httpx.delete(f"{faceapi_url}/v1/collections/{settings.face_collection}", timeout=5.0)
-        print(f"Reset FaceAPI collection '{settings.face_collection}': HTTP {resp.status_code}")
-    except Exception as e:
-        print(f"FaceAPI collection reset note (non-critical): {e}")
+        resp = httpx.delete(
+            f"{faceapi_url}/v1/collections/{settings.face_collection}", headers=headers, timeout=10.0
+        )
+    except httpx.HTTPError as exc:
+        sys.exit(f"RESET INCOMPLETE: could not reach FaceAPI to clear the gallery: {exc}")
+    if resp.status_code not in (200, 404):
+        sys.exit(f"RESET INCOMPLETE: FaceAPI refused to clear the gallery: HTTP {resp.status_code}")
+    print(f"Cleared FaceAPI collection '{settings.face_collection}': HTTP {resp.status_code}")
 
-    # Replicate clean state to Supabase Cloud
-    if settings.supabase_sync_enabled and settings.supabase_db_url:
-        print("Replicating clean state to Supabase Cloud...")
-        res = sync_all(storage, settings)
-        print(f"Supabase sync complete: {res}")
+    print("The Supabase mirror was not touched. Sync refuses to copy an empty database.")
 
     print("\n" + "=" * 60)
     print("PRODUCTION RESET COMPLETE & VERIFIED!")
     print(f"Login URL: {settings.public_base_url.rstrip('/')}/login")
     print(f"Username / Email: {hr_email}")
-    print(f"Password: {hr_password}")
+    print("Password: the value of HRMS_RESET_HR_PASSWORD")
     print(f"Role: hr (Full Admin / Dashboard Access)")
     print("Total Employees: 0 (Ready for fresh onboarding)")
     print("=" * 60)

@@ -19,15 +19,6 @@ hrms.fakhriitservices.com {
 		max_size 20MB
 	}
 
-	# FaceAPI Developer Portal & Endpoints
-	handle_path /faceapi* {
-		reverse_proxy faceapi:8000 {
-			header_up X-Forwarded-Prefix /faceapi
-			header_up X-Real-IP {remote_host}
-			header_up X-External "true"
-		}
-	}
-
 	# HRMS Web Application
 	reverse_proxy api:8100 {
 		header_up X-Real-IP {remote_host}

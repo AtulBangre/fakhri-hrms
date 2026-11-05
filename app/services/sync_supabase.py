@@ -47,9 +47,26 @@ def get_pg_connection(db_url: str):
     return psycopg2.connect(db_url, sslmode="require", connect_timeout=12)
 
 
+def _source_has_data(storage: Storage) -> bool:
+    """Guard: an empty source would otherwise truncate the whole cloud mirror."""
+    try:
+        with sqlite3.connect(f"file:{storage.db_path}?mode=ro", uri=True, timeout=5) as conn:
+            return all(
+                conn.execute(f'SELECT EXISTS(SELECT 1 FROM "{table}")').fetchone()[0]
+                for table in ("employees", "users")
+            )
+    except sqlite3.Error as exc:
+        logger.warning("Supabase sync aborted: cannot read the local database (%s)", exc)
+        return False
+
+
 def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
     """Mirror SQLite tables and upsert all rows to Supabase PostgreSQL."""
     if not settings.supabase_sync_enabled or not settings.supabase_db_url or not HAS_PSYCOPG2:
+        return {}
+
+    if not _source_has_data(storage):
+        logger.error("Supabase sync aborted: the local employees or users table is empty.")
         return {}
 
     started = time.perf_counter()

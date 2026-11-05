@@ -103,6 +103,38 @@
     });
   }
 
+  /* --------------------------------------------------- photo upload resize */
+  var UPLOAD_MAX_SIDE = 1280;
+
+  /** Phone photos are often several MB. If anything fails, the original is sent. */
+  function initImageDownscale() {
+    document.querySelectorAll("form[data-downscale-image]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        var input = form.querySelector("input[type=file]");
+        var file = input && input.files[0];
+        if (form.dataset.resized || !file || !window.createImageBitmap || !window.DataTransfer) return;
+        event.preventDefault();
+        var send = function () { form.dataset.resized = "1"; form.requestSubmit(); };
+        createImageBitmap(file).then(function (bitmap) {
+          var scale = UPLOAD_MAX_SIDE / Math.max(bitmap.width, bitmap.height);
+          if (scale >= 1) return send();
+          var canvas = document.createElement("canvas");
+          canvas.width = Math.round(bitmap.width * scale);
+          canvas.height = Math.round(bitmap.height * scale);
+          canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(function (blob) {
+            if (blob) {
+              var transfer = new DataTransfer();
+              transfer.items.add(new File([blob], "face.jpg", { type: "image/jpeg" }));
+              input.files = transfer.files;
+            }
+            send();
+          }, "image/jpeg", 0.92);
+        }).catch(send);
+      });
+    });
+  }
+
   /* ------------------------------------------------------- webcam enrolment */
   function initFaceEnrolment(options) {
     var video = $("#enrolVideo");
@@ -351,6 +383,7 @@
     initRowToggles();
     initBulk();
     initAttendanceForms();
+    initImageDownscale();
   });
 
   window.FakhriHRMS = {

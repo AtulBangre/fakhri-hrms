@@ -342,7 +342,7 @@
         </div>
         <div id="enrolStatus" class="small muted mt-1"></div>
 
-        <form method="post" action="/employees/{{ employee.id }}/face" enctype="multipart/form-data" class="mt-2">
+        <form method="post" action="/employees/{{ employee.id }}/face" enctype="multipart/form-data" class="mt-2" data-downscale-image>
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <div class="field">
             <label for="image">…or upload a photo</label>

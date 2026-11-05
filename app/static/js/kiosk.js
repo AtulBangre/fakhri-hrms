@@ -45,7 +45,8 @@
   var cardMeta = $("cardMeta");
   var cardWhen = $("cardWhen");
   var cardLate = $("cardLate");
-  var tapMode = cfg.scanMode !== "continuous";
+  // A head-turn prompt needs someone ready for it, so it always starts from a tap.
+  var tapMode = cfg.scanMode !== "continuous" || !!cfg.activeChallenge;
   var session = false;   // a tap-mode scan is in progress
   var cardTimer = null;
   var startLabel = startBtn.querySelector("strong").textContent;
@@ -72,6 +73,12 @@
   var TAP_WARMUP_MS = 700;      // let exposure settle before the first frame
   var TAP_RETRY_MS = 900;
   var TAP_ATTEMPTS = 3;
+  var CHALLENGE_FRAMES = 5;
+  var CHALLENGE_FRAME_GAP_MS = 400;
+  var CHALLENGE_PROMPTS = {
+    turn_left: "Slowly turn your head to your LEFT",
+    turn_right: "Slowly turn your head to your RIGHT"
+  };
 
   /* ------------------------------------------------------------------ audio */
   var audioCtx = null;
@@ -166,34 +173,84 @@
   }
 
   /* ---------------------------------------------------------------- capture */
-  /** Send one frame. ``done(body)`` is called once with the response (or null). */
-  function capture(done) {
-    done = done || function () {};
-    if (!stream || busy || !running || Date.now() < pausedUntil) return done(null);
+  /** Draw the current video frame. Always raw: CSS mirrors only the preview. */
+  function grabFrame(onBlob) {
     var w = video.videoWidth, h = video.videoHeight;
-    if (!w || !h) return done(null);
-
+    if (!stream || !w || !h) return onBlob(null);
     // ~480 px on the long edge is optimal for fast YuNet detection and tiny payload (<20KB).
     var scale = Math.min(1, 480 / Math.max(w, h));
     canvas.width = Math.round(w * scale);
     canvas.height = Math.round(h * scale);
     canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(onBlob, "image/jpeg", 0.75);
+  }
+
+  function postScan(data, done) {
+    data.append("_csrf", cfg.csrf);
+    fetch(cfg.markUrl, { method: "POST", body: data, credentials: "same-origin" })
+      .then(function (response) {
+        return response.json().then(function (body) { return { ok: response.ok, body: body }; });
+      })
+      .then(function (out) { return out.body; })
+      .catch(function () { return { action: "connection" }; })
+      .then(function (body) { busy = false; done(body); });
+  }
+
+  /** Send one frame, or a head-turn sequence. ``done(body)`` runs once with the response (or null). */
+  function capture(done) {
+    done = done || function () {};
+    if (!stream || busy || !running || Date.now() < pausedUntil) return done(null);
+    if (!video.videoWidth || !video.videoHeight) return done(null);
 
     busy = true;
-    canvas.toBlob(function (blob) {
+    if (cfg.activeChallenge) return challengeScan(done);
+    grabFrame(function (blob) {
       if (!blob) { busy = false; return done(null); }
       var data = new FormData();
-      data.append("_csrf", cfg.csrf);
       data.append("image", blob, "scan.jpg");
+      postScan(data, done);
+    });
+  }
 
-      fetch(cfg.markUrl, { method: "POST", body: data, credentials: "same-origin" })
-        .then(function (response) {
-          return response.json().then(function (body) { return { ok: response.ok, body: body }; });
-        })
-        .then(function (out) { return out.body; })
-        .catch(function () { return { action: "connection" }; })
-        .then(function (body) { busy = false; done(body); });
-    }, "image/jpeg", 0.75);
+  function challengeScan(done) {
+    var request = new FormData();
+    request.append("_csrf", cfg.csrf);
+    fetch(cfg.challengeUrl, { method: "POST", body: request, credentials: "same-origin" })
+      .then(function (response) { return response.json(); })
+      .catch(function () { return { action: "connection" }; })
+      .then(function (challenge) {
+        if (!challenge || !challenge.challenge_token) {
+          busy = false;
+          return done(challenge && challenge.action ? challenge : { action: "service_down" });
+        }
+        collectFrames(challenge, done);
+      });
+  }
+
+  /** The first frame is taken before the prompt, so it shows the person facing the camera. */
+  function collectFrames(challenge, done) {
+    var data = new FormData();
+    data.append("challenge_token", challenge.challenge_token);
+    var taken = 0;
+
+    function next() {
+      grabFrame(function (blob) {
+        if (!blob) { busy = false; hud.hidden = true; return done(null); }
+        data.append("frames", blob, taken + ".jpg");
+        taken += 1;
+        if (taken === 1) {
+          hudTxt.textContent = CHALLENGE_PROMPTS[challenge.action] || "Follow the prompt";
+          hud.hidden = false;
+        }
+        if (taken < CHALLENGE_FRAMES) {
+          window.setTimeout(next, CHALLENGE_FRAME_GAP_MS);
+          return;
+        }
+        hudTxt.textContent = "Verifying identity…";
+        postScan(data, done);
+      });
+    }
+    next();
   }
 
   function handle(body) {
@@ -251,9 +308,13 @@
         pausedUntil = Date.now() + HOLD_ERROR_MS;
         break;
       case "spoof_detected":
-        show("bad", "Real Face Required", "photos or screens rejected", HOLD_ERROR_MS + 1000);
+        show("bad", "Liveness check failed", "face the camera yourself or ask HR", HOLD_ERROR_MS + 1000);
         beep("bad");
         pausedUntil = Date.now() + HOLD_ERROR_MS + 1000;
+        break;
+      case "retry":
+        show("warn", body.message || "Please try again", "", HOLD_NOTICE_MS);
+        pausedUntil = Date.now() + 1200;
         break;
       case "connection":
         show("bad", "Connection problem", "server did not answer", HOLD_ERROR_MS);
@@ -300,9 +361,9 @@
     function attempt(n) {
       pausedUntil = 0;
       capture(function (body) {
-        var retry = !body || body.action === "no_face";
+        var retry = !body || body.action === "no_face" || body.action === "retry";
         if (retry && n < TAP_ATTEMPTS) {
-          hudTxt.textContent = "Look straight at the camera…";
+          hudTxt.textContent = (body && body.action === "retry" && body.message) || "Look straight at the camera…";
           window.setTimeout(function () { attempt(n + 1); }, TAP_RETRY_MS);
           return;
         }

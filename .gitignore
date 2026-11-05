@@ -16,6 +16,7 @@ secret_key.txt
 *.pem
 initial_credentials.txt
 data/uploads/
+data/outbox/
 data/*.txt
 .env
 .env.*

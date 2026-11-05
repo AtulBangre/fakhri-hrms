@@ -21,6 +21,19 @@ service: scale up, not out.
 
 ---
 
+## Before you turn on face checks
+
+Do these in order. None of them changes stored data.
+
+1. Set `FACEAPI_SERVICE_KEY` in `.env`. `docker compose up` refuses to start without it.
+2. Deploy with `HRMS_FACE_TEMPLATE_CHECK=log` and `FACEAPI_LIVENESS_MODE=shadow`.
+3. Check memory with `docker stats`: two Face API workers must fit the 350 MB limit.
+4. Run `scripts/face_gallery_report.py`, then set `HRMS_FACE_TEMPLATE_CHECK=enforce`.
+5. Calibrate with `../faceapi/scripts/eval_recognition.py` and `eval_liveness.py`.
+6. Set `FACEAPI_LIVENESS_MODE=enforce` on one gate, and optionally `HRMS_KIOSK_ACTIVE_CHALLENGE=true`.
+
+---
+
 ## Option A — Docker Compose (recommended)
 
 `hrms/docker-compose.yml` builds and runs **both** services, with the Face API
@@ -42,10 +55,14 @@ HRMS_PUBLIC_BASE_URL=https://hrms.yourdomain.com
 HRMS_SECURE_COOKIES=true
 HRMS_FACEAPI_URL=http://faceapi:8000
 
-# Optional: Supabase PostgreSQL Cloud Sync for external reporting and disaster recovery
-HRMS_SUPABASE_DB_URL=postgresql://postgres.xxx:password@aws-0-xx.pooler.supabase.com:5432/postgres
-HRMS_SUPABASE_SYNC_ENABLED=true
-HRMS_SUPABASE_SYNC_INTERVAL=60
+# Required: shared by the HRMS and Face API. Generate with: openssl rand -base64 32
+FACEAPI_SERVICE_KEY=
+
+# Optional and OFF by default: Supabase mirror. Enabling it REWRITES the Postgres
+# mirror (truncates, deletes, upserts) and copies every table, including salaries.
+# HRMS_SUPABASE_DB_URL=
+# HRMS_SUPABASE_SYNC_ENABLED=true
+# HRMS_SUPABASE_SYNC_INTERVAL=60
 ```
 
 Then:

@@ -5,8 +5,7 @@
 #   docker compose logs api | grep -i login     # first-run credentials
 #
 # The HRMS talks to the Face API over the internal network. The Face API is NOT
-# published to the host here: only the HRMS needs it, and keeping it private means
-# no API key handling inside the compose network.
+# published to the host or routed by Caddy, and it still requires FACEAPI_SERVICE_KEY.
 
 services:
   faceapi:
@@ -17,8 +16,10 @@ services:
     image: faceapi:latest
     restart: unless-stopped
     environment:
-      # Internal-only service: no key needed, and it is not exposed to the host.
-      FACEAPI_AUTH_ENABLED: "false"
+      # Internal-only service. The service key keeps using the existing gallery.
+      FACEAPI_AUTH_ENABLED: "true"
+      FACEAPI_SERVICE_KEY: "${FACEAPI_SERVICE_KEY:?Set FACEAPI_SERVICE_KEY in .env}"
+      FACEAPI_LIVENESS_MODE: "${FACEAPI_LIVENESS_MODE:-shadow}"
       FACEAPI_LOG_LEVEL: INFO
       FACEAPI_DATA_DIR: /app/data
       OMP_NUM_THREADS: "1"
@@ -27,7 +28,10 @@ services:
       resources:
         limits:
           cpus: "1.5"
-          memory: 350M
+          memory: 600M
+    tmpfs:
+      # One-time liveness challenge markers, shared by the workers.
+      - /tmp
     volumes:
       - faceapi-data:/app/data
     healthcheck:
@@ -37,7 +41,7 @@ services:
         - -c
         - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5).status==200 else 1)"
       interval: 30s
-      timeout: 6s
+      timeout: 10s
       retries: 5
       start_period: 25s
 
@@ -53,6 +57,7 @@ services:
       - .env
     environment:
       HRMS_FACEAPI_URL: "http://faceapi:8000"
+      HRMS_FACEAPI_KEY: "${FACEAPI_SERVICE_KEY:?Set FACEAPI_SERVICE_KEY in .env}"
       HRMS_DATA_DIR: /app/data
       PORT: "8100"
       WORKERS: "2"

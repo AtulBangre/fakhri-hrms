@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import os
 import re
 from pathlib import Path
+
+# Must run before the app is imported: tests never talk to a real cloud database.
+os.environ["HRMS_SUPABASE_SYNC_ENABLED"] = "false"
+os.environ["HRMS_SUPABASE_DB_URL"] = ""
+os.environ["HRMS_SUPABASE_URL"] = ""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +27,17 @@ HR_USERNAME = "hr"
 HR_PASSWORD = "changeme123"
 KIOSK_USERNAME = "gate"
 KIOSK_PASSWORD = "gatepass123"
+
+
+@pytest.fixture(autouse=True)
+def _no_cloud_database(monkeypatch):
+    """Second safety net: opening a Postgres connection fails any test that tries."""
+    from app.services import sync_supabase
+
+    def _refuse(*_args, **_kwargs):
+        raise AssertionError("Tests must never connect to Supabase")
+
+    monkeypatch.setattr(sync_supabase, "get_pg_connection", _refuse)
 
 
 @pytest.fixture
@@ -92,6 +109,8 @@ class FakeFaceService:
         self.enrolled: dict[str, str] = {}  # external_id -> face_id
         self.photos: dict[bytes, str] = {}  # enrolment photo -> external_id
         self.deleted: list[str] = []
+        self.secure_calls: list[tuple[int, str]] = []
+        self.identify_checks: list[bool] = []
         self.identify_result = identify_result
         self.fail_health = fail_health
         self._counter = 0
@@ -131,7 +150,15 @@ class FakeFaceService:
     def list_faces(self, *, limit: int = 500) -> list[dict]:
         return [{"face_id": face_id, "external_id": external_id} for external_id, face_id in self.enrolled.items()]
 
-    def identify(self, image_bytes: bytes, *, filename: str = "scan.jpg") -> IdentificationResult:
+    def create_challenge(self) -> dict:
+        return {"challenge_token": "token-1", "action": "turn_left", "expires_in": 10}
+
+    def identify_secure(self, frames: list[bytes], *, challenge_token: str) -> IdentificationResult:
+        self.secure_calls.append((len(frames), challenge_token))
+        return self.identify(frames[0])
+
+    def identify(self, image_bytes: bytes, *, filename: str = "scan.jpg", checks: bool = False) -> IdentificationResult:
+        self.identify_checks.append(checks)
         if self.identify_result is not None:
             return self.identify_result
         owner = self.photos.get(image_bytes)

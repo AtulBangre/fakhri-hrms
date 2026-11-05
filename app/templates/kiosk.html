@@ -53,7 +53,7 @@
 
       <button type="button" class="kiosk-start" id="startBtn">
         <span class="ico">📷</span>
-        <strong>{{ 'Tap the screen to mark attendance' if scan_mode == 'tap' else 'Tap to start' }}</strong>
+        <strong>{{ 'Tap the screen to mark attendance' if scan_mode == 'tap' or active_challenge else 'Tap to start' }}</strong>
         <small>then look into the oval</small>
       </button>
 
@@ -86,6 +86,8 @@
     window.KIOSK_CONFIG = {
       statusUrl: "/api/kiosk/status",
       markUrl: "/api/kiosk/scan",
+      challengeUrl: "/api/kiosk/challenge",
+      activeChallenge: {{ 'true' if active_challenge else 'false' }},
       csrf: "{{ csrf_token }}",
       showName: {{ 'true' if show_name else 'false' }},
       scanMode: "{{ 'continuous' if scan_mode == 'continuous' else 'tap' }}",

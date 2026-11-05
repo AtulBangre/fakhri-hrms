@@ -5,9 +5,9 @@ in the Face API service, which keeps this app small, keeps the biometric maths
 in one audited place, and means the HRMS is a real consumer of that API.
 
 Every employee is enrolled into one collection (``HRMS_FACE_COLLECTION``) using
-the employee **code** as the Face API ``external_id``. That single decision makes
-matching trivial: whichever code comes back from ``/v1/identify`` is the person
-standing at the gate.
+``emp-<row id>`` as the Face API ``external_id`` (older enrolments used the employee
+code). An ``external_id`` alone does not prove identity: only the template matching
+the employee's current ``face_id`` counts (see ``employees.resolve_face_match``).
 
 If the face service is down, the HRMS keeps working — HR can still mark
 attendance manually, and the kiosk shows a clear "scanner offline" state instead
@@ -26,6 +26,9 @@ import httpx
 from .config import Settings
 
 logger = logging.getLogger("hrms.face")
+
+#: Enough to see past stale templates to the employee's current one.
+CANDIDATE_LIMIT = 10
 
 
 class FaceServiceError(RuntimeError):
@@ -53,9 +56,14 @@ class IdentificationResult:
     gallery_size: int = 0
     candidates: list[dict] = field(default_factory=list)
     message: str | None = None
-    is_live: bool = True
-    liveness_score: float = 1.0
+    #: ``None`` means liveness was not verified, never that the person is live.
+    is_live: bool | None = None
+    liveness_score: float | None = None
     spoof_reason: str | None = None
+    #: match, no_match, spoof or retry
+    decision: str | None = None
+    retry_reason: str | None = None
+    margin: float = 0.0
 
     @property
     def employee_code(self) -> str | None:
@@ -124,8 +132,8 @@ class FaceService:
             if (now - cached_at) < 15.0:
                 return cached_res
 
-        # Short timeout: this backs status badges, which must not stall a page.
-        quick = min(3.0, float(self.timeout))
+        # Healthcheck timeout: balance responsiveness with busy inference spikes
+        quick = min(5.0, float(self.timeout))
         try:
             with self._client() as client:
                 root = client.get("/", timeout=quick)
@@ -230,46 +238,85 @@ class FaceService:
             raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
 
     # ------------------------------------------------------------ identify
-    def identify(self, image_bytes: bytes, *, filename: str = "scan.jpg") -> IdentificationResult:
-        """1:N match one captured frame against the employee collection."""
+    def identify(
+        self, image_bytes: bytes, *, filename: str = "scan.jpg", checks: bool = False
+    ) -> IdentificationResult:
+        """1:N match one frame. ``checks`` adds FaceAPI's quality gate and passive liveness."""
         self.ensure_collection()
         try:
             with self._client() as client:
                 response = client.post(
                     "/v1/identify",
-                    params={"collection": self.collection, "top_k": 3},
+                    params={"collection": self.collection, "top_k": CANDIDATE_LIMIT, "checks": checks},
                     files={"image": (filename, image_bytes, "image/jpeg")},
-                )
-                if response.status_code == 422:
-                    # Most common case by far: no face in the frame.
-                    detail = "No face detected in the frame."
-                    try:
-                        detail = response.json()["error"]["message"]
-                    except (ValueError, KeyError):
-                        pass
-                    return IdentificationResult(
-                        matched=False, external_id=None, similarity=None, face_id=None,
-                        threshold=None, message=detail,
-                    )
-                if response.status_code >= 400:
-                    raise self._error_from_response(response)
-                body = response.json()
-                best = body.get("best_match") or {}
-                return IdentificationResult(
-                    matched=bool(body.get("match")),
-                    external_id=best.get("external_id"),
-                    similarity=best.get("similarity"),
-                    face_id=best.get("face_id"),
-                    threshold=body.get("threshold"),
-                    faces_in_probe=int(body.get("faces_in_probe") or 0),
-                    gallery_size=int(body.get("gallery_size") or 0),
-                    candidates=body.get("candidates") or [],
-                    is_live=bool(body.get("is_live", True)),
-                    liveness_score=float(body.get("liveness_score", 1.0)),
-                    spoof_reason=body.get("spoof_reason"),
                 )
         except httpx.HTTPError as exc:
             raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
+        if response.status_code == 422:
+            # Most common case by far: no face in the frame.
+            detail = "No face detected in the frame."
+            try:
+                detail = response.json()["error"]["message"]
+            except (ValueError, KeyError):
+                pass
+            return IdentificationResult(
+                matched=False, external_id=None, similarity=None, face_id=None,
+                threshold=None, message=detail,
+            )
+        if response.status_code >= 400:
+            raise self._error_from_response(response)
+        return self._parse_identification(response.json())
+
+    def create_challenge(self) -> dict:
+        """Start a head-turn liveness challenge: ``challenge_token``, ``action``, ``expires_in``."""
+        try:
+            with self._client() as client:
+                response = client.post("/v1/liveness/challenge")
+        except httpx.HTTPError as exc:
+            raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
+        if response.status_code >= 400:
+            raise self._error_from_response(response)
+        return response.json()
+
+    def identify_secure(self, frames: list[bytes], *, challenge_token: str) -> IdentificationResult:
+        """Full check over the frames of one challenge. A spoof never reaches the gallery."""
+        self.ensure_collection()
+        try:
+            with self._client() as client:
+                response = client.post(
+                    "/v1/identify/secure",
+                    params={"collection": self.collection, "top_k": CANDIDATE_LIMIT},
+                    data={"challenge_token": challenge_token},
+                    files=[("frames", (f"{i}.jpg", frame, "image/jpeg")) for i, frame in enumerate(frames)],
+                )
+        except httpx.HTTPError as exc:
+            raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
+        if response.status_code >= 400:
+            raise self._error_from_response(response)
+        return self._parse_identification(response.json())
+
+    @staticmethod
+    def _parse_identification(body: dict) -> IdentificationResult:
+        best = body.get("best_match") or {}
+        is_live = body.get("is_live")
+        score = body.get("liveness_score")
+        decision = body.get("decision")
+        return IdentificationResult(
+            matched=bool(body.get("match")),
+            external_id=best.get("external_id"),
+            similarity=best.get("similarity"),
+            face_id=best.get("face_id"),
+            threshold=body.get("threshold"),
+            faces_in_probe=int(body.get("faces_in_probe") or 0),
+            gallery_size=int(body.get("gallery_size") or 0),
+            candidates=body.get("candidates") or [],
+            is_live=None if is_live is None else bool(is_live),
+            liveness_score=None if score is None else float(score),
+            spoof_reason=body.get("spoof_reason"),
+            decision=decision,
+            retry_reason=body.get("reason") if decision == "retry" else None,
+            margin=float(body.get("margin") or 0.0),
+        )
 
     def embedding(self, image_bytes: bytes, *, filename: str = "face.jpg") -> dict:
         """Utility used by the enrolment preview (score + box, no gallery write)."""

@@ -470,16 +470,6 @@ def mark_by_face(
                 check_in=existing.get("check_in"), check_out=existing.get("check_out"),
             )
 
-        # Save check-out punch photo if provided
-        out_photo = None
-        if photo_bytes:
-            try:
-                from ..uploads import save_upload
-                stored = save_upload(settings, "punches", photo_bytes, original_name=f"out_{employee['id']}_{day.isoformat()}.jpg")
-                out_photo = stored.stored_name
-            except Exception as exc:
-                logger.warning("could not save punch out photo: %s", exc)
-
         if existing.get("check_in") and not existing.get("check_out"):
             since_seconds = orgtime.seconds_between(existing["check_in"], now_clock) or 0
             if since_seconds < settings.kiosk_debounce_seconds:
@@ -489,6 +479,16 @@ def mark_by_face(
                     employee=employee, attendance=existing, status=status,
                     check_in=existing["check_in"],
                 )
+
+            # Save the photo only now: a debounced repeat scan never uses one.
+            out_photo = None
+            if photo_bytes:
+                try:
+                    from ..uploads import save_upload
+                    stored = save_upload(settings, "punches", photo_bytes, original_name=f"out_{employee['id']}_{day.isoformat()}.jpg")
+                    out_photo = stored.stored_name
+                except Exception as exc:
+                    logger.warning("could not save punch out photo: %s", exc)
 
             worked = orgtime.minutes_between(existing["check_in"], now_clock)
             half_day_threshold = storage.get_int("half_day_min_minutes", 240)

@@ -228,3 +228,40 @@ def test_supabase_sync_helpers(client_and_storage):
     worker.start()
     worker.trigger()
     worker.stop()
+
+
+def test_supabase_sync_is_off_by_default():
+    from app.config import Settings
+
+    settings = Settings()
+    assert settings.supabase_sync_enabled is False
+    assert settings.supabase_db_url == ""
+
+
+def test_supabase_worker_does_not_start_when_disabled(tmp_path):
+    from app.config import Settings
+    from app.db import Storage
+    from app.services.sync_supabase import SupabaseSyncWorker
+
+    settings = Settings(data_dir=tmp_path)
+    storage = Storage(settings)
+    worker = SupabaseSyncWorker(storage, settings)
+    worker.start()
+    assert worker._thread is None
+    storage.close()
+
+
+def test_supabase_sync_refuses_an_empty_source(tmp_path, monkeypatch):
+    from app.config import Settings
+    from app.db import Storage
+    from app.services import sync_supabase
+
+    settings = Settings(
+        data_dir=tmp_path, supabase_sync_enabled=True, supabase_db_url="postgresql://unused.invalid/none"
+    )
+    storage = Storage(settings)
+    calls = []
+    monkeypatch.setattr(sync_supabase, "get_pg_connection", lambda *_: calls.append(1))
+    assert sync_supabase.sync_all(storage, settings) == {}
+    assert calls == []
+    storage.close()
