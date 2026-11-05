@@ -16,9 +16,9 @@ services:
     image: faceapi:latest
     restart: unless-stopped
     environment:
-      # Internal-only service. The service key keeps using the existing gallery.
-      FACEAPI_AUTH_ENABLED: "true"
-      FACEAPI_SERVICE_KEY: "${FACEAPI_SERVICE_KEY:?Set FACEAPI_SERVICE_KEY in .env}"
+      # Internal-only service: default to false (personal mode) unless FACEAPI_SERVICE_KEY is set.
+      FACEAPI_AUTH_ENABLED: "${FACEAPI_AUTH_ENABLED:-false}"
+      FACEAPI_SERVICE_KEY: "${FACEAPI_SERVICE_KEY:-}"
       FACEAPI_LIVENESS_MODE: "${FACEAPI_LIVENESS_MODE:-shadow}"
       FACEAPI_LOG_LEVEL: INFO
       FACEAPI_DATA_DIR: /app/data
@@ -57,7 +57,7 @@ services:
       - .env
     environment:
       HRMS_FACEAPI_URL: "http://faceapi:8000"
-      HRMS_FACEAPI_KEY: "${FACEAPI_SERVICE_KEY:?Set FACEAPI_SERVICE_KEY in .env}"
+      HRMS_FACEAPI_KEY: "${HRMS_FACEAPI_KEY:-${FACEAPI_SERVICE_KEY:-}}"
       HRMS_DATA_DIR: /app/data
       PORT: "8100"
       WORKERS: "2"
