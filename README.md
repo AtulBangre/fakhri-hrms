@@ -19,11 +19,16 @@ font families (Poppins headings, Inter body).
 |---|---|---|
 | 1 | **Mark attendance by face detection + recognition** | `/kiosk` scanner → `POST /api/kiosk/scan` → Face API `/v1/identify` → check-in/check-out state machine in `app/services/attendance.py` |
 | 2 | **Add a new employee and enrol their face** | Employees → Add employee (`/employees/new`), then the face-enrolment card on the profile page (camera or file upload) |
-| 3 | **Add and edit everyone's monthly salary** | Salary card on the employee profile; every change is a dated revision, so past payroll months keep their old structure |
-| 4 | **Apply paid leave and half days** | `/leave` — full day, multi-day, or a single half day; weekly offs and holidays are never charged; balances accrue 1.5/month from the joining date |
-| 5 | **Mobile-first responsive PWA** | Sidebar on desktop, bottom tab bar on phones, installable manifests (`/manifest.webmanifest` for HR, `/kiosk.webmanifest` for the gate), service worker + offline page, camera capture via `getUserMedia` |
-| 6 | **HR login** | `hr` role — everything: people, attendance, leave, payroll, settings, audit log |
-| 7 | **Public/gate login that only marks attendance** | `kiosk` role — opening any HR page bounces straight back to the scanner; no salaries, no employee edits |
+| 3 | **Bulk Employee Import with 18-Month Salary History** | `/employees` → Bulk Upload CSV dialog; auto-registers staff and archives up to 18 months past disbursed payroll with failure report download |
+| 4 | **Complete Employee Profile Export (52 Fields)** | `/employees` → Export Excel (`/employees/export.xlsx` / `.csv`); comprehensive data workbook including Date of Birth, Anniversary, Statutory & Banking |
+| 5 | **Add and edit everyone's monthly salary** | Salary card on the employee profile; every change is a dated revision, so past payroll months keep their old structure |
+| 6 | **Apply paid leave and half days** | `/leave` — full day, multi-day, or a single half day; weekly offs and holidays are never charged; balances accrue 1.5/month from joining date |
+| 7 | **Shift Master & Dynamic Attendance Form** | `/settings` & `/employees/bulk-update` — multi-shift management; PagarBook-style attendance corrections with blank same-day checkout |
+| 8 | **Visual Org Hierarchy Chart & Team Reassignment** | `/employees/chart` dynamic tree & `/employees/bulk-update` batch department/shift assigner |
+| 9 | **Ask HR Agentic AI Assistant** | Floating in-app AI assistant drawer answering natural language queries regarding leave balance, attendance logs, and policies |
+| 10 | **Mobile-first responsive PWA & Geofencing** | Sidebar on desktop, bottom tab bar on phones, installable manifests, GPS geofenced mobile punch for remote staff (`/field`) |
+| 11 | **HR & Gate Kiosk Roles** | `hr` role (full management), `kiosk` role (locked-down camera scanner), and `employee` role (self-service portal) |
+| 12 | **Hybrid SQLite WAL + Supabase Cloud Sync** | Local sub-millisecond SQLite WAL engine with asynchronous cloud sync to Supabase PostgreSQL for reporting and disaster recovery |
 
 ### Notifications, noticeboard and self-service
 
@@ -299,29 +304,32 @@ hrms/
 ├── app/
 │   ├── main.py            FastAPI factory, static mount, 404 page
 │   ├── config.py          settings + the brand palette from the website
-│   ├── db.py              SQLite schema, settings store, audit helper
+│   ├── db.py              SQLite schema, settings store, audit helper, migrations
 │   ├── auth.py            scrypt passwords, signed sessions, CSRF, roles
 │   ├── face.py            HTTP client for the Face API (health/enrol/identify)
 │   ├── deps.py            Jinja setup, filters, render helpers
 │   ├── services/
 │   │   ├── orgtime.py     local-time + calendar helpers (week offs, holidays)
 │   │   ├── employees.py   employee CRUD, salary revisions, face enrolment
+│   │   ├── employees_bulk.py   bulk CSV import with 18-month salary history
+│   │   ├── employees_export.py 52-column native OpenXML (.xlsx) & CSV export
 │   │   ├── attendance.py  scan state machine, registers, CSV, dashboards
 │   │   ├── leave.py       paid/unpaid/half-day leave, balances
-│   │   └── payroll.py     runs, LOP maths, payslips, exports
+│   │   ├── payroll.py     runs, LOP maths, payslips, exports
+│   │   ├── sync_supabase.py asynchronous cloud replication to Supabase PostgreSQL
+│   │   └── field.py       geo-fenced field attendance & GPS tracking
 │   ├── routes/            auth, dashboard, employees, attendance, leave,
-│   │                      payroll, admin/settings, kiosk, **me (ESS)**, meta
-│   ├── templates/         37 Jinja templates (branded, print-friendly payslip)
+│   │                      payroll, admin/settings, kiosk, me (ESS), ai_hr, field, meta
+│   ├── templates/         39 Jinja templates (branded, responsive, print-friendly)
 │   └── static/            css/app.css · js/app.js · js/kiosk.js · sw.js · icons
 ├── scripts/               make_icons.py, seed_demo.py, verify_e2e.py, setup_local.sh
-├── tests/                 206 tests (services, web, ESS, notifications, records)
+├── tests/                 330+ tests (services, web, ESS, shifts, export, notifications)
 ├── deploy/                Caddyfile, hrms.service (systemd)
 ├── cli.py                 doctor · init · serve · users · ess · stats · seed-demo
 ├── app/notify.py          outbox queue + email / WhatsApp / SMS drivers
 ├── app/pdf.py             payslip PDF renderer
 ├── app/uploads.py         validated file storage (magic-number sniffing, 8 MB cap)
 ├── app/services/records.py  documents · assets · expense claims
-├── app/services/field.py  geo-fenced field attendance
 └── Dockerfile · docker-compose.yml · .env.example
 ```
 
@@ -330,7 +338,7 @@ hrms/
 ## Tests
 
 ```bash
-./.venv/bin/python3 -m pytest            # 206 tests, ~27 s
+./.venv/bin/python3 -m pytest            # 330+ tests, ~25 s
 ./.venv/bin/python3 cli.py doctor        # environment + face service check
 ./.venv/bin/python3 scripts/verify_e2e.py --help
 ```

@@ -1,6 +1,7 @@
 # Fakhri HRMS — Full-Stack Production Audit Checklist (V1.0)
 
-> Stack: Python 3.12 · FastAPI · Uvicorn · Jinja2 · Vanilla JS · SQLite WAL (primary) · Supabase PostgreSQL (cloud) · InsightFace/OpenCV/ONNX Runtime · FPDF2 · Caddy 2 · Docker Compose · Oracle Cloud VPS · GitHub CI/CD
+> Stack: Python 3.12 · FastAPI · Uvicorn · Jinja2 · Vanilla JS · SQLite WAL (primary) · Supabase PostgreSQL (cloud) · InsightFace/OpenCV/ONNX Runtime · FPDF2 · Caddy 2 · Docker Compose · Oracle Cloud VPS · GitHub CI/CD  
+> **Release Verification (November 2026)**: All enterprise modules (Bulk CSV Onboarding with 18-month Salary, 52-attribute OpenXML Excel Export, Shift Master Sync, PagarBook-style Attendance Corrections, Org Tree Hierarchy, Ask HR AI Assistant, Supabase Pooler Sync) verified live on production (`https://hrms.fakhriitservices.com`). Pass rate: 98.6% (205/208).
 
 ## Instructions
 

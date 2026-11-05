@@ -75,6 +75,48 @@ automatically). To stop someone scanning without deleting their records, use
 
 ---
 
+## 2b. Bulk onboarding staff with historical payroll (Bulk CSV Upload)
+
+Instead of manually adding employees one-by-one, you can onboard dozens or hundreds of staff members simultaneously with their complete past disbursed salary history:
+
+1. Go to **Employees** (`/employees`) and click **Bulk Upload CSV**.
+2. Click **Download Sample CSV Template** to get the standard format.
+3. Fill in the spreadsheet:
+   - **Identity & Contact:** `name`, `code`, `email`, `phone`, `date_of_birth`, `anniversary`, `joined_on`.
+   - **Job Profile:** `department`, `designation`, `employment_type` (`full_time`/`intern`/`contract`), `status`.
+   - **Statutory & Banking:** `monthly_gross`, `pan`, `aadhaar`, `bank_name`, `account_number`, `ifsc`.
+   - **Past 18 Months Salary:** Columns formatted as `salary_YYYY_MM` (e.g. `salary_2025_04`, `salary_2026_09`). If a salary was paid for that month, enter the net or gross disbursed amount. Months left blank are skipped safely.
+4. Select the `.csv` file and click **Process & Import Employees**.
+5. The system validates all rows and shows a summary:
+   - **Total Processed**, **Successfully Imported**, and **Failed Rows**.
+   - If any rows fail (e.g., duplicate code or invalid date format), click **Download Failed Rows CSV** to see the exact reason for each failure, fix them, and re-upload.
+
+---
+
+## 2c. Exporting Employee Master to Excel (.xlsx / .csv)
+
+To generate a complete, unedited backup or compliance report of all company employees:
+
+1. Go to **Employees** (`/employees`).
+2. Click **Export Excel** in the top action bar.
+3. The server immediately generates and streams an official OpenXML workbook (`employees_all_details_YYYY-MM-DD.xlsx`):
+   - **52 Complete Attributes:** Identity, Date of Birth, Work Anniversary, Department, Designation, Joining Date, Current Gross, Statutory Split (Basic, HRA, PF, ESI, Professional Tax), Bank Details, Emergency Contacts, Shifts, Face Enrolment status, Leave Balances (PL, SL, CL), and Portal Credentials.
+   - Preserves all active filters (e.g. if you filter by "Engineering" department, only Engineering staff are exported).
+   - A UTF-8 with BOM `.csv` version is also available at `/employees/export.csv`.
+
+---
+
+## 2d. Organization Hierarchy & Team Reassignment
+
+1. **Visual Org Chart** (`/employees/chart`):
+   - View your entire reporting chain visually: Managing Director $\rightarrow$ Department Leads $\rightarrow$ Team Members.
+   - Click to expand or collapse nodes, and see active headcount per manager.
+2. **Bulk Employee Update** (`/employees/bulk-update`):
+   - Batch reassign multiple employees to a new **Department** or a new **Shift** in one click.
+   - Tick the checkmark next to staff members, select the new target shift or department, and click **Apply Updates**.
+
+---
+
 ## 3. The daily attendance rhythm
 
 ### HR (2 minutes each morning)
@@ -91,16 +133,16 @@ Use **Daily board** to see everyone for a date, with in/out times, worked hours,
 late minutes and the source (`face`, `manual`, `leave`). Change the date at the
 top to look at any day.
 
-### Correcting a mistake
+### Correcting a mistake (PagarBook-Style Attendance Editor)
 
-**Daily board → ✏️ Manual attendance entry**:
+**Daily board or Employee Detail → ✏️ Fix / Edit**:
 
-* *Forgot to scan* → employee + date + Present + check-in/out times.
-* *Half day* → status **Half day**.
-* *Absent* → status **Absent** (payroll will deduct a day).
-* *Came in but it shows leave* → set Present; the note will show it overrode the
-  earlier entry.
-* To wipe a row entirely, use **Clear** on that row.
+* *Forgot to scan / HR entry* → Employee + date + Present + check-in/out times.
+* **Same-Day Blank Checkout:** If you edit attendance for **today** (an ongoing working day), the Check-out field stays **completely blank** until the employee actually punches out or you enter a manual departure time. It does not pre-fill fictitious end times.
+* **Dynamic Form Dropdowns:**
+  * Selecting **Absent** or **Leave** automatically clears and locks Check-in and Check-out inputs to prevent invalid working hours.
+  * Selecting **Half day** activates the Leave Deduction selector so a 0.5-day leave can be cleanly deducted from their balance.
+* *Wiping an entry* → Use **Clear** on that row to remove accidental records.
 
 Every manual change is stamped `manual` and written to the audit log, so you can
 always see who changed what.
@@ -479,3 +521,35 @@ payroll month cannot be changed until you reopen that run.
 Keep this rule in mind: **the gate is convenience, not proof.** If a scan is
 disputed, the audit log and the manual-correction trail are the record of truth,
 and HR has the final word.
+
+---
+
+## 9. Shift Management & Office Timings
+
+1. **Company Shift Timings** (**Settings → Attendance & payroll rules**):
+   - Set the standard office start time (e.g. `10:00 AM`), end time (e.g. `06:30 PM`), and late grace period (e.g. `15 minutes`).
+   - Changing the organization shift automatically updates the default shift in the database in real-time.
+2. **Multiple Shifts & Shift Master** (**Settings → Shift Management**):
+   - Create additional shifts for different departments (e.g., *Morning Shift 07:00 - 15:30*, *Night Shift 22:00 - 06:30*).
+   - Set custom grace periods and half-day thresholds per shift.
+   - Any shift can be set as the Organization Default.
+3. **Assigning Shifts to Employees**:
+   - On the Employee Profile, select their designated shift under Job Details.
+   - Or use **Employees → Bulk Update** (`/employees/bulk-update`) to batch-assign shifts to multiple staff members simultaneously.
+
+---
+
+## 10. Floating "Ask HR" Agentic AI Assistant
+
+A dedicated AI assistant is available via the floating maroon button at the bottom-right of every screen (`Ask HR`):
+
+* **For Employees:**
+  - *"How many casual leaves do I have left?"*
+  - *"Did my punch register this morning?"*
+  - *"What is our company late arrival policy?"*
+* **For HR Admins:**
+  - *"Who arrived late today?"*
+  - *"Show me headcount in Engineering."*
+  - *"What are the current shift timings?"*
+
+The assistant queries live SQLite records in real-time, providing immediate, accurate answers without needing to navigate through complex reports.

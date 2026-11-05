@@ -41,6 +41,11 @@ HRMS_DEFAULT_KIOSK_PASSWORD=<a strong gate password>
 HRMS_PUBLIC_BASE_URL=https://hrms.yourdomain.com
 HRMS_SECURE_COOKIES=true
 HRMS_FACEAPI_URL=http://faceapi:8000
+
+# Optional: Supabase PostgreSQL Cloud Sync for external reporting and disaster recovery
+HRMS_SUPABASE_DB_URL=postgresql://postgres.xxx:password@aws-0-xx.pooler.supabase.com:5432/postgres
+HRMS_SUPABASE_SYNC_ENABLED=true
+HRMS_SUPABASE_SYNC_INTERVAL=60
 ```
 
 Then:
