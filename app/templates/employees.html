@@ -13,6 +13,9 @@
     <a class="btn" href="/employees/bulk-update">Bulk Update</a>
     <a class="btn" href="/attendance/register">Monthly register</a>
     <button class="btn" id="openBulkUploadBtn" type="button">Bulk Upload</button>
+    <a class="btn" href="/employees/export.xlsx{% if export_query %}?{{ export_query }}{% endif %}" title="Download complete details of all employees in Excel (.xlsx) file">
+      {{ icon('download') }} Export Excel
+    </a>
     <a class="btn btn-primary" href="/employees/new">Add employee</a>
   </div>
 </div>

@@ -128,6 +128,15 @@
         <div class="card-head"><h2>Personal &amp; bank details</h2><span class="spacer"></span>
           <span class="small muted">optional — can be added later from the profile</span></div>
         <div class="card-body">
+          <div class="form-row cols-2">
+            <div class="field"><label for="date_of_birth">Date of birth</label>
+              <input id="date_of_birth" name="date_of_birth" type="date"
+                     value="{{ f.get('date_of_birth') or (employee.date_of_birth if employee else '') or '' }}"></div>
+            <div class="field"><label for="anniversary">Anniversary</label>
+              <input id="anniversary" name="anniversary" type="date"
+                     value="{{ f.get('anniversary') or (employee.anniversary if employee else '') or '' }}">
+              <div class="hint">Wedding / work anniversary</div></div>
+          </div>
           <div class="field"><label for="address">Address</label>
             <textarea id="address" name="address" rows="2" placeholder="House, street, city, PIN">{{ f.get('address') or (employee.address if employee else '') or '' }}</textarea></div>
           <div class="form-row cols-3">

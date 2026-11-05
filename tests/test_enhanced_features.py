@@ -486,6 +486,85 @@ def test_shift_and_settings_synchronization(hr_client: TestClient, storage: Stor
     assert storage.get_setting("shift_start") == "10:15"
 
 
+def test_employee_export_contains_all_details_with_dob_and_anniversary(
+    hr_client: TestClient, storage: Storage, settings: Settings
+):
+    """Verify that export dataset contains all 52 employee fields including DOB and anniversary."""
+    import io
+    import zipfile
+    from app.services import employees_export
+
+    # 1. Create employee with DOB and Anniversary
+    emp_id = employees_service.create_employee(
+        storage,
+        {
+            "name": "Manish Verma",
+            "code": "MV001",
+            "joined_on": "2024-02-01",
+            "monthly_gross": 65000,
+            "department": "Engineering",
+            "designation": "Backend Developer",
+            "email": "manish.verma@example.com",
+            "phone": "9876543219",
+            "date_of_birth": "1994-08-25",
+            "anniversary": "2021-11-14",
+            "pan": "ABCDE1234F",
+            "aadhaar": "234567890124",
+            "bank_name": "HDFC Bank",
+            "account_number": "50100234567890",
+            "ifsc": "HDFC0001234",
+            "account_holder": "Manish Verma",
+        },
+    )
+
+    # 2. Check dataset directly
+    headers, rows = employees_export.get_employees_dataset(storage, settings)
+    assert "Date of Birth" in headers
+    assert "Anniversary" in headers
+    assert "Monthly Gross (₹)" in headers
+    assert "Basic Salary (₹)" in headers
+    assert "Paid Leave Balance" in headers
+
+    # Find the created employee row
+    mv_rows = [r for r in rows if r[headers.index("Employee Code")] == "MV001"]
+    assert len(mv_rows) == 1
+    mv_row = mv_rows[0]
+
+    dob_idx = headers.index("Date of Birth")
+    anniv_idx = headers.index("Anniversary")
+    gross_idx = headers.index("Monthly Gross (₹)")
+
+    assert mv_row[dob_idx] == "1994-08-25"
+    assert mv_row[anniv_idx] == "2021-11-14"
+    assert mv_row[gross_idx] == 65000.0
+
+    # 3. Test HTTP GET /employees/export.xlsx
+    res_xlsx = hr_client.get("/employees/export.xlsx")
+    assert res_xlsx.status_code == 200
+    assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in res_xlsx.headers["content-type"]
+    assert 'filename="employees_all_details_' in res_xlsx.headers["content-disposition"]
+    assert res_xlsx.content[:2] == b"PK"
+
+    # Verify that the generated zip file is valid OpenXML spreadsheet
+    with zipfile.ZipFile(io.BytesIO(res_xlsx.content)) as z:
+        sheet_xml = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        assert "Date of Birth" in sheet_xml
+        assert "Anniversary" in sheet_xml
+        assert "1994-08-25" in sheet_xml
+        assert "2021-11-14" in sheet_xml
+        assert "Manish Verma" in sheet_xml
+
+    # 4. Test HTTP GET /employees/export.csv
+    res_csv = hr_client.get("/employees/export.csv")
+    assert res_csv.status_code == 200
+    assert "text/csv" in res_csv.headers["content-type"]
+    assert "Date of Birth" in res_csv.text
+    assert "Anniversary" in res_csv.text
+    assert "1994-08-25" in res_csv.text
+    assert "2021-11-14" in res_csv.text
+
+
+
 
 
 

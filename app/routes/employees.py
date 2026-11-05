@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
+from urllib.parse import urlencode
 
 from .. import auth, notify
 from ..auth import SessionUser, generate_password, get_user_for_employee, require_hr
@@ -14,6 +15,7 @@ from ..uploads import UploadError, read_capped
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
 from ..services import employees_bulk
+from ..services import employees_export
 from ..services import leave as leave_service
 from ..services import appraisal as appraisal_service
 from ..services import exits as exits_service
@@ -49,6 +51,7 @@ def list_page(
     people = employees_service.list_employees(
         storage, q=q, department=department, status=status, limit=PER_PAGE, offset=pager["offset"]
     )
+    export_query = urlencode({k: v for k, v in (("q", q or ""), ("department", department or ""), ("status", status or "all")) if v})
     return render(
         request,
         "employees.html",
@@ -60,6 +63,53 @@ def list_page(
         filters={"q": q or "", "department": department or "", "status": status},
         pager=pager,
         missing_face={row["id"] for row in employees_service.employees_missing_face(storage)},
+        export_query=export_query,
+    )
+
+
+@router.get("/export.xlsx")
+def export_xlsx(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    q: str = "",
+    department: str = "",
+    status: str = "all",
+):
+    """Download full employee records in styled Excel (.xlsx) spreadsheet format."""
+    xlsx_bytes = employees_export.export_employees_xlsx(
+        storage, settings, q=q, department=department, status=status
+    )
+    today_str = orgtime.today(settings).isoformat()
+    filename = f"employees_all_details_{today_str}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export.csv")
+def export_csv(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    q: str = "",
+    department: str = "",
+    status: str = "all",
+):
+    """Download full employee records in UTF-8 BOM CSV format for Excel."""
+    csv_text = employees_export.export_employees_csv(
+        storage, settings, q=q, department=department, status=status
+    )
+    today_str = orgtime.today(settings).isoformat()
+    filename = f"employees_all_details_{today_str}.csv"
+    return Response(
+        content=csv_text.encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -191,7 +241,7 @@ def new_page(request: Request, user: SessionUser = Depends(require_hr), storage=
 
 
 IDENTITY_FIELDS = ("address", "emergency_contact", "pan", "aadhaar", "bank_name", "account_holder",
-                   "account_number", "ifsc")
+                   "account_number", "ifsc", "date_of_birth", "anniversary")
 KYC_UPLOADS = (("doc_aadhaar", "aadhaar"), ("doc_pan", "pan"), ("doc_resume", "resume"))
 
 
@@ -446,6 +496,8 @@ def update(
     account_holder: str = Form(""),
     account_number: str = Form(""),
     ifsc: str = Form(""),
+    date_of_birth: str = Form(""),
+    anniversary: str = Form(""),
     enable_portal: str = Form(""),
     self_punch_mode: str = Form(""),
     shift_id: str = Form(""),
@@ -465,6 +517,8 @@ def update(
         "notes": notes, "_actor": user.username, "address": address, "emergency_contact": emergency_contact,
         "pan": pan, "bank_name": bank_name, "account_holder": account_holder,
         "account_number": account_number, "ifsc": ifsc,
+        "date_of_birth": date_of_birth.strip() or None,
+        "anniversary": anniversary.strip() or None,
         "shift_id": int(shift_id) if shift_id.strip() else None,
         "custom_pl_accrual": float(custom_pl_accrual) if custom_pl_accrual.strip() else None,
         "custom_sl_quota": float(custom_sl_quota) if custom_sl_quota.strip() else None,

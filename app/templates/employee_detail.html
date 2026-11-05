@@ -421,6 +421,8 @@
           <div><span class="k">Code</span><span class="v mono">{{ employee.code }}</span></div>
           <div><span class="k">Email</span><span class="v">{{ employee.email or '—' }}</span></div>
           <div><span class="k">Phone</span><span class="v">{{ employee.phone or '—' }}</span></div>
+          <div><span class="k">DOB</span><span class="v">{{ employee.date_of_birth | nice_date if employee.date_of_birth else '—' }}</span></div>
+          <div><span class="k">Anniversary</span><span class="v">{{ employee.anniversary | nice_date if employee.anniversary else '—' }}</span></div>
           <div><span class="k">Type</span><span class="v">{{ employee.employment_type.replace('_', ' ') }}</span></div>
           <div><span class="k">Joined</span><span class="v">{{ employee.joined_on | nice_date }}</span></div>
           <div><span class="k">Service</span><span class="v">{{ balance.months_of_service }} months</span></div>

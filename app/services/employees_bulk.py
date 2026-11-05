@@ -80,9 +80,9 @@ def generate_sample_csv(storage: Storage, settings: Settings) -> str:
     salary_headers = [f"salary_{p.replace('-', '_')}" for p in past_months]
 
     base_headers = [
-        "name", "code", "joined_on", "monthly_gross", "department", "designation",
-        "employment_type", "email", "phone", "pan", "aadhaar_last4", "uan", "esi_number",
-        "bank_name", "bank_account_number", "bank_ifsc",
+        "name", "code", "joined_on", "monthly_gross", "date_of_birth", "anniversary",
+        "department", "designation", "employment_type", "email", "phone", "pan",
+        "aadhaar_last4", "uan", "esi_number", "bank_name", "bank_account_number", "bank_ifsc",
     ]
 
     fieldnames = base_headers + salary_headers
@@ -294,6 +294,8 @@ def import_employees_csv(
                 "bank_name": clean_row.get("bank_name") or None,
                 "account_number": clean_row.get("bank_account_number") or clean_row.get("account_number") or None,
                 "ifsc": clean_row.get("bank_ifsc") or clean_row.get("ifsc") or None,
+                "date_of_birth": parse_date_flexible(clean_row["date_of_birth"]) if clean_row.get("date_of_birth") else None,
+                "anniversary": parse_date_flexible(clean_row["anniversary"]) if clean_row.get("anniversary") else None,
                 "notes": f"Bulk imported via CSV on {date.today().isoformat()}",
                 "_actor": actor,
             }
@@ -364,3 +366,4 @@ def import_employees_csv(
         "failed_rows": failed_rows,
         "original_headers": reader.fieldnames,
     }
+

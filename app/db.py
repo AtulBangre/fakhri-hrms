@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS employees (
     department       TEXT,
     designation      TEXT,
     joined_on        TEXT,
+    date_of_birth    TEXT,
+    anniversary      TEXT,
     employment_type  TEXT NOT NULL DEFAULT 'full_time',
     status           TEXT NOT NULL DEFAULT 'active',
     monthly_gross    REAL NOT NULL DEFAULT 0,
@@ -724,6 +726,8 @@ class Storage:
             ("custom_pl_accrual", "REAL"),
             ("custom_sl_quota", "REAL"),
             ("custom_cl_quota", "REAL"),
+            ("date_of_birth", "TEXT"),
+            ("anniversary", "TEXT"),
         ],
     }
 
