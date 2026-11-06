@@ -170,7 +170,11 @@ def reject(
 
 
 def _notify_decision(storage, settings, leave: dict, decision: str, *, note: str | None = None) -> None:
-    """Tell the employee (by email) that HR decided their leave."""
+    """Tell the employee (by push and email) that HR decided their leave."""
+    notify.push_employee(storage, settings, leave["employee_id"], f"Your leave was {decision}",
+                         f"{leave['from_date']} to {leave['to_date']}, {leave['days']} day(s)."
+                         + (f" Note: {note}" if note else ""),
+                         "/me/leave", category="leave_update")
     if not settings.notify_leave_email:
         return
     employee = employees_service.get_employee(storage, leave["employee_id"])

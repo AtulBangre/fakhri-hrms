@@ -72,3 +72,48 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+
+/* ------------------------------------------------- system notifications */
+function samePath(value) {
+  // Only ever open a page of this app.
+  try {
+    const url = new URL(value || "/", self.location.origin);
+    return url.origin === self.location.origin ? url.pathname + url.search : "/";
+  } catch (error) {
+    return "/";
+  }
+}
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (error) {
+    data = {};
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Fakhri HRMS", {
+      body: data.body || "",
+      icon: "/static/img/icon-192.png",
+      badge: "/static/img/icon-192.png",
+      // The same tag means the app's own polling cannot show this one twice.
+      tag: data.id ? `hrms-${data.id}` : undefined,
+      data: { url: samePath(data.url) },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = samePath(event.notification.data && event.notification.data.url);
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      for (const client of windows) {
+        if ("focus" in client) {
+          return client.focus().then((focused) => ("navigate" in focused ? focused.navigate(target) : focused));
+        }
+      }
+      return self.clients.openWindow(target);
+    })
+  );
+});

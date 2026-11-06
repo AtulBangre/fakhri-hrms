@@ -16,15 +16,20 @@
     var toggle = $("#menuToggle");
     var backdrop = $("#drawerBackdrop");
     if (!toggle) return;
-    function close() { document.body.classList.remove("drawer-open"); }
+    function setOpen(open) {
+      document.body.classList.toggle("drawer-open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    function close() { setOpen(false); }
+    toggle.setAttribute("aria-expanded", "false");
     toggle.addEventListener("click", function () {
-      document.body.classList.toggle("drawer-open");
+      setOpen(!document.body.classList.contains("drawer-open"));
     });
     if (backdrop) backdrop.addEventListener("click", close);
     $$("[data-open-drawer]").forEach(function (link) {
       link.addEventListener("click", function (event) {
         event.preventDefault();
-        document.body.classList.add("drawer-open");
+        setOpen(true);
       });
     });
     document.addEventListener("keydown", function (event) {
@@ -53,6 +58,87 @@
         event.stopImmediatePropagation();
       }
     }, true);
+  }
+
+  /* A slow network must not turn one tap into two submissions. */
+  function initSubmitFeedback() {
+    function release(form) {
+      delete form.dataset.busy;
+      $$(".is-busy", form).forEach(function (button) {
+        button.classList.remove("is-busy");
+        button.disabled = false;
+      });
+    }
+    // Runs after every form's own handlers, so forms sent by script are skipped.
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (event.defaultPrevented || (form.getAttribute("method") || "").toLowerCase() !== "post") return;
+      if (form.dataset.busy) { event.preventDefault(); return; }
+      form.dataset.busy = "1";
+      var button = event.submitter || $("button[type=submit]", form);
+      // Disabled on the next tick, or the browser would drop the button's own value.
+      window.setTimeout(function () {
+        if (button) { button.disabled = true; button.classList.add("is-busy"); }
+      }, 0);
+      // A response that downloads a file never leaves the page.
+      window.setTimeout(function () { release(form); }, 15000);
+    });
+    // Coming back with the browser's Back button restores the page as it was left.
+    window.addEventListener("pageshow", function () { $$("form[data-busy]").forEach(release); });
+  }
+
+  function initOfflineNotice() {
+    var banner = document.createElement("div");
+    banner.className = "offline-banner hidden";
+    banner.setAttribute("role", "status");
+    banner.textContent = "You are offline. Changes cannot be saved until you reconnect.";
+    document.body.appendChild(banner);
+    function update() { banner.classList.toggle("hidden", navigator.onLine !== false); }
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    update();
+  }
+
+  /* Portal password: fill the box with a suggestion, and copy the saved one. */
+  function initPasswordHelpers() {
+    document.addEventListener("click", function (event) {
+      var fill = event.target.closest("[data-fill-password]");
+      if (fill) {
+        var input = document.getElementById(fill.getAttribute("data-fill-password"));
+        if (input) input.value = fill.getAttribute("data-value") || "";
+        return;
+      }
+      var copy = event.target.closest("[data-copy-from]");
+      if (!copy) return;
+      var source = document.getElementById(copy.getAttribute("data-copy-from"));
+      if (!source) return;
+      function done(label) { copy.textContent = label; }
+      // The clipboard API needs HTTPS or localhost; elsewhere ask for a manual copy.
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(source.textContent).then(function () { done("Copied"); }, function () { done("Select and copy it"); });
+      } else {
+        done("Select and copy it");
+      }
+    });
+  }
+
+  /* Ask HR steps aside while reading or typing, so it never covers a button. */
+  function initFloatingButton() {
+    var fab = $("#openAskHrBtn");
+    if (!fab) return;
+    var last = window.scrollY;
+    window.addEventListener("scroll", function () {
+      var now = window.scrollY;
+      if (Math.abs(now - last) < 8) return;
+      fab.classList.toggle("is-away", now > last && now > 60);
+      last = now;
+    }, { passive: true });
+    document.addEventListener("focusin", function (event) {
+      if (event.target.matches("main input, main select, main textarea")) fab.classList.add("is-away");
+    });
+    document.addEventListener("focusout", function (event) {
+      if (event.target.matches("main input, main select, main textarea")) fab.classList.remove("is-away");
+    });
   }
 
   /* --------------------------------------------- expandable table detail rows */
@@ -233,8 +319,8 @@
       if (!statusSelect) return;
       var status = statusSelect.value;
       var isToday = form.getAttribute("data-is-today") === "true";
-      var shiftStart = form.getAttribute("data-shift-start") || "09:30";
-      var shiftEnd = form.getAttribute("data-shift-end") || "18:30";
+      var shiftStart = form.getAttribute("data-shift-start") || "";
+      var shiftEnd = form.getAttribute("data-shift-end") || "";
       var originalIn = form.getAttribute("data-original-in") || "";
       var originalOut = form.getAttribute("data-original-out") || "";
 
@@ -358,9 +444,30 @@
         var form = target.closest("form.attendance-edit-form, form[action*='/attendance/mark']");
         if (form) syncForm(form, false);
       }
+      // Manual entry: default times follow the shift of the employee picked.
+      if (target && target.name === "employee_id" && target.tagName === "SELECT") {
+        var entryForm = target.closest("form.attendance-edit-form");
+        if (entryForm) {
+          applyEmployeeShift(entryForm, target);
+          var inField = $("input[name='check_in']", entryForm);
+          var outField = $("input[name='check_out']", entryForm);
+          if (inField) inField.value = "";
+          if (outField) outField.value = "";
+          syncForm(entryForm, false);
+        }
+      }
     });
 
+    function applyEmployeeShift(form, select) {
+      var option = select.options[select.selectedIndex];
+      if (!option || !option.getAttribute("data-shift-start")) return;
+      form.setAttribute("data-shift-start", option.getAttribute("data-shift-start"));
+      form.setAttribute("data-shift-end", option.getAttribute("data-shift-end") || "");
+    }
+
     $$("form.attendance-edit-form").forEach(function (form) {
+      var employeeSelect = $("select[name='employee_id']", form);
+      if (employeeSelect) applyEmployeeShift(form, employeeSelect);
       syncForm(form, true);
     });
 
@@ -384,6 +491,10 @@
     initBulk();
     initAttendanceForms();
     initImageDownscale();
+    initSubmitFeedback();
+    initOfflineNotice();
+    initFloatingButton();
+    initPasswordHelpers();
   });
 
   window.FakhriHRMS = {

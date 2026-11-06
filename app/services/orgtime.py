@@ -330,6 +330,32 @@ def format_clock(value: str | None) -> str:
     return parsed.strftime("%H:%M")
 
 
+def shifts_by_id(storage: Storage) -> dict[int, dict]:
+    """All shifts, for pages that need ``shift_for`` once per employee."""
+    return {row["id"]: row for row in storage.query("SELECT * FROM shifts")}
+
+
+def shift_for(storage: Storage, employee: dict | None, shifts: dict[int, dict] | None = None) -> dict:
+    """The shift that applies to an employee: their assigned one, else the company's.
+
+    Every screen and rule that needs a person's timing should read it from here.
+    """
+    shift_id = employee.get("shift_id") if employee else None
+    if shift_id:
+        shift = shifts.get(shift_id) if shifts is not None else storage.query_one(
+            "SELECT * FROM shifts WHERE id = ?", (shift_id,)
+        )
+        if shift:
+            return shift
+    return {
+        "name": None,
+        "start_time": storage.get_setting("shift_start", "09:30"),
+        "end_time": storage.get_setting("shift_end", "18:30"),
+        "grace_minutes": storage.get_int("late_grace_minutes", 15),
+        "half_day_minutes": storage.get_int("half_day_min_minutes", 240),
+    }
+
+
 def shift_start_minutes(storage: Storage) -> int:
     parsed = parse_clock(storage.get_setting("shift_start", "09:30"))
     return parsed.hour * 60 + parsed.minute if parsed else 9 * 60 + 30

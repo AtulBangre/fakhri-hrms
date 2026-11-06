@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import PlainTextResponse
 
+from .. import notify
 from ..auth import SessionUser, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..services import attendance as attendance_service
@@ -69,6 +70,7 @@ def mark(
     request: Request,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
     employee_id: int = Form(...),
     work_date: str = Form(...),
@@ -95,6 +97,9 @@ def mark(
             return redirect(return_url, err=str(exc))
         return redirect("/attendance", err=str(exc), day=target)
     employee = employees_service.get_employee(storage, employee_id)
+    notify.push_employee(storage, settings, employee_id, "HR updated your attendance",
+                         f"{orgtime.human_date(work_date)} is now marked {orgtime.STATUS_LABELS.get(status, status)}.",
+                         "/me/attendance", category="attendance_manual")
     msg = f"{employee['name'] if employee else 'Employee'} marked {orgtime.STATUS_LABELS.get(status, status)} on {work_date}."
     if return_url:
         return redirect(return_url, ok=msg)

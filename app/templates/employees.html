@@ -64,43 +64,43 @@
   </div>
 
   <div class="table-wrap">
-    <table class="data stack">
+    <table class="data m-table">
       <thead>
         <tr>
-          <th>Employee</th><th>Department</th><th>Joined</th><th class="num">Monthly gross</th>
-          <th>Face</th><th>Status</th><th></th>
+          <th class="m-fill">Employee</th><th class="m-hide-xs">Dept</th><th class="m-hide">Joined</th><th class="num">Gross</th>
+          <th>Face</th><th class="m-hide">Status</th><th class="m-hide"></th>
         </tr>
       </thead>
       <tbody>
       {% for person in employees %}
         <tr>
-          <td data-label="Employee">
-            <div style="display:flex;align-items:center;gap:.6rem">
+          <td data-label="Employee" class="m-fill">
+            <div class="person">
               {% if person.photo_filename %}
-                <img src="/employees/{{ person.id }}/avatar" alt="{{ person.name }}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid var(--border)">
+                <img src="/employees/{{ person.id }}/avatar" alt="{{ person.name }}">
               {% else %}
-                <span class="avatar" style="width:34px;height:34px;font-size:.78rem;flex-shrink:0">{{ person.name | initials }}</span>
+                <span class="avatar">{{ person.name | initials }}</span>
               {% endif %}
-              <div>
+              <div class="who">
                 <a href="/employees/{{ person.id }}"><strong>{{ person.name }}</strong></a>
-                <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}</span>
+                <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}{% if person.status != 'active' %}<span class="m-only"> · {{ person.status }}</span>{% endif %}</span>
               </div>
             </div>
           </td>
-          <td data-label="Department">{{ person.department or '—' }}</td>
-          <td data-label="Joined">{{ person.joined_on | nice_date }}</td>
+          <td data-label="Department" class="m-trunc m-hide-xs">{{ person.department or '—' }}</td>
+          <td data-label="Joined" class="m-hide">{{ person.joined_on | nice_date }}</td>
           <td data-label="Monthly gross" class="num">{{ person.monthly_gross | money }}</td>
           <td data-label="Face">
             {% if person.face_id %}
               <span class="chip chip-ok">enrolled</span>
             {% else %}
-              <span class="chip chip-warn">pending</span>
+              <a class="chip chip-warn" href="/employees/{{ person.id }}">pending</a>
             {% endif %}
           </td>
-          <td data-label="Status">
+          <td data-label="Status" class="m-hide">
             <span class="chip {{ 'chip-ok' if person.status == 'active' else 'chip-muted' }}">{{ person.status }}</span>
           </td>
-          <td class="actions-cell">
+          <td class="actions-cell m-hide">
             <a class="btn btn-sm " href="/employees/{{ person.id }}">
               {{ 'Enrol face' if person.id in missing_face and person.status == 'active' else 'Open' }}
             </a>

@@ -5,9 +5,10 @@ The rules implemented here (and asserted in the test suite):
 * One row per employee per day (``UNIQUE(employee_id, work_date)``).
 * The **first** scan of the day is a check-in. A scan after the configured grace
   period records ``late_minutes``.
-* The **next** scan after the debounce window closes the day (check-out) and
-  computes ``worked_minutes``. Working less than the half-day threshold turns the
-  day into a half day.
+* The **next** scan closes the day (check-out) and computes ``worked_minutes``, but
+  only once ``min_checkout_minutes`` have passed since check-in. An earlier scan is
+  refused and changes nothing; HR corrections are not limited by this. Working less
+  than the half-day threshold turns the day into a half day.
 * Further scans the same day are refused as duplicates, so a queue at the gate
   cannot rewrite somebody's hours.
 * A day covered by approved leave, a holiday or a weekly off is never overwritten
@@ -49,6 +50,7 @@ class MarkOutcome:
     check_out: str | None = None
     late_fine: float = 0.0
     late_half_day: bool = False
+    checkout_after: str | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -64,6 +66,7 @@ class MarkOutcome:
             "status": self.status,
             "check_in": self.check_in,
             "check_out": self.check_out,
+            "checkout_after": self.checkout_after,
             "employee": (
                 {
                     "id": self.employee["id"],
@@ -102,7 +105,7 @@ def daily_rows(storage: Storage, settings: Settings, day: date | None = None) ->
     rows = storage.query(
         """
         SELECT e.id AS employee_id, e.code, e.name, e.department, e.designation, e.face_id, e.photo_filename,
-               a.id AS attendance_id, a.status, a.check_in, a.check_out, a.late_minutes,
+               e.shift_id, a.id AS attendance_id, a.status, a.check_in, a.check_out, a.late_minutes,
                a.worked_minutes, a.leave_type, a.source, a.device_label, a.note, a.late_fine,
                a.punch_in_photo, a.punch_out_photo
         FROM employees e
@@ -114,7 +117,10 @@ def daily_rows(storage: Storage, settings: Settings, day: date | None = None) ->
     )
     kind = orgtime.day_kind(storage, day)
     joined = {r["id"]: r["joined_on"] for r in storage.query("SELECT id, joined_on FROM employees WHERE status = 'active'")}
+    shifts = orgtime.shifts_by_id(storage)
     for row in rows:
+        shift = orgtime.shift_for(storage, row, shifts)
+        row["shift_start"], row["shift_end"] = shift["start_time"], shift["end_time"]
         if (joined.get(row["employee_id"]) or "") > day.isoformat():
             effective = orgtime.STATUS_NOT_EMPLOYED
         elif row["status"]:
@@ -415,6 +421,19 @@ def recent_scans(storage: Storage, *, limit: int = 12, day: date | None = None) 
 
 
 # ------------------------------------------------------------------- marking
+def checkout_opens_at(settings: Settings, check_in: str | None, now_clock: str) -> str | None:
+    """The ``HH:MM`` check-out opens at, or ``None`` once it is already allowed."""
+    start = orgtime.parse_clock(check_in)
+    if start is None:
+        return None
+    wait_seconds = settings.min_checkout_minutes * 60
+    if (orgtime.seconds_between(check_in, now_clock) or 0) >= wait_seconds:
+        return None
+    # Round a partial minute up, so a scan at the displayed time is always accepted.
+    opens = datetime.combine(date(2000, 1, 1), start) + timedelta(seconds=wait_seconds + 59)
+    return opens.strftime("%H:%M")
+
+
 def mark_by_face(
     storage: Storage,
     settings: Settings,
@@ -480,7 +499,16 @@ def mark_by_face(
                     check_in=existing["check_in"],
                 )
 
-            # Save the photo only now: a debounced repeat scan never uses one.
+            opens_at = checkout_opens_at(settings, existing["check_in"], now_clock)
+            if opens_at:
+                return MarkOutcome(
+                    ok=False, action="too_early", kind="warning",
+                    message=f"{employee['name']} can check out after {opens_at}.",
+                    employee=employee, attendance=existing, status=status,
+                    check_in=existing["check_in"], checkout_after=opens_at,
+                )
+
+            # Save the photo only now: a refused repeat scan never uses one.
             out_photo = None
             if photo_bytes:
                 try:
@@ -491,7 +519,7 @@ def mark_by_face(
                     logger.warning("could not save punch out photo: %s", exc)
 
             worked = orgtime.minutes_between(existing["check_in"], now_clock)
-            half_day_threshold = storage.get_int("half_day_min_minutes", 240)
+            half_day_threshold = orgtime.shift_for(storage, employee)["half_day_minutes"]
             new_status = status
             if status == orgtime.STATUS_PRESENT and worked is not None and worked < half_day_threshold:
                 new_status = orgtime.STATUS_HALF_DAY
@@ -858,7 +886,7 @@ def monthly_register(
     else:
         params = []
     staff = storage.query(
-        f"SELECT e.id, e.code, e.name, e.department, e.designation, e.joined_on FROM employees e {status_filter} "
+        f"SELECT e.id, e.code, e.name, e.department, e.designation, e.joined_on, e.shift_id FROM employees e {status_filter} "
         "ORDER BY e.name COLLATE NOCASE",
         params,
     )
@@ -890,6 +918,7 @@ def monthly_register(
 
     register_rows = []
     marks_per_half_lop = orgtime.late_marks_rule(storage)
+    shifts = orgtime.shifts_by_id(storage)
     for person in staff:
         window = employment_window(storage, person, start, end)
         tally = {key: 0 for key in DAY_CLASSES}
@@ -928,7 +957,8 @@ def monthly_register(
             paid_leave=tally["leave_paid"], absent=tally["absent"], not_employed=tally["not_employed"],
             payable_days=figures["present_days"] + figures["paid_leave_days"], lop_days=figures["lop_days"],
         )
-        register_rows.append({"employee": person, "cells": cells, "totals": totals})
+        register_rows.append({"employee": person, "cells": cells, "totals": totals,
+                              "shift": orgtime.shift_for(storage, person, shifts)})
 
     day_totals = []
     for index in range(len(days)):

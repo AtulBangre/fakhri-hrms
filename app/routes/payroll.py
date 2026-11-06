@@ -95,6 +95,7 @@ def set_status(
     request: Request,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
     period: str = Form(...),
     status: str = Form(...),
@@ -107,6 +108,12 @@ def set_status(
             payroll.set_run_status(storage, period, status, actor=user.username)
     except employees_service.ValidationError as exc:
         return redirect("/payroll", err=str(exc), period=period)
+    if status == "finalized":
+        # No amounts here: this text can show on a lock screen.
+        for slip in payroll.list_slips(storage, period):
+            notify.push_employee(storage, settings, slip["employee_id"], "Your payslip is ready",
+                                 f"Your payslip for {orgtime.month_label(period)} is available.", "/me/payslips",
+                                 category="payslip")
     return redirect("/payroll", period=period, ok=f"{orgtime.month_label(period)} marked {status}.")
 
 

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from .. import notify
 from ..auth import SessionUser, require_hr
 from ..deps import get_face, get_settings_dep, get_storage, paginate, render
+from ..services import alerts
 from ..services import announcements as announcement_service
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
@@ -50,6 +51,7 @@ def dashboard(
         company_notice_footer=storage.get_setting("company_notice_footer", ""),
         kiosks=attendance_service.kiosk_devices(storage),
         hr_email_missing=not notify.hr_emails(storage),
+        celebrations=alerts.upcoming(storage, orgtime.today(settings)),
         face_ok=bool(face.health().get("ok")),
     )
 

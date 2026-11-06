@@ -283,6 +283,11 @@
         beep("warn");
         pausedUntil = Date.now() + HOLD_NOTICE_MS;
         break;
+      case "too_early":
+        show("warn", "Too early to check out", "try after " + (body.checkout_after || ""), HOLD_NOTICE_MS);
+        beep("warn");
+        pausedUntil = Date.now() + HOLD_NOTICE_MS;
+        break;
       case "already_done":
         show("warn", "Already done today", (body.check_out || "").slice(0, 5), HOLD_NOTICE_MS);
         beep("warn");

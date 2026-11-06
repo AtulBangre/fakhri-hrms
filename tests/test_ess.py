@@ -91,6 +91,124 @@ def test_ensure_employee_login_resets_an_existing_password(storage, staff):
     assert auth.authenticate(storage, second["username"], password) is not None
 
 
+def test_employee_home_shows_when_check_out_opens(ess_client: TestClient, storage, settings, staff):
+    now = orgtime.local_now(settings)
+    attendance_service.mark_by_face(storage, settings, staff[0], moment=now)
+    page = ess_client.get("/me").text
+    assert "You can check out after" in page
+    assert "You are still inside" not in page
+
+
+def test_employee_pages_show_their_assigned_shift(ess_client: TestClient, storage, staff):
+    shift_id = storage.execute(
+        "INSERT INTO shifts (name, start_time, end_time, grace_minutes, half_day_minutes, overtime_min_minutes, "
+        "is_default, created_at) VALUES ('Late Shift', '14:00', '22:00', 5, 360, 60, 0, '2026-01-01')"
+    ).lastrowid
+    storage.execute("UPDATE employees SET shift_id = ? WHERE id = ?", (shift_id, staff[0]["id"]))
+    assert "shift 14:00–22:00" in ess_client.get("/me").text
+    assert 'value="14:00"' in ess_client.get("/me/attendance").text
+    assert "14:00 to 22:00 (Late Shift)" in _ask(ess_client, "Shift timing")["answer"]
+
+
+def _ask(client: TestClient, question: str) -> dict:
+    response = client.post("/api/ai-hr/query", json={"query": question})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+@pytest.mark.parametrize("question", ["My leave balance", "kitni chutti bachi hai meri?", "PL kitni hai"])
+def test_ask_hr_gives_an_employee_their_real_leave_balance(ess_client, storage, settings, staff, question):
+    available = leave_service.balance(storage, settings, staff[0]["id"])["available"]
+    assert f"{available:g} paid leave days" in _ask(ess_client, question)["answer"]
+
+
+def test_ask_hr_does_not_read_please_as_paid_leave(ess_client):
+    assert "paid leave days" not in _ask(ess_client, "please tell me a joke")["answer"]
+
+
+def test_ask_hr_never_shows_an_employee_other_people(ess_client, storage, settings, staff):
+    attendance_service.mark_by_face(storage, settings, staff[1], moment=orgtime.local_now(settings))
+    for question in (f"{staff[1]['name']} today", "who is late today", "pending approvals", "payroll status",
+                     "employees missing face", f"{staff[1]['name']} salary"):
+        reply = _ask(ess_client, question)
+        assert staff[1]["name"] not in reply["answer"]
+        assert staff[1]["code"] not in reply["answer"]
+        assert not any(a["href"].startswith(("/employees", "/payroll", "/leave")) for a in reply["actions"])
+
+
+def test_ask_hr_employee_sees_only_a_finalised_payslip(ess_client, storage, settings, staff):
+    period = "2026-01"  # a finished month: the current one cannot be finalised yet
+    payroll.generate_run(storage, settings, period)
+    assert "no payslip yet" in _ask(ess_client, "Latest payslip")["answer"]
+    payroll.set_run_status(storage, period, "finalized")
+    reply = _ask(ess_client, "meri salary")
+    assert "Net pay" in reply["answer"]
+    assert any(a["href"].endswith(".pdf") for a in reply["actions"])
+
+
+def test_ask_hr_tells_an_employee_when_check_out_opens(ess_client, storage, settings, staff):
+    attendance_service.mark_by_face(storage, settings, staff[0], moment=orgtime.local_now(settings))
+    assert "You can check out after" in _ask(ess_client, "aaj ka check out kab")["answer"]
+
+
+def test_ask_hr_employee_suggestions_and_links_all_work(ess_client):
+    from app.services.assistant import EMPLOYEE_GUIDES, EMPLOYEE_SUGGESTIONS
+
+    for question in EMPLOYEE_SUGGESTIONS:
+        reply = _ask(ess_client, question)
+        assert "I don't know" not in reply["answer"], question
+        for action in reply["actions"]:
+            assert ess_client.get(action["href"], follow_redirects=False).status_code == 200, action
+    for _, _, _, href in EMPLOYEE_GUIDES:
+        assert ess_client.get(href, follow_redirects=False).status_code == 200, href
+
+
+def test_ask_hr_lists_people_and_looks_up_an_employee_for_hr(hr_client, storage, settings, staff):
+    from app.services.assistant import HR_SUGGESTIONS
+
+    now = orgtime.local_now(settings)
+    attendance_service.mark_manual(storage, employee_id=staff[1]["id"], work_date=now.date().isoformat(),
+                                   status="present", check_in="23:50")
+    late = _ask(hr_client, "aaj kaun late aaya today")
+    if orgtime.day_kind(storage, now.date()) == "working":
+        assert staff[1]["name"] in late["answer"]
+
+    employees_service.create_employee(storage, {"name": f"{staff[1]['name'].split()[0]} Other", "code": "OTH1"})
+    person = _ask(hr_client, staff[1]["name"])
+    assert staff[1]["code"] in person["answer"] and "Leave available" in person["answer"]
+    assert "Other" not in person["answer"]  # a shared first name does not widen a full-name search
+    assert str(int(staff[1]["monthly_gross"])) not in person["answer"].replace(",", "")
+
+    for question in HR_SUGGESTIONS:
+        reply = _ask(hr_client, question)
+        assert "I don't know" not in reply["answer"], question
+        for action in reply["actions"]:
+            assert hr_client.get(action["href"], follow_redirects=False).status_code == 200, action
+
+
+def test_ask_hr_answers_the_examples_in_the_hr_guide(hr_client, ess_credentials):
+    assert "Casual Leave:" not in _ask(hr_client, "Who arrived late today?")["answer"]
+    assert "Late:" in _ask(hr_client, "Who arrived late today?")["answer"]
+    assert "Engineering has 1 active employee" in _ask(hr_client, "Show me headcount in Engineering.")["answer"]
+    assert "Office timing" in _ask(hr_client, "What are the current shift timings?")["answer"]
+
+    hr_client.post("/logout", data={"_csrf": csrf_of(hr_client)})
+    hr_client.post("/login", data={"username": ess_credentials["username"], "password": ess_credentials["password"]})
+    assert "Casual Leave:" in _ask(hr_client, "How many casual leaves do I have left?")["answer"]
+    assert "I don't know" not in _ask(hr_client, "Did my punch register this morning?")["answer"]
+    assert "Grace period" in _ask(hr_client, "What is our company late arrival policy?")["answer"]
+
+
+def test_ask_hr_is_closed_to_the_kiosk_and_writes_nothing(client, storage, hr_user, kiosk_user, staff):
+    from tests.conftest import KIOSK_PASSWORD, KIOSK_USERNAME
+
+    client.post("/login", data={"username": KIOSK_USERNAME, "password": KIOSK_PASSWORD})
+    before = storage.scalar("SELECT COUNT(*) FROM audit_log")
+    reply = _ask(client, "who is late today")
+    assert reply == {"answer": "Ask HR is not available on this login.", "suggestions": [], "actions": []}
+    assert storage.scalar("SELECT COUNT(*) FROM audit_log") == before
+
+
 def test_employee_login_rejects_a_username_clash(storage, staff, hr_user):
     # a HR login already owns "hr"; an employee code of "HR" must not reuse it
     employee_id = employees_service.create_employee(storage, {"name": "Clash Person", "code": "HR"})
@@ -397,14 +515,32 @@ def test_hr_creates_a_portal_login_from_the_employee_page(hr_client: TestClient,
         data={"_csrf": token, "password": "chosen-password-1"},
         follow_redirects=False,
     )
-    assert response.status_code == 303
-    assert "ok=" in response.headers["location"]
-    # the password must never travel in the URL
-    assert "chosen-password-1" not in response.headers["location"]
+    # Shown once in the response body: the password must never travel in a URL.
+    assert response.status_code == 200
+    assert "location" not in response.headers
+    assert "Portal login created" in response.text and "chosen-password-1" in response.text
+    assert response.headers["cache-control"] == "no-store"
 
     user = auth.get_user_for_employee(storage, staff[2]["id"])
     assert user is not None
     assert auth.authenticate(storage, user["username"], "chosen-password-1") is not None
+
+
+def test_hr_sees_the_password_they_set_once_and_never_a_fake_one(hr_client: TestClient, storage, staff):
+    auth.ensure_employee_login(storage, staff[2], password="portal-pass-1")
+    page = f"/employees/{staff[2]['id']}"
+    response = hr_client.post(f"{page}/portal", data={"_csrf": csrf_of(hr_client, page), "password": "new-password-22"})
+    assert "Password updated" in response.text and "new-password-22" in response.text
+
+    user = auth.get_user_for_employee(storage, staff[2]["id"])
+    assert auth.authenticate(storage, user["username"], "new-password-22") is not None
+    assert auth.authenticate(storage, user["username"], "portal-pass-1") is None
+
+    # Back on the employee page the box is empty, so nothing passes for the current password.
+    detail = hr_client.get(page).text
+    assert "new-password-22" not in detail
+    box = re.search(r'<input id="portal-pass"[^>]*>', detail).group(0)
+    assert "value=" not in box
 
 
 def test_hr_portal_password_must_be_long_enough(hr_client: TestClient, storage, staff):

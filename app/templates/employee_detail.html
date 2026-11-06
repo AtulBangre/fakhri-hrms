@@ -86,12 +86,12 @@
     <div class="card flush mb-3">
       <div class="card-head"><h2>Salary history</h2></div>
       <div class="table-wrap">
-        <table class="data stack">
-          <thead><tr><th>Effective from</th><th class="num">Gross</th><th class="num">Deductions</th><th>Note</th></tr></thead>
+        <table class="data m-table">
+          <thead><tr><th>Effective</th><th class="num">Gross</th><th class="num">Deductions</th><th>Note</th></tr></thead>
           <tbody>
           {% for item in salaries %}
             <tr>
-              <td data-label="Effective from">{{ item.effective_from | nice_date }}</td>
+              <td data-label="Effective from" class="nowrap">{{ item.effective_from | nice_date }}</td>
               <td data-label="Gross" class="num">{{ item.monthly_gross | money }}</td>
               <td data-label="Deductions" class="num">{{ (item.pf + item.esi + item.professional_tax) | money }}</td>
               <td data-label="Note">{{ item.note or '—' }}</td>
@@ -111,7 +111,7 @@
         <span class="chip chip-info">balance {{ balance.balance | number }} / accrued {{ balance.accrued | number }}</span>
       </div>
       <div class="table-wrap">
-        <table class="data stack">
+        <table class="data m-table">
           <thead><tr><th>Dates</th><th>Type</th><th class="num">Days</th><th>Status</th><th></th></tr></thead>
           <tbody>
           {% for item in leaves %}
@@ -158,8 +158,8 @@
           <input name="period" type="month" value="{{ period }}" aria-label="Month" onchange="this.form.submit()" style="width:auto">
         </form>
       </div>
-      <div class="table-wrap">
-        <table class="data stack">
+      <div class="table-wrap m-scroll-y">
+        <table class="data m-table">
           <thead>
             <tr>
               <th>Date</th>
@@ -167,8 +167,8 @@
               <th>In</th>
               <th>Out</th>
               <th>Worked</th>
-              <th>Late</th>
-              <th>Source / Note</th>
+              <th class="m-hide">Late</th>
+              <th class="m-hide">Source / Note</th>
               <th></th>
             </tr>
           </thead>
@@ -185,38 +185,39 @@
                 {% if item.leave_type %}<span class="sub muted">{{ item.leave_type }}</span>{% endif %}
               </td>
               <td data-label="In">
-                <div style="display:flex;align-items:center;gap:.35rem">
+                <div class="punch">
                   <span>{{ item.check_in }}</span>
                   {% if item.punch_in_photo %}
-                    <a href="/attendance/photos/{{ item.punch_in_photo }}" target="_blank" title="Punch-in photo">
-                      <img src="/attendance/photos/{{ item.punch_in_photo }}" alt="In" style="width:22px;height:22px;border-radius:4px;object-fit:cover;border:1px solid var(--border)">
+                    <a class="m-hide" href="/attendance/photos/{{ item.punch_in_photo }}" target="_blank" title="Punch-in photo">
+                      <img src="/attendance/photos/{{ item.punch_in_photo }}" alt="In">
                     </a>
                   {% endif %}
                 </div>
+                {% if item.late_minutes %}<span class="sub m-only m-late" title="{{ item.late_minutes }} minutes late">+{{ item.late_minutes }}m</span>{% endif %}
               </td>
               <td data-label="Out">
-                <div style="display:flex;align-items:center;gap:.35rem">
+                <div class="punch">
                   <span>{{ item.check_out }}</span>
                   {% if item.punch_out_photo %}
-                    <a href="/attendance/photos/{{ item.punch_out_photo }}" target="_blank" title="Punch-out photo">
-                      <img src="/attendance/photos/{{ item.punch_out_photo }}" alt="Out" style="width:22px;height:22px;border-radius:4px;object-fit:cover;border:1px solid var(--border)">
+                    <a class="m-hide" href="/attendance/photos/{{ item.punch_out_photo }}" target="_blank" title="Punch-out photo">
+                      <img src="/attendance/photos/{{ item.punch_out_photo }}" alt="Out">
                     </a>
                   {% endif %}
                 </div>
               </td>
-              <td data-label="Worked">{{ item.worked }}</td>
-              <td data-label="Late">
+              <td data-label="Worked" class="nowrap">{{ item.worked }}</td>
+              <td data-label="Late" class="m-hide">
                 {% if item.late_minutes %}
                   <span class="chip chip-warn">{{ item.late_minutes }}m{% if item.late_fine %} · ₹{{ item.late_fine | plain }}{% endif %}</span>
                 {% else %}—{% endif %}
               </td>
-              <td data-label="Source / Note" class="small">
+              <td data-label="Source / Note" class="small m-hide">
                 {% if item.note %}{{ item.note }}{% elif item.source %}<span class="muted">{{ item.source }}</span>{% else %}—{% endif %}
               </td>
               <td class="actions-cell">
                 {% if item.is_fixable %}
                   {% if item.status not in ('present', 'week_off', 'holiday') and not item.is_off %}
-                    <form method="post" action="/attendance/mark" style="display:inline">
+                    <form class="m-hide" method="post" action="/attendance/mark" style="display:inline">
                       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                       <input type="hidden" name="employee_id" value="{{ employee.id }}">
                       <input type="hidden" name="work_date" value="{{ item.iso }}">
@@ -228,13 +229,24 @@
                       <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present">Mark Present</button>
                     </form>
                   {% endif %}
-                  <button class="btn btn-sm" type="button" data-toggle-row="fix-att-{{ item.iso }}">Fix / Edit</button>
+                  <button class="btn btn-sm" type="button" data-toggle-row="fix-att-{{ item.iso }}" aria-label="Fix or edit {{ item.day.strftime('%d %b') }}"><span class="m-hide">Fix / Edit</span><span class="m-only">Edit</span></button>
                 {% endif %}
               </td>
             </tr>
             {% if item.is_fixable %}
-            <tr id="fix-att-{{ item.iso }}" class="hidden" style="background:var(--surface)">
-              <td colspan="8" style="padding:1rem 1.25rem">
+            <tr id="fix-att-{{ item.iso }}" class="hidden">
+              <td colspan="8" class="fix-cell">
+                {% if item.note or item.source or item.punch_in_photo or item.punch_out_photo %}
+                  <div class="m-only m-detail-grid">
+                    {% if item.note or item.source %}<div class="wide"><span class="k">Source / note</span>{{ item.note or item.source }}</div>{% endif %}
+                    {% if item.punch_in_photo or item.punch_out_photo %}
+                      <div class="wide"><span class="k">Photos</span>
+                        {% if item.punch_in_photo %}<a href="/attendance/photos/{{ item.punch_in_photo }}" target="_blank">In photo</a>{% endif %}
+                        {% if item.punch_out_photo %}<a href="/attendance/photos/{{ item.punch_out_photo }}" target="_blank" style="margin-left:.6rem">Out photo</a>{% endif %}
+                      </div>
+                    {% endif %}
+                  </div>
+                {% endif %}
                 <form method="post" action="/attendance/mark" class="attendance-edit-form"
                       data-is-today="{{ 'true' if item.is_today else 'false' }}"
                       data-shift-start="{{ shift_start }}"
@@ -248,7 +260,7 @@
                   <div style="font-size:.9rem;font-weight:600;margin-bottom:.6rem;color:var(--ink)">
                     Edit attendance for {{ item.day.strftime('%A, %d %B %Y') }}
                   </div>
-                  <div class="form-row cols-4">
+                  <div class="form-row cols-4 m-cols-2">
                     <div class="field">
                       <label>Status</label>
                       <select name="status" class="att-status-select">
@@ -383,10 +395,13 @@
                 <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                 <div class="field">
                   <label for="portal-pass">New password</label>
-                  <input id="portal-pass" name="password" type="text" minlength="8" value="{{ suggested_password }}" required>
-                  <div class="hint">Copy it first — it is not shown again anywhere.</div>
+                  <input id="portal-pass" name="password" type="text" minlength="8" autocomplete="off" placeholder="At least 8 characters" required>
+                  <div class="hint">The current password cannot be viewed. It is stored in a form nobody can read. The new one is shown once after you save.</div>
                 </div>
-                <button class="btn btn-sm btn-primary" type="submit">Set password</button>
+                <div class="form-actions">
+                  <button class="btn btn-sm" type="button" data-fill-password="portal-pass" data-value="{{ suggested_password }}">Generate password</button>
+                  <button class="btn btn-sm btn-primary" type="submit">Set password</button>
+                </div>
               </form>
             </div>
           </details>
@@ -404,11 +419,14 @@
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <div class="field">
               <label for="portal-pass">Password</label>
-              <input id="portal-pass" name="password" type="text" minlength="8" value="{{ suggested_password }}" required>
+              <input id="portal-pass" name="password" type="text" minlength="8" autocomplete="off" placeholder="At least 8 characters" required>
               <div class="hint">Username will be <span class="mono">{{ employee.code | lower }}</span>.
-                Copy the password now — it is not stored in readable form.</div>
+                The password is shown once after you save.</div>
             </div>
-            <button class="btn btn-primary btn-block" type="submit">Create portal login</button>
+            <div class="form-actions">
+              <button class="btn" type="button" data-fill-password="portal-pass" data-value="{{ suggested_password }}">Generate password</button>
+              <button class="btn btn-primary" type="submit">Create portal login</button>
+            </div>
           </form>
         {% endif %}
       </div>

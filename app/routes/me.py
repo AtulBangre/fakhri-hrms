@@ -67,6 +67,11 @@ def dashboard(
         (employee["id"],)
     )
     latest_slip = slips[0] if slips else None
+    checkout_after = None
+    if row and row.get("check_in") and not row.get("check_out"):
+        checkout_after = attendance_service.checkout_opens_at(
+            settings, row["check_in"], orgtime.hhmmss(orgtime.local_now(settings))
+        )
 
     return render(
         request,
@@ -76,6 +81,7 @@ def dashboard(
         employee=employee,
         today=today,
         today_row=row,
+        checkout_after=checkout_after,
         today_label=orgtime.human_day(today),
         kind=orgtime.day_kind(storage, today),
         summary=summary,
@@ -86,8 +92,8 @@ def dashboard(
         latest_slip=latest_slip,
         pending=leave_service.list_leave(storage, employee_id=employee["id"], status="pending", limit=5),
         recent_leave=leave_service.employee_leave_history(storage, employee["id"], limit=4),
-        shift_start=storage.get_setting("shift_start", "09:30"),
-        shift_end=storage.get_setting("shift_end", "18:30"),
+        shift_start=orgtime.shift_for(storage, employee)["start_time"],
+        shift_end=orgtime.shift_for(storage, employee)["end_time"],
         announcements=announcement_service.visible_for(storage, "employees"),
         company_notice_footer=storage.get_setting("company_notice_footer", ""),
     )
@@ -158,8 +164,8 @@ def my_attendance(
             row["work_date"] for row in regularization.list_requests(
                 storage, status="pending", employee_id=employee["id"])
         },
-        shift_start=storage.get_setting("shift_start", "09:30"),
-        shift_end=storage.get_setting("shift_end", "18:30"),
+        shift_start=orgtime.shift_for(storage, employee)["start_time"],
+        shift_end=orgtime.shift_for(storage, employee)["end_time"],
         oldest_fixable=(orgtime.today(settings) - timedelta(days=regularization.MAX_AGE_DAYS)).isoformat(),
         today_iso=orgtime.today_str(settings),
         open_request=bool(request.query_params.get("request")),

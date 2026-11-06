@@ -539,9 +539,9 @@ and HR has the final word.
 
 ---
 
-## 10. Floating "Ask HR" Agentic AI Assistant
+## 10. Floating "Ask HR" Assistant
 
-A dedicated AI assistant is available via the floating maroon button at the bottom-right of every screen (`Ask HR`):
+An assistant is available via the floating maroon button at the bottom-right of every screen (`Ask HR`). It matches keywords in English or Hinglish, does not use an LLM, and says so when it does not know an answer:
 
 * **For Employees:**
   - *"How many casual leaves do I have left?"*
@@ -552,4 +552,4 @@ A dedicated AI assistant is available via the floating maroon button at the bott
   - *"Show me headcount in Engineering."*
   - *"What are the current shift timings?"*
 
-The assistant queries live SQLite records in real-time, providing immediate, accurate answers without needing to navigate through complex reports.
+Answers come from live records and include links to the relevant page. Employees only ever see their own data, and only HR can ask about other people. The assistant changes nothing and sends nothing to an outside service.

@@ -276,6 +276,70 @@ def test_repeat_scan_inside_debounce_is_ignored(storage: Storage, settings, aara
     assert row["check_out"] is None  # the day was not closed by the repeat
 
 
+def test_check_out_is_refused_until_two_hours_after_check_in(storage: Storage, settings, aarav):
+    attendance_service.mark_by_face(storage, settings, aarav, moment=at(9, 30))
+
+    early = attendance_service.mark_by_face(
+        storage, settings, aarav, moment=datetime(2026, 1, 5, 11, 29, 59), photo_bytes=b"not-saved"
+    )
+    assert early.ok is False and early.action == "too_early"
+    assert early.checkout_after == "11:30"
+    assert early.as_dict()["checkout_after"] == "11:30"
+    row = attendance_service.get_row(storage, aarav["id"], date(2026, 1, 5))
+    assert row["check_out"] is None and row["punch_out_photo"] is None and row["status"] == "present"
+
+    allowed = attendance_service.mark_by_face(storage, settings, aarav, moment=at(11, 30))
+    assert allowed.ok and allowed.action == "check_out"
+    assert allowed.worked_minutes == 120
+
+
+def test_check_out_opening_time_rounds_a_partial_minute_up(settings):
+    assert attendance_service.checkout_opens_at(settings, "09:30:10", "09:31:00") == "11:31"
+    assert attendance_service.checkout_opens_at(settings, "09:30:10", "11:30:10") is None
+
+
+def test_hr_correction_is_not_limited_by_the_check_out_wait(storage: Storage, aarav):
+    row = attendance_service.mark_manual(
+        storage, employee_id=aarav["id"], work_date="2026-01-05", status="half_day",
+        check_in="09:30", check_out="10:00",
+    )
+    assert row["check_out"] == "10:00:00"
+
+
+def _assign_shift(storage: Storage, employee: dict, *, start="14:00", end="22:00", grace=5, half_day=360) -> dict:
+    shift_id = storage.execute(
+        "INSERT INTO shifts (name, start_time, end_time, grace_minutes, half_day_minutes, overtime_min_minutes, "
+        "is_default, created_at) VALUES ('Late Shift', ?, ?, ?, ?, 60, 0, '2026-01-01')",
+        (start, end, grace, half_day),
+    ).lastrowid
+    storage.execute("UPDATE employees SET shift_id = ? WHERE id = ?", (shift_id, employee["id"]))
+    return employees_service.get_employee(storage, employee["id"])
+
+
+def test_shift_for_prefers_the_assigned_shift_then_the_company_setting(storage: Storage, aarav):
+    storage.set_setting("shift_start", "10:00")
+    assert orgtime.shift_for(storage, aarav)["start_time"] == "10:00"
+    assert orgtime.shift_for(storage, _assign_shift(storage, aarav))["start_time"] == "14:00"
+
+
+def test_late_and_half_day_follow_the_employees_own_shift(storage: Storage, settings, aarav):
+    person = _assign_shift(storage, aarav)
+    checked_in = attendance_service.mark_by_face(storage, settings, person, moment=at(14, 10))
+    assert checked_in.late_minutes == 5
+    # Five hours passes the company's 4 hour rule, but not this shift's 6 hours.
+    assert attendance_service.mark_by_face(storage, settings, person, moment=at(19, 10)).status == "half_day"
+
+
+def test_changing_the_company_shift_reaches_new_scans_and_registers(storage: Storage, settings, aarav):
+    storage.set_setting("shift_start", "11:00")
+    assert attendance_service.mark_by_face(storage, settings, aarav, moment=at(11, 5)).late_minutes == 0
+    row = next(r for r in attendance_service.daily_rows(storage, settings, date(2026, 1, 5))
+               if r["employee_id"] == aarav["id"])
+    assert row["shift_start"] == "11:00"
+    register = attendance_service.monthly_register(storage, settings, "2026-01")
+    assert all(item["shift"]["start_time"] == "11:00" for item in register["rows"])
+
+
 def test_third_scan_after_checkout_is_refused(storage: Storage, settings, aarav):
     attendance_service.mark_by_face(storage, settings, aarav, moment=at(9, 30))
     attendance_service.mark_by_face(storage, settings, aarav, moment=at(18, 30))

@@ -1,7 +1,7 @@
 {# App shell: top bar, sidebar (desktop), drawer + bottom tabs (mobile). #}
 {% set _pending = nav_pending or {} %}
 {% macro navlink(href, key, ico, label, badge=0) -%}
-  <a href="{{ href }}" class="{{ 'active' if active == key }}">{{ icon(ico) }}<span>{{ label }}</span>{% if badge %}<em class="badge-count">{{ badge }}</em>{% endif %}</a>
+  <a href="{{ href }}" class="{{ 'active' if active == key }}" {% if active == key %}aria-current="page"{% endif %}>{{ icon(ico) }}<span>{{ label }}</span>{% if badge %}<em class="badge-count">{{ badge }}</em>{% endif %}</a>
 {%- endmacro %}
 {% macro navlinks() -%}
   {% if user and user.is_employee %}
@@ -82,6 +82,7 @@
   {% block head %}{% endblock %}
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <div class="app">
   <header class="topbar no-print">
     <button class="icon-btn" id="menuToggle" aria-label="Open menu">{{ icon('menu') }}</button>
@@ -94,6 +95,16 @@
     </a>
     <div class="topbar-actions">
       {% if user %}
+        {% if user.is_hr or user.is_employee %}
+          <div class="bell-wrap">
+            <button class="icon-btn" id="bellBtn" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="inboxPanel">{{ icon('bell') }}<em class="bell-badge hidden" id="bellBadge"></em></button>
+            <div class="inbox-panel hidden" id="inboxPanel">
+              <div class="inbox-head"><strong>Notifications</strong></div>
+              <div class="inbox-list" id="inboxList"></div>
+              <div class="inbox-push" id="inboxPush"></div>
+            </div>
+          </div>
+        {% endif %}
         {% if not user.is_employee %}<a class="icon-btn" href="/kiosk" title="Gate scanner">{{ icon('scan') }}</a>{% endif %}
         <span class="topbar-user">
           <span class="avatar">{{ user | initials }}</span>
@@ -124,23 +135,23 @@
       <div class="sidebar-foot">v{{ app_version }}</div>
     </aside>
 
-    <main class="content">
+    <main class="content" id="main" tabindex="-1">
       {{ flash() }}
       {% block content %}{% endblock %}
     </main>
   </div>
 
-  <nav class="bottom-nav no-print">
+  <nav class="bottom-nav no-print" aria-label="Main">
     {% if user and user.is_employee %}
-      <a href="/me" class="{{ 'active' if active == 'me' }}">{{ icon('home') }}<span>Home</span></a>
-      <a href="/me/attendance" class="{{ 'active' if active == 'me-attendance' }}">{{ icon('calendar') }}<span>Attendance</span></a>
-      <a href="/me/leave" class="{{ 'active' if active == 'me-leave' }}">{{ icon('leave') }}<span>Leave</span></a>
-      <a href="/me/payslips" class="{{ 'active' if active == 'me-payslips' }}">{{ icon('file') }}<span>Payslips</span></a>
+      {{ navlink('/me', 'me', 'home', 'Home') }}
+      {{ navlink('/me/attendance', 'me-attendance', 'calendar', 'Attendance') }}
+      {{ navlink('/me/leave', 'me-leave', 'leave', 'Leave') }}
+      {{ navlink('/me/payslips', 'me-payslips', 'file', 'Payslips') }}
     {% else %}
-      <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}">{{ icon('dashboard') }}<span>Board</span></a>
-      <a href="/employees" class="{{ 'active' if active == 'employees' }}">{{ icon('users') }}<span>People</span></a>
-      <a href="/attendance" class="{{ 'active' if active == 'attendance' }}">{{ icon('calendar') }}<span>Attendance</span></a>
-      <a href="/payroll" class="{{ 'active' if active == 'payroll' }}">{{ icon('wallet') }}<span>Payroll</span></a>
+      {{ navlink('/dashboard', 'dashboard', 'dashboard', 'Board') }}
+      {{ navlink('/employees', 'employees', 'users', 'People') }}
+      {{ navlink('/attendance', 'attendance', 'calendar', 'Attendance') }}
+      {{ navlink('/payroll', 'payroll', 'wallet', 'Payroll') }}
     {% endif %}
     <a href="#menu" data-open-drawer>{{ icon('menu') }}<span>More</span></a>
   </nav>
@@ -162,17 +173,17 @@
       <button type="button" class="btn btn-sm btn-ghost" id="closeAskHrBtn">✕</button>
     </div>
     <div class="ask-hr-messages" id="askHrMessages">
-      <div class="ask-hr-msg bot">
-        Hello {{ user.display_name.split(' ')[0] if user.display_name else 'there' }}! How can I help you today? You can ask about your leave balance, shift rules, company holidays or attendance.
-      </div>
+      <div class="ask-hr-msg bot">Hello {{ user.display_name.split(' ')[0] if user.display_name else 'there' }}! {% if user.is_hr %}Ask me about today's attendance, approvals, payroll, holidays, or type an employee's name.{% else %}Ask me about your attendance, leave, payslips, holidays or office timing.{% endif %} English or Hinglish both work.</div>
     </div>
-    <div style="padding:.4rem .8rem;background:var(--subtle);border-top:1px solid var(--border);display:flex;gap:4px;overflow-x:auto;">
-      <button type="button" class="chip chip-ghost" style="cursor:pointer;white-space:nowrap" onclick="sendQuickQuery('My leave balance')">Leave balance</button>
-      <button type="button" class="chip chip-ghost" style="cursor:pointer;white-space:nowrap" onclick="sendQuickQuery('Upcoming holidays')">Holidays</button>
-      <button type="button" class="chip chip-ghost" style="cursor:pointer;white-space:nowrap" onclick="sendQuickQuery('Shift timing')">Shift timing</button>
+    <div class="ask-hr-chips" id="askHrChips">
+      {% if user.is_hr %}
+        {% for text in ["Today's attendance", "Who is late today?", "Pending approvals", "Payroll status"] %}<button type="button" class="chip chip-ghost">{{ text }}</button>{% endfor %}
+      {% else %}
+        {% for text in ["My leave balance", "Today's attendance", "Latest payslip", "Upcoming holidays"] %}<button type="button" class="chip chip-ghost">{{ text }}</button>{% endfor %}
+      {% endif %}
     </div>
-    <form class="ask-hr-input-bar" id="askHrForm" onsubmit="event.preventDefault(); submitAskHr();">
-      <input type="text" id="askHrInput" placeholder="Ask a question..." autocomplete="off">
+    <form class="ask-hr-input-bar" id="askHrForm">
+      <input type="text" id="askHrInput" placeholder="Ask a question..." autocomplete="off" maxlength="500" aria-label="Your question">
       <button type="submit" class="btn btn-sm btn-primary">Send</button>
     </form>
   </div>
@@ -184,56 +195,108 @@
       var closeBtn = document.getElementById("closeAskHrBtn");
       var input = document.getElementById("askHrInput");
       var msgContainer = document.getElementById("askHrMessages");
+      var chips = document.getElementById("askHrChips");
+      var form = document.getElementById("askHrForm");
+      var sendBtn = form.querySelector("button[type=submit]");
+      var csrf = document.querySelector('meta[name="csrf-token"]');
+      var busy = false;
 
-      function openDrawer() { if (drawer) drawer.classList.add("open"); if (input) input.focus(); }
-      function closeDrawer() { if (drawer) drawer.classList.remove("open"); }
+      function openDrawer() { drawer.classList.add("open"); input.focus(); }
+      function closeDrawer() { drawer.classList.remove("open"); }
+      function scrollDown() { msgContainer.scrollTop = msgContainer.scrollHeight; }
 
-      if (openBtn) openBtn.addEventListener("click", openDrawer);
-      if (closeBtn) closeBtn.addEventListener("click", closeDrawer);
+      function addMessage(kind, text) {
+        var div = document.createElement("div");
+        div.className = "ask-hr-msg " + kind;
+        div.textContent = text;
+        msgContainer.appendChild(div);
+        scrollDown();
+        return div;
+      }
 
-      window.sendQuickQuery = function(text) {
-        if (input) input.value = text;
-        submitAskHr();
-      };
+      function showActions(after, actions) {
+        if (!actions || !actions.length) return;
+        var row = document.createElement("div");
+        row.className = "ask-hr-actions";
+        actions.forEach(function (action) {
+          if (!/^\/(?!\/)/.test(action.href || "")) return;  // same-site links only
+          var link = document.createElement("a");
+          link.className = "btn btn-sm";
+          link.href = action.href;
+          link.textContent = action.label;
+          row.appendChild(link);
+        });
+        after.insertAdjacentElement("afterend", row);
+      }
 
-      window.submitAskHr = function() {
-        if (!input) return;
-        var val = input.value.trim();
-        if (!val) return;
+      function showChips(list) {
+        if (!list || !list.length) return;
+        chips.textContent = "";
+        list.forEach(function (text) {
+          var chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "chip chip-ghost";
+          chip.textContent = text;
+          chips.appendChild(chip);
+        });
+      }
+
+      function ask(text) {
+        var question = (text || "").trim();
+        if (!question || busy) return;
+        busy = true;
+        sendBtn.disabled = true;
         input.value = "";
-
-        var userDiv = document.createElement("div");
-        userDiv.className = "ask-hr-msg user";
-        userDiv.textContent = val;
-        msgContainer.appendChild(userDiv);
-        msgContainer.scrollTop = msgContainer.scrollHeight;
-
-        var botDiv = document.createElement("div");
-        botDiv.className = "ask-hr-msg bot";
-        botDiv.textContent = "Thinking...";
-        msgContainer.appendChild(botDiv);
-        msgContainer.scrollTop = msgContainer.scrollHeight;
-
+        addMessage("user", question);
+        var reply = addMessage("bot", "Thinking...");
         fetch("/api/ai-hr/query", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: val })
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf ? csrf.content : "" },
+          body: JSON.stringify({ query: question })
         })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-          botDiv.textContent = data.answer || "No response received.";
-          msgContainer.scrollTop = msgContainer.scrollHeight;
+        .then(function (res) {
+          if (!res.ok) throw new Error("status " + res.status);
+          return res.json();
         })
-        .catch(function() {
-          botDiv.textContent = "Unable to process query right now. Please check your network connection.";
+        .then(function (data) {
+          reply.textContent = data.answer || "No response received.";
+          showActions(reply, data.actions);
+          showChips(data.suggestions);
+        })
+        .catch(function () {
+          reply.textContent = "I could not get an answer right now. Please try again in a moment.";
+        })
+        .finally(function () {
+          busy = false;
+          sendBtn.disabled = false;
+          scrollDown();
         });
-      };
+      }
+
+      openBtn.addEventListener("click", openDrawer);
+      closeBtn.addEventListener("click", closeDrawer);
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") closeDrawer();
+      });
+      chips.addEventListener("click", function (event) {
+        var chip = event.target.closest("button");
+        if (chip) ask(chip.textContent);
+      });
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        ask(input.value);
+      });
     })();
   </script>
 {% endif %}
 
 <script src="/static/js/pwa.js?v={{ asset_version }}" defer></script>
 <script src="/static/js/app.js?v={{ asset_version }}" defer></script>
+{% if user and (user.is_hr or user.is_employee) %}
+  <div class="inbox-toast hidden no-print" id="inboxToast" role="status"></div>
+  <script src="/static/js/inbox.js?v={{ asset_version }}" defer></script>
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

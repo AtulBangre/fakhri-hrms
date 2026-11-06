@@ -44,9 +44,9 @@
       <div class="card-head">
         <h2>Asset register</h2><span class="spacer"></span>
         <form class="filters" method="get" action="/assets">
-          <div class="field"><input type="search" name="q" value="{{ filters.q }}" placeholder="tag, name, serial"></div>
+          <div class="field"><input type="search" name="q" value="{{ filters.q }}" placeholder="tag, name, serial" aria-label="Search assets"></div>
           <div class="field">
-            <select name="status" onchange="this.form.submit()">
+            <select name="status" aria-label="Status" onchange="this.form.submit()">
               <option value="all">All statuses</option>
               {% for value, label in statuses.items() %}
                 <option value="{{ value }}" {{ 'selected' if filters.status == value }}>{{ label }}</option>

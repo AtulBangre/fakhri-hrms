@@ -726,6 +726,7 @@ def create_portal_login(
     employee = employees_service.get_employee(storage, employee_id)
     if employee is None:
         return redirect("/employees", err="Employee not found.")
+    is_reset = get_user_for_employee(storage, employee_id) is not None
     try:
         portal_user, _ = ensure_employee_login(storage, employee, password=password)
         delivery_note = ""
@@ -757,11 +758,11 @@ def create_portal_login(
         actor=user.username, action="ess_login", entity="employee", entity_id=employee_id,
         detail=f"username={portal_user['username']}",
     )
-    first_name = employee["name"].split()[0]
-    tail = delivery_note or f" Share the password with {first_name} privately."
-    return redirect(
-        f"/employees/{employee_id}",
-        ok=f"Portal login ready: username '{portal_user['username']}'.{tail}",
+    # Only a hash is stored, so this response is the one chance to show the password.
+    return render(
+        request, "portal_password_set.html", active="employees", user=user, employee=employee,
+        username=portal_user["username"], password=password, is_reset=is_reset,
+        delivery_note=delivery_note.strip(),
     )
 
 

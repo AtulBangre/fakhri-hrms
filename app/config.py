@@ -101,6 +101,8 @@ class Settings:
     default_kiosk_password: str = field(default_factory=lambda: _env("HRMS_DEFAULT_KIOSK_PASSWORD", ""))
     #: Duplicate kiosk scans from the same face inside this window are ignored.
     kiosk_debounce_seconds: int = field(default_factory=lambda: int(_env("HRMS_KIOSK_DEBOUNCE", "45")))
+    #: Gate and field scans cannot check out until this long after check-in.
+    min_checkout_minutes: int = field(default_factory=lambda: int(_env("HRMS_MIN_CHECKOUT_MINUTES", "120")))
 
     # --- notifications ---------------------------------------------------
     #: Email transport. Leave ``smtp_host`` empty to use the console driver,
@@ -129,6 +131,14 @@ class Settings:
 
     #: Master switch for outbound email (the queue still records messages)
     notify_email_enabled: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_EMAIL", True))
+    #: The bell in the app, and web push to phones and computers.
+    notify_push: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_PUSH", True))
+    #: Contact the browser push services can reach the sender at.
+    push_subject: str = field(default_factory=lambda: _env("HRMS_PUSH_SUBJECT", "mailto:hr@fakhriitservices.com"))
+    #: Birthday and anniversary wishes to employees, and reminders to HR.
+    notify_celebrations: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_CELEBRATIONS", True))
+    #: Local hour from which each day's wishes and reminders go out.
+    celebration_hour: int = field(default_factory=lambda: int(_env("HRMS_CELEBRATION_HOUR", "9")))
 
     #: Automatic triggers
     notify_punch_in: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_PUNCH_IN", True))
@@ -211,7 +221,9 @@ def get_settings(refresh: bool = False) -> Settings:
 #: (key, default value, human label, input type, help text)
 SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
     ("org_name", BRAND["org_name"], "Organisation name", "text", "Shown in the header and on payslips."),
-    ("shift_start", "09:30", "Shift start", "time", "Scans after start + grace are marked LATE."),
+    ("shift_start", "09:30", "Shift start", "time",
+     "Scans after start + grace are marked LATE. Applies to the default shift. Employees assigned to another shift "
+     "follow that shift. Records already saved do not change."),
     ("shift_end", "18:30", "Shift end", "time", "Used to compute expected working hours."),
     ("late_grace_minutes", "15", "Late grace (minutes)", "number", "How late someone may be before being marked late."),
     ("half_day_min_minutes", "240", "Half-day threshold (minutes)", "number",

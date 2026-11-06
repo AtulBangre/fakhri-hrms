@@ -41,7 +41,7 @@ from .db import Storage, utcnow_iso
 
 logger = logging.getLogger("hrms.notify")
 
-CHANNELS = ("email", "whatsapp", "sms")
+CHANNELS = ("email", "whatsapp", "sms", "push")
 
 
 # --------------------------------------------------------------------- helpers
@@ -250,6 +250,31 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
             + f"<p><a href='{base}/me/profile'>See my profile</a></p>"
         )
 
+    elif template in ("birthday", "anniversary", "work_anniversary"):
+        subject = {
+            "birthday": f"Happy Birthday, {ctx['name']}! 🎂",
+            "anniversary": f"Happy Anniversary, {ctx['name']}! 💐",
+            "work_anniversary": f"{ctx['title']} 🎉",
+        }[template]
+        lead = ctx.get("opener") or (
+            f"Today marks {ctx['years']} year{'' if ctx.get('years') == 1 else 's'} since you joined {settings.org_name}."
+            if template == "work_anniversary" else "Today is a day worth celebrating."
+        )
+        closing = ctx.get("closer") or "Thank you for being such a valued part of our team."
+        body = (
+            f"<div style='text-align:center;padding:6px 0 14px'>"
+            f"<div style='font-size:44px;line-height:1'>{ {'birthday': '🎂', 'anniversary': '💐'}.get(template, '🎉') }</div>"
+            f"<h1 style='margin:12px 0 0;font-size:24px;line-height:1.25;color:{BRAND['primary']}'>{escape(ctx['title'])}</h1>"
+            f"</div>"
+            f"<p style='font-size:15px'>Dear <b>{escape(ctx['name'])}</b>,</p>"
+            f"<p style='font-size:15px'>{escape(lead)}</p>"
+            f"<blockquote style='margin:18px 0;padding:14px 18px;background:#fbf3f3;border-left:4px solid {BRAND['primary']};"
+            f"border-radius:6px;font-size:16px;line-height:1.5;color:{BRAND['ink']}'>{escape(ctx['wish'])}</blockquote>"
+            f"<p style='font-size:15px'>{escape(closing)}</p>"
+            f"<p style='font-size:15px;margin-bottom:0'>With warm wishes,<br><b>Team HR</b><br>{org}</p>"
+        )
+        ctx.setdefault("footer", f"Sent with best wishes by the HR team at {org}.")
+
     elif template == "hr_alert":
         subject = ctx["subject"]
         body = f"<p>{escape(ctx['message'])}</p>" + (
@@ -280,7 +305,81 @@ def notify_hr(storage: Storage, settings: Settings, template: str, *, category: 
     for address in hr_emails(storage):
         if queue_email(storage, address, template, settings=settings, category=category, **ctx):
             queued += 1
+    subject, _html, _text = render(template, settings, **ctx)
+    if template == "leave_requested":
+        message, link = f"{ctx['name']}: {ctx['days']} day(s), {ctx['from_date']} to {ctx['to_date']}.", "/leave"
+    elif template == "profile_changed":
+        message, link = f"{ctx['name']}: {ctx['fields']}.", "/profile-requests"
+    else:
+        message, link = ctx.get("message") or "", ctx.get("link") or "/dashboard"
+    push_hr(storage, settings, subject, message, link, category=category)
     return queued
+
+
+# ------------------------------------------------------------- bell and web push
+def push_user(storage: Storage, settings: Settings, user_id: int, title: str, body: str, url: str = "/",
+              *, category: str = "system") -> int | None:
+    """One notification for one login: it appears under the bell and goes to their devices.
+
+    Never put passwords, codes or salary figures here: this text shows on lock screens.
+    """
+    if not settings.notify_push:
+        return None
+    return queue(storage, channel="push", recipient=f"user:{int(user_id)}", subject=title[:160],
+                 body=(body or "")[:500], category=category, meta={"url": url}, settings=settings)
+
+
+def push_employee(storage: Storage, settings: Settings, employee_id: int, title: str, body: str, url: str = "/me",
+                  *, category: str = "system") -> int | None:
+    """Notify an employee, if they have an active portal login."""
+    row = storage.query_one("SELECT id FROM users WHERE employee_id = ? AND active = 1", (employee_id,))
+    return push_user(storage, settings, row["id"], title, body, url, category=category) if row else None
+
+
+def push_hr(storage: Storage, settings: Settings, title: str, body: str, url: str = "/dashboard",
+            *, category: str = "system") -> int:
+    """Notify every active HR login."""
+    rows = storage.query("SELECT id FROM users WHERE role = 'hr' AND active = 1")
+    return sum(1 for row in rows if push_user(storage, settings, row["id"], title, body, url, category=category))
+
+
+def push_punch(storage: Storage, settings: Settings, employee: dict[str, Any], outcome: Any) -> None:
+    """Confirm a completed check-in or check-out to the employee."""
+    if outcome.action == "check_in":
+        title = f"Checked in at {(outcome.check_in or '')[:5]}"
+        body = f"You are {outcome.late_minutes} minutes late." if outcome.late_minutes else "Have a good day at work."
+    elif outcome.action == "check_out":
+        title = f"Checked out at {(outcome.check_out or '')[:5]}"
+        body = "Attendance for today is complete."
+        if outcome.status == "half_day":
+            body += " It is marked as a half day."
+    else:
+        return
+    push_employee(storage, settings, employee["id"], title, body, "/me", category=f"attendance_{outcome.action}")
+
+
+INBOX_SIZE = 30
+
+
+def inbox_rows(storage: Storage, user_id: int) -> list[dict[str, Any]]:
+    return storage.query(
+        "SELECT id, subject, body, meta, created_at FROM notifications "
+        "WHERE channel = 'push' AND recipient = ? ORDER BY id DESC LIMIT ?",
+        (f"user:{int(user_id)}", INBOX_SIZE),
+    )
+
+
+def inbox_seen(storage: Storage, user_id: int) -> int:
+    try:
+        return int(storage.get_setting(f"inbox_seen:{int(user_id)}", "0") or 0)
+    except ValueError:
+        return 0
+
+
+def mark_inbox_seen(storage: Storage, user_id: int, last_id: int) -> None:
+    """Record what this user has read. It only moves forward."""
+    if last_id > inbox_seen(storage, user_id):
+        storage.set_setting(f"inbox_seen:{int(user_id)}", str(int(last_id)))
 
 
 # ----------------------------------------------------------------------- queue
@@ -581,6 +680,36 @@ def _send_meta_whatsapp(settings: Settings, row: dict[str, Any]) -> str:
     return "sent via meta cloud api"
 
 
+def _send_push(storage: Storage, settings: Settings, row: dict[str, Any]) -> str:
+    """Deliver to each device of one login. No device is fine: the bell still has it."""
+    from . import push
+
+    user_id = int(row["recipient"].split(":", 1)[1])
+    user = storage.query_one("SELECT active FROM users WHERE id = ?", (user_id,))
+    if not user or not user["active"]:
+        return "login is not active"
+    devices = push.subscriptions(storage, user_id)
+    if not devices:
+        return "saved to inbox; no device registered"
+    try:
+        url = json.loads(row.get("meta") or "{}").get("url") or "/"
+    except ValueError:
+        url = "/"
+    payload = {"id": row["id"], "title": row["subject"] or "Notification", "body": row["body"], "url": url}
+    delivered, errors = 0, []
+    for device in devices:
+        try:
+            push.send(settings, device, payload)
+            delivered += 1
+        except push.PushGone:
+            push.unsubscribe(storage, user_id, device["endpoint"])
+        except Exception as exc:
+            errors.append(str(exc))
+    if errors and not delivered:
+        raise SendError(f"push: {errors[0]}")
+    return f"pushed to {delivered} device(s)"
+
+
 def send_one(storage: Storage, settings: Settings, notification: dict[str, Any]) -> dict[str, Any]:
     """Attempt one queued message and update its row."""
     channel = notification["channel"]
@@ -600,6 +729,8 @@ def send_one(storage: Storage, settings: Settings, notification: dict[str, Any])
                 receipt = _send_twilio(settings, notification, whatsapp=False)
             else:
                 receipt = _write_console(settings, notification, "sms")
+        elif channel == "push":
+            receipt = _send_push(storage, settings, notification)
         else:  # pragma: no cover - guarded at queue time
             raise SendError(f"unknown channel '{channel}'")
 
@@ -640,6 +771,8 @@ def _write_console(settings: Settings, row: dict[str, Any], channel: str) -> str
 RETRY_BACKOFF_MINUTES = (1, 5, 30)
 #: A message left in "sending" this long (process crashed mid-send) is retried.
 STALE_SENDING_MINUTES = 10
+#: How often the worker looks for scheduled alerts that have come due.
+ALERT_CHECK_SECONDS = 60
 
 
 def claim(storage: Storage, notification_id: int) -> bool:
@@ -728,8 +861,14 @@ class NotificationWorker:
             self._thread.join(timeout=5)
 
     def _run(self) -> None:
+        from .services import alerts  # imported here because alerts builds on this module
+
+        next_alerts = 0.0
         while not self._stop.wait(self.interval):
             try:
+                if time.monotonic() >= next_alerts:
+                    next_alerts = time.monotonic() + ALERT_CHECK_SECONDS
+                    alerts.run_due(self.storage, self.settings)
                 results = dispatch(self.storage, self.settings, limit=50)
                 self.sent += sum(1 for r in results if r.get("ok"))
                 self.failed += sum(1 for r in results if not r.get("ok"))

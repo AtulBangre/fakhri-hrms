@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from .. import notify
 from ..config import Settings
 from ..db import Storage, utcnow_iso
 from ..uploads import delete_file, save_upload
@@ -214,6 +215,7 @@ def check_in(
         moment=now,
         source="field",
     )
+    notify.push_punch(storage, settings, employee, outcome)
     storage.audit(actor=actor, action="field_check_inside", entity="employee",
                   entity_id=employee["id"],
                   detail=f"{kind} at {place}" + (f" ({distance:.0f}m)" if distance is not None else ""))

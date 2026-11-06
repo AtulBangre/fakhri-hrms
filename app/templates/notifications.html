@@ -37,7 +37,7 @@
       </form>
       <form method="get" action="/notifications" class="filters" style="margin-left:auto">
         <div class="field">
-          <select name="status" onchange="this.form.submit()">
+          <select name="status" aria-label="Status" onchange="this.form.submit()">
             {% for value in ('all', 'pending', 'sent', 'failed') %}
               <option value="{{ value }}" {{ 'selected' if status_filter == value }}>{{ value }}</option>
             {% endfor %}

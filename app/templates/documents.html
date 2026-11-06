@@ -51,7 +51,7 @@
         <h2>All documents</h2><span class="spacer"></span>
         <form class="filters" method="get" action="/documents">
           <div class="field">
-            <select name="employee_id" onchange="this.form.submit()">
+            <select name="employee_id" aria-label="Employee" onchange="this.form.submit()">
               <option value="">All employees</option>
               {% for person in employees %}
                 <option value="{{ person.id }}" {{ 'selected' if filters.employee_id == person.id }}>{{ person.name }}</option>
@@ -59,7 +59,7 @@
             </select>
           </div>
           <div class="field">
-            <select name="category" onchange="this.form.submit()">
+            <select name="category" aria-label="Document type" onchange="this.form.submit()">
               <option value="all">All types</option>
               {% for value, label in categories.items() %}
                 <option value="{{ value }}" {{ 'selected' if filters.category == value }}>{{ label }}</option>

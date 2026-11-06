@@ -117,6 +117,8 @@ def broadcast(
     date_label = announcement["created_at"][:10]
 
     for person in people:
+        notify.push_employee(storage, settings, person["id"], announcement["title"], announcement["body"][:200],
+                             "/me", category="announcement")
         if "email" in channels and person.get("email"):
             row_id = notify.queue_email(
                 storage,

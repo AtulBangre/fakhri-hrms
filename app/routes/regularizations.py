@@ -4,13 +4,21 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Request
 
+from .. import notify
 from ..auth import SessionUser, require_hr, verify_form_csrf
-from ..deps import get_storage, redirect, render
+from ..deps import get_settings_dep, get_storage, redirect, render
 from ..services import regularization
 
 router = APIRouter(prefix="/attendance/regularizations", tags=["attendance"])
 
 TABS = ("pending", "approved", "rejected", "all")
+
+
+def _notify_employee(storage, settings, row: dict) -> None:
+    notify.push_employee(storage, settings, row["employee_id"], f"Attendance correction {row['status']}",
+                         f"Your request for {row['work_date']} was {row['status']}."
+                         + (f" Note: {row['decision_note']}" if row.get("decision_note") else ""),
+                         "/me/attendance", category="regularization")
 
 
 @router.get("")
@@ -37,6 +45,7 @@ def bulk(
     request: Request,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
     action: str = Form(...),
     ids: list[int] = Form([]),
@@ -50,7 +59,7 @@ def bulk(
     decide = regularization.approve if action == "approve" else regularization.reject
     for request_id in ids:
         try:
-            decide(storage, request_id, actor=user.username)
+            _notify_employee(storage, settings, decide(storage, request_id, actor=user.username))
             done += 1
         except regularization.ValidationError as exc:
             failed.append(f"#{request_id}: {exc}")
@@ -67,6 +76,7 @@ def decide(
     decision: str,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
     note: str = Form(""),
     release_leave: str = Form(""),
@@ -82,5 +92,6 @@ def decide(
             row = regularization.reject(storage, request_id, actor=user.username, note=note.strip() or None)
     except regularization.ValidationError as exc:
         return redirect("/attendance/regularizations", err=str(exc))
+    _notify_employee(storage, settings, row)
     return redirect("/attendance/regularizations",
                     ok=f"{row['name']} · {row['work_date']} {row['status']}.")

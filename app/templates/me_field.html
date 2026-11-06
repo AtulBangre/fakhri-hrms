@@ -110,13 +110,14 @@
 <script>
   (function () {
     const badge = document.getElementById('geoBadge');
+    if (!badge) return;  // field punching is not enabled for this employee
     const info = document.getElementById('geoInfo');
     const btn = document.getElementById('markBtn');
     const result = document.getElementById('result');
     const csrf = document.querySelector('meta[name="csrf-token"]').content;
     let position = null;
 
-    function setResult(html, cls) { result.className = 'small mt-2 ' + (cls || ''); result.innerHTML = html; }
+    function setResult(text, cls) { result.className = 'small mt-2 ' + (cls || ''); result.textContent = text; }
 
     if (!navigator.geolocation) {
       badge.textContent = 'unsupported'; badges(); return;

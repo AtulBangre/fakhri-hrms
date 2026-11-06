@@ -354,7 +354,11 @@ def kiosk_scan(
     else:
         # anonymous gate: nothing about the person leaves the server
         body["employee"] = None
-        body["message"] = {"check_in": "Checked in.", "check_out": "Checked out."}.get(outcome.action, "Noted.")
+        body["message"] = {
+            "check_in": "Checked in.",
+            "check_out": "Checked out.",
+            "too_early": f"Check-out opens after {outcome.checkout_after}.",
+        }.get(outcome.action, "Noted.")
     body.update(
         {
             "similarity": similarity,
@@ -438,6 +442,7 @@ def _notify_punch(storage, settings, employee: dict, outcome) -> None:
     """
     if outcome.action not in ("check_in", "check_out"):
         return
+    notify.push_punch(storage, settings, employee, outcome)
     is_in = outcome.action == "check_in"
     if is_in and not settings.notify_punch_in and not (outcome.late_minutes and settings.notify_late):
         return
@@ -448,7 +453,7 @@ def _notify_punch(storage, settings, employee: dict, outcome) -> None:
         "time": (outcome.check_in if is_in else outcome.check_out) or "",
         "date": orgtime.today_str(settings),
         "late_minutes": outcome.late_minutes,
-        "shift_start": storage.get_setting("shift_start", "09:30"),
+        "shift_start": orgtime.shift_for(storage, employee)["start_time"],
         "worked": orgtime.format_minutes(outcome.worked_minutes),
     }
     # Decide whether to email: send on check-out, on normal punch-in (if enabled),

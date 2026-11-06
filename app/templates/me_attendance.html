@@ -61,9 +61,9 @@
 <div class="card flush mb-3">
   <div class="card-head"><h2>{{ period_label }}</h2></div>
   <div class="table-wrap">
-    <table class="data stack">
+    <table class="data m-table">
       <thead>
-        <tr><th>Date</th><th>Status</th><th>In</th><th>Out</th><th>Worked</th><th>Marked by / note</th></tr>
+        <tr><th>Date</th><th class="m-fill">Status</th><th>In</th><th>Out</th><th>Worked</th><th class="m-hide">Marked by / note</th></tr>
       </thead>
       <tbody>
       {% for day in days %}
@@ -71,19 +71,25 @@
         <tr {% if day.is_today %}class="is-selected"{% endif %}>
           <td data-label="Date" class="nowrap"><strong>{{ day.day.strftime('%d %b') }}</strong>
             <span class="sub">{{ day.weekday }}{% if day.is_today %} · today{% endif %}</span></td>
-          <td data-label="Status">
+          <td data-label="Status" class="m-fill">
             <span class="{{ day.status | chip }}">{{ day.status_label }}</span>
             {% if day.iso in pending_dates %}<span class="chip chip-warn">correction pending</span>{% endif %}
             {% if day.leave_type %}<span class="sub">{{ day.leave_type }}</span>{% endif %}
           </td>
-          <td data-label="In" class="num-cell">{{ day.check_in }}</td>
+          <td data-label="In" class="num-cell">{{ day.check_in }}
+            {% if day.late_minutes %}<span class="sub m-only m-late" title="{{ day.late_minutes }} minutes late">+{{ day.late_minutes }}m</span>{% endif %}</td>
           <td data-label="Out" class="num-cell">{{ day.check_out }}</td>
           <td data-label="Worked" class="nowrap">{{ day.worked }}
-            {% if day.late_minutes %}<span class="chip chip-warn">{{ day.late_minutes }}m late{% if day.late_fine %} · ₹{{ day.late_fine | plain }} fine{% endif %}</span>{% endif %}</td>
-          <td data-label="Marked by / note" class="small">
+            {% if day.late_minutes %}<span class="chip chip-warn m-hide">{{ day.late_minutes }}m late{% if day.late_fine %} · ₹{{ day.late_fine | plain }} fine{% endif %}</span>{% endif %}</td>
+          <td data-label="Marked by / note" class="small m-hide">
             {% if day.note %}{{ day.note }}{% elif day.source %}<span class="muted">{{ day.source }}</span>{% else %}<span class="muted">—</span>{% endif %}
           </td>
         </tr>
+        {% if day.note or day.late_fine %}
+          <tr class="m-only {% if day.is_today %}is-selected{% endif %}">
+            <td colspan="6" class="small muted">{% if day.late_fine %}₹{{ day.late_fine | plain }} late fine{% if day.note %} · {% endif %}{% endif %}{{ day.note or '' }}</td>
+          </tr>
+        {% endif %}
         {% endif %}
       {% endfor %}
       </tbody>

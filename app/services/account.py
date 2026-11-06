@@ -305,6 +305,10 @@ def decide(
     )
 
     employee = employees_service.get_employee(storage, row["employee_id"])
+    decision = "approved" if approve else "rejected"
+    notify.push_employee(storage, settings, row["employee_id"], f"Profile change {decision}",
+                         f"Your request to change {CHANGEABLE_FIELDS.get(row['field'], row['field'])} was {decision}.",
+                         "/me/profile", category="profile_change")
     target = (employee or {}).get("email")
     if target and settings.notify_email_enabled:
         notify.queue_email(

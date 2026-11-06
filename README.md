@@ -25,7 +25,8 @@ font families (Poppins headings, Inter body).
 | 6 | **Apply paid leave and half days** | `/leave` — full day, multi-day, or a single half day; weekly offs and holidays are never charged; balances accrue 1.5/month from joining date |
 | 7 | **Shift Master & Dynamic Attendance Form** | `/settings` & `/employees/bulk-update` — multi-shift management; PagarBook-style attendance corrections with blank same-day checkout |
 | 8 | **Visual Org Hierarchy Chart & Team Reassignment** | `/employees/chart` dynamic tree & `/employees/bulk-update` batch department/shift assigner |
-| 9 | **Ask HR Agentic AI Assistant** | Floating in-app AI assistant drawer answering natural language queries regarding leave balance, attendance logs, and policies |
+| 9a | **Notifications** | Bell and web push (needs HTTPS; on iPhone, the app must be added to the Home Screen first) for punches, missed-punch reminders, approvals and announcements. Birthday and anniversary emails go out automatically with a different wish each time, and HR is reminded 3 days ahead, the day before and on the day. The push signing key is created at `data/vapid_private.pem`: keep it with your backups, because a new key means every device must turn alerts on again. |
+| 9 | **Ask HR Assistant** | Floating in-app chat that answers English and Hinglish questions from the app's own data. It is role-scoped and read-only, and sends nothing to an outside service. It matches keywords and does not use an LLM. |
 | 10 | **Mobile-first responsive PWA & Geofencing** | Sidebar on desktop, bottom tab bar on phones, installable manifests, GPS geofenced mobile punch for remote staff (`/field`) |
 | 11 | **HR & Gate Kiosk Roles** | `hr` role (full management), `kiosk` role (locked-down camera scanner), and `employee` role (self-service portal) |
 | 12 | **Hybrid SQLite WAL + Supabase Cloud Sync** | Local SQLite WAL engine with an optional mirror to Supabase PostgreSQL, off by default. Enabling it rewrites the mirror and copies every table |
@@ -242,7 +243,9 @@ Every state-changing request needs the session's CSRF token. Passwords are store
 * **First scan of the day = check-in.** After the shift start + grace
   (`shift_start` 09:30, `late_grace_minutes` 15 by default) the delay is stored
   as `late_minutes`.
-* **Next scan = check-out.** Worked minutes are computed; working less than
+* **Next scan = check-out, from 2 hours after check-in.** An earlier scan is refused
+  and changes nothing (`HRMS_MIN_CHECKOUT_MINUTES`, gate and field scans only; HR
+  corrections are not limited). Worked minutes are computed; working less than
   `half_day_min_minutes` (240) turns the day into a **half day** (0.5 payable).
 * **Further scans the same day are refused** — a queue at the gate cannot rewrite
   anybody's hours. A scan within `HRMS_KIOSK_DEBOUNCE` seconds (45) of the last
@@ -289,6 +292,10 @@ The ones you will actually touch:
 | `HRMS_TIMEZONE` → `HRMS_TZ` | `Asia/Kolkata` | the working day is a *local* concept |
 | `HRMS_SECURE_COOKIES` | `false` | set `true` behind HTTPS |
 | `HRMS_KIOSK_DEBOUNCE` | `45` | seconds before the same face can scan again |
+| `HRMS_MIN_CHECKOUT_MINUTES` | `120` | minutes after check-in before a scan can check out |
+| `HRMS_NOTIFY_PUSH` | `true` | the bell in the app, and web push to phones and computers |
+| `HRMS_NOTIFY_CELEBRATIONS` | `true` | birthday and anniversary wishes to employees, and reminders to HR |
+| `HRMS_CELEBRATION_HOUR` | `9` | local hour from which each day's wishes and reminders go out |
 | `HRMS_KIOSK_SHOW_NAME` | `false` | force the full confirmation card even if Settings says anonymous |
 
 Operational settings (shift start, grace, half-day threshold, payroll basis,

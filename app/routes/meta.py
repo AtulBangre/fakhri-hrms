@@ -55,7 +55,7 @@ def _manifest(*, name: str, short_name: str, start_url: str, description: str, s
         "start_url": start_url,
         "scope": scope,
         "display": "standalone",
-        "orientation": "portrait",
+        "orientation": "any",
         "background_color": BRAND["surface"],
         "theme_color": BRAND["primary"],
         "categories": ["business", "productivity"],

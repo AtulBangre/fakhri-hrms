@@ -25,7 +25,7 @@
     <h2>All claims</h2><span class="spacer"></span>
     <form class="filters" method="get" action="/expenses">
       <div class="field">
-        <select name="status" onchange="this.form.submit()">
+        <select name="status" aria-label="Status" onchange="this.form.submit()">
           {% for value in ('all', 'pending', 'approved', 'rejected') %}
             <option value="{{ value }}" {{ 'selected' if status_filter == value }}>{{ value }}</option>
           {% endfor %}

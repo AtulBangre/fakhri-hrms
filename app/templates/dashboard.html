@@ -31,6 +31,32 @@
     resignation alerts are not being sent. Add one under <a href="/settings">Settings → Logins → Manage</a>.</div></div>
 {% endif %}
 
+{% if celebrations %}
+  <div class="card flush mb-3 celebrate-card">
+    <div class="card-head">
+      <h2 style="display:flex;align-items:center;gap:.4rem">{{ icon('gift') }} Coming up</h2>
+      <span class="spacer"></span>
+      <span class="small muted">next 3 days · wishes go out automatically</span>
+    </div>
+    <div class="list">
+      {% for item in celebrations %}
+        <a class="list-row celebrate-row {{ 'is-today' if item.in_days == 0 }}" href="/employees/{{ item.employee.id }}">
+          {% if item.employee.photo_filename %}
+            <img class="avatar" src="/employees/{{ item.employee.id }}/avatar" alt="" style="object-fit:cover">
+          {% else %}
+            <span class="avatar">{{ item.employee.name | initials }}</span>
+          {% endif %}
+          <span class="grow">
+            <strong>{{ item.employee.name }}</strong>
+            <span>{{ item.label }}{% if item.kind == 'work' %} · {{ item.years }} year{{ '' if item.years == 1 else 's' }}{% endif %} · {{ item.date.strftime('%d %b') }}</span>
+          </span>
+          <span class="chip {{ 'chip-primary' if item.in_days == 0 else ('chip-warn' if item.in_days == 1 else 'chip-info') }}">{{ item.when_label }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
 {% include "_announcements.html" %}
 
 <div class="grid grid-4 mb-3">

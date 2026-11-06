@@ -7,7 +7,7 @@ so the suite runs without models, camera or network.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -125,6 +125,16 @@ def test_404_page_is_branded(hr_client: TestClient):
     response = hr_client.get("/definitely-not-a-page")
     assert response.status_code == 404
     assert "Page not found" in response.text
+
+
+def test_installed_app_can_rotate_on_any_device(client: TestClient):
+    assert client.get("/manifest.webmanifest").json()["orientation"] == "any"
+
+
+def test_app_shell_has_keyboard_and_screen_reader_landmarks(hr_client: TestClient):
+    page = hr_client.get("/employees").text
+    assert 'class="skip-link" href="#main"' in page and 'id="main"' in page
+    assert 'aria-current="page"' in page
 
 
 def test_manifests_and_service_worker(client: TestClient):
@@ -512,6 +522,33 @@ def test_kiosk_scan_marks_attendance(client: TestClient, storage, staff, fake_fa
 
     row = attendance_service.get_row(storage, staff[0]["id"], date.today())
     assert row is not None and row["source"] == "face"
+
+
+def test_kiosk_refuses_a_check_out_before_the_minimum_wait(client: TestClient, storage, settings, staff, fake_face,
+                                                           assets, hr_user, kiosk_user):
+    from app.services import attendance as attendance_service
+    from app.services import orgtime
+
+    fake_face.identify_result = IdentificationResult(
+        matched=True, external_id=staff[0]["code"], similarity=0.88, face_id="face_1", threshold=0.363,
+        faces_in_probe=1, gallery_size=3,
+    )
+    # Checked in five minutes ago: past the debounce window, well inside the wait.
+    now = orgtime.local_now(settings)
+    attendance_service.mark_by_face(storage, settings, staff[0], moment=now)
+    storage.execute("UPDATE attendance SET check_in = ? WHERE employee_id = ?",
+                    ((now - timedelta(minutes=5)).strftime("%H:%M:%S"), staff[0]["id"]))
+
+    client.post("/login", data={"username": KIOSK_USERNAME, "password": KIOSK_PASSWORD})
+    token = csrf_of(client, "/kiosk")
+    body = client.post(
+        "/api/kiosk/scan", data={"_csrf": token},
+        files={"image": ("scan.jpg", assets["person_a_1"], "image/jpeg")},
+    ).json()
+
+    assert body["ok"] is False and body["action"] == "too_early"
+    assert body["checkout_after"]
+    assert attendance_service.get_row(storage, staff[0]["id"], now.date())["check_out"] is None
 
 
 def test_kiosk_scan_reports_unknown_face(client: TestClient, fake_face, assets, hr_user, kiosk_user):

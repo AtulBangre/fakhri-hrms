@@ -1,6 +1,32 @@
 {% extends "base.html" %}
 {% block title %}Attendance · {{ day_label }} · {{ org_name }} HRMS{% endblock %}
 
+{% macro row_actions(row) -%}
+  {% if kind == 'working' and row.effective_status not in ('present', 'week_off', 'holiday') %}
+    <form method="post" action="/attendance/mark">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+      <input type="hidden" name="work_date" value="{{ day_iso }}">
+      <input type="hidden" name="status" value="present">
+      <input type="hidden" name="check_in" value="{{ row.check_in or row.shift_start }}">
+      <input type="hidden" name="check_out" value="{{ row.check_out or ('' if is_today else row.shift_end) }}">
+      <input type="hidden" name="note" value="marked present by HR">
+      <input type="hidden" name="return_day" value="{{ day_iso }}">
+      <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present">Present</button>
+    </form>
+  {% endif %}
+  {% if row.attendance_id %}
+    <form method="post" action="/attendance/clear" data-confirm="Remove this attendance entry?">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
+      <input type="hidden" name="work_date" value="{{ day_iso }}">
+      <input type="hidden" name="return_day" value="{{ day_iso }}">
+      <button class="btn btn-sm" type="submit">Clear</button>
+    </form>
+  {% endif %}
+  <a class="btn btn-sm" href="/employees/{{ row.employee_id }}">Open</a>
+{%- endmacro %}
+
 {% block content %}
 <div class="page-head">
   <div class="titles">
@@ -51,7 +77,7 @@
           <label for="employee_id">Employee</label>
           <select id="employee_id" name="employee_id" required>
             {% for row in rows %}
-              <option value="{{ row.employee_id }}">{{ row.name }} ({{ row.code }})</option>
+              <option value="{{ row.employee_id }}" data-shift-start="{{ row.shift_start }}" data-shift-end="{{ row.shift_end }}">{{ row.name }} ({{ row.code }})</option>
             {% endfor %}
           </select>
         </div>
@@ -93,21 +119,21 @@
   <div class="card-head"><h2>{{ day_label }}</h2><span class="spacer"></span>
     <span class="small muted">{{ rows | length }} active employees</span></div>
   <div class="table-wrap">
-    <table class="data stack">
+    <table class="data m-table">
       <thead>
-        <tr><th>Employee</th><th>Status</th><th>In</th><th>Out</th><th>Worked</th><th>Late</th><th>Source</th><th></th></tr>
+        <tr><th class="m-fill">Employee</th><th>Status</th><th>In</th><th>Out</th><th class="m-hide">Worked</th><th class="m-hide">Late</th><th class="m-hide">Source</th><th></th></tr>
       </thead>
       <tbody>
       {% for row in rows %}
         <tr>
-          <td data-label="Employee">
-            <div style="display:flex;align-items:center;gap:.6rem">
+          <td data-label="Employee" class="m-fill">
+            <div class="person">
               {% if row.photo_filename %}
-                <img src="/employees/{{ row.employee_id }}/avatar" alt="{{ row.name }}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1.5px solid var(--border)">
+                <img src="/employees/{{ row.employee_id }}/avatar" alt="{{ row.name }}">
               {% else %}
-                <span class="avatar" style="width:34px;height:34px;font-size:.78rem;flex-shrink:0">{{ row.name | initials }}</span>
+                <span class="avatar">{{ row.name | initials }}</span>
               {% endif %}
-              <div>
+              <div class="who">
                 <a href="/employees/{{ row.employee_id }}"><strong>{{ row.name }}</strong></a>
                 <span class="sub">{{ row.code }}{% if row.department %} · {{ row.department }}{% endif %}</span>
               </div>
@@ -118,55 +144,51 @@
             {% if row.leave_type %}<span class="sub muted">{{ leave_labels.get(row.leave_type, row.leave_type) }}</span>{% endif %}
           </td>
           <td data-label="In">
-            <div style="display:flex;align-items:center;gap:.4rem">
+            <div class="punch">
               <span>{{ row.check_in_label }}</span>
               {% if row.punch_in_photo %}
-                <a href="/attendance/photos/{{ row.punch_in_photo }}" target="_blank" title="View punch-in photo" style="display:inline-flex;align-items:center">
-                  <img src="/attendance/photos/{{ row.punch_in_photo }}" alt="In snapshot" style="width:24px;height:24px;border-radius:4px;object-fit:cover;border:1px solid var(--border)">
+                <a class="m-hide" href="/attendance/photos/{{ row.punch_in_photo }}" target="_blank" title="View punch-in photo">
+                  <img src="/attendance/photos/{{ row.punch_in_photo }}" alt="In snapshot">
                 </a>
               {% endif %}
             </div>
+            {% if row.late_minutes %}<span class="sub m-only m-late" title="{{ row.late_minutes }} minutes late">+{{ row.late_minutes }}m</span>{% endif %}
           </td>
           <td data-label="Out">
-            <div style="display:flex;align-items:center;gap:.4rem">
+            <div class="punch">
               <span>{{ row.check_out_label }}</span>
               {% if row.punch_out_photo %}
-                <a href="/attendance/photos/{{ row.punch_out_photo }}" target="_blank" title="View punch-out photo" style="display:inline-flex;align-items:center">
-                  <img src="/attendance/photos/{{ row.punch_out_photo }}" alt="Out snapshot" style="width:24px;height:24px;border-radius:4px;object-fit:cover;border:1px solid var(--border)">
+                <a class="m-hide" href="/attendance/photos/{{ row.punch_out_photo }}" target="_blank" title="View punch-out photo">
+                  <img src="/attendance/photos/{{ row.punch_out_photo }}" alt="Out snapshot">
                 </a>
               {% endif %}
             </div>
           </td>
-          <td data-label="Worked">{{ row.worked_label }}</td>
-          <td data-label="Late">{% if row.late_minutes %}<span class="chip chip-warn">{{ row.late_minutes }}m{% if row.late_fine %} · ₹{{ row.late_fine | plain }}{% endif %}</span>{% else %}—{% endif %}</td>
-          <td data-label="Source">
+          <td data-label="Worked" class="m-hide">{{ row.worked_label }}</td>
+          <td data-label="Late" class="m-hide">{% if row.late_minutes %}<span class="chip chip-warn">{{ row.late_minutes }}m{% if row.late_fine %} · ₹{{ row.late_fine | plain }}{% endif %}</span>{% else %}—{% endif %}</td>
+          <td data-label="Source" class="m-hide">
             {% if row.source_label %}<span class="chip chip-muted">{{ row.source_label }}</span>{% else %}—{% endif %}
             {% if row.user_note %}<span class="sub muted">{{ row.user_note }}</span>{% endif %}
           </td>
           <td class="actions-cell">
-            {% if kind == 'working' and row.effective_status not in ('present', 'week_off', 'holiday') %}
-              <form method="post" action="/attendance/mark" style="display:inline">
-                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
-                <input type="hidden" name="work_date" value="{{ day_iso }}">
-                <input type="hidden" name="status" value="present">
-                <input type="hidden" name="check_in" value="{{ row.check_in or shift_start }}">
-                <input type="hidden" name="check_out" value="{{ row.check_out or ('' if is_today else shift_end) }}">
-                <input type="hidden" name="note" value="marked present by HR">
-                <input type="hidden" name="return_day" value="{{ day_iso }}">
-                <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present">Present</button>
-              </form>
-            {% endif %}
-            {% if row.attendance_id %}
-              <form method="post" action="/attendance/clear" data-confirm="Remove this attendance entry?">
-                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                <input type="hidden" name="employee_id" value="{{ row.employee_id }}">
-                <input type="hidden" name="work_date" value="{{ day_iso }}">
-                <input type="hidden" name="return_day" value="{{ day_iso }}">
-                <button class="btn btn-sm" type="submit">Clear</button>
-              </form>
-            {% endif %}
-            <a class="btn btn-sm" href="/employees/{{ row.employee_id }}">Open</a>
+            <div class="row-actions m-hide">{{ row_actions(row) }}</div>
+            <button class="btn btn-sm m-only" type="button" data-toggle-row="att-more-{{ row.employee_id }}" aria-expanded="false" aria-label="More for {{ row.name }}">⋯</button>
+          </td>
+        </tr>
+        <tr id="att-more-{{ row.employee_id }}" class="m-only m-detail hidden">
+          <td colspan="8">
+            <div class="m-detail-grid">
+              <div><span class="k">Worked</span>{{ row.worked_label }}</div>
+              <div><span class="k">Late</span>{% if row.late_minutes %}{{ row.late_minutes }}m{% if row.late_fine %} · ₹{{ row.late_fine | plain }}{% endif %}{% else %}—{% endif %}</div>
+              <div class="wide"><span class="k">Source</span>{{ row.source_label or '—' }}{% if row.user_note %} · {{ row.user_note }}{% endif %}</div>
+              {% if row.punch_in_photo or row.punch_out_photo %}
+                <div class="wide"><span class="k">Photos</span>
+                  {% if row.punch_in_photo %}<a href="/attendance/photos/{{ row.punch_in_photo }}" target="_blank">In photo</a>{% endif %}
+                  {% if row.punch_out_photo %}<a href="/attendance/photos/{{ row.punch_out_photo }}" target="_blank" style="margin-left:.6rem">Out photo</a>{% endif %}
+                </div>
+              {% endif %}
+            </div>
+            <div class="row-actions">{{ row_actions(row) }}</div>
           </td>
         </tr>
       {% else %}

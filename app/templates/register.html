@@ -79,6 +79,11 @@
                 data-date="{{ day.iso }}"
                 data-status="{{ 'present' if cell.code == 'P' else ('half_day' if cell.code == '½' else ('leave' if cell.code == 'L' else ('absent' if cell.code == 'A' else 'present'))) }}"
                 data-code="{{ cell.code }}"
+                data-in="{{ cell.check_in if cell.check_in and cell.check_in != '—' else '' }}"
+                data-out="{{ cell.check_out if cell.check_out and cell.check_out != '—' else '' }}"
+                data-today="{{ 'true' if day.is_today else 'false' }}"
+                data-shift-start="{{ row.shift.start_time }}"
+                data-shift-end="{{ row.shift.end_time }}"
                 title="{{ day.iso }} — {{ cell.title }} (Click to quick edit)">
               {{ cell.code }}
             </td>
@@ -253,9 +258,22 @@
         document.getElementById("modalDateDisplay").textContent = date || "—";
         document.getElementById("modalCurrentCodeDisplay").textContent = code || "—";
         
+        // Start from this person's record and shift, never the last cell opened.
+        var form = modal.querySelector("form");
+        form.setAttribute("data-shift-start", cell.getAttribute("data-shift-start") || "");
+        form.setAttribute("data-shift-end", cell.getAttribute("data-shift-end") || "");
+        form.setAttribute("data-is-today", cell.getAttribute("data-today") || "false");
+        form.setAttribute("data-original-in", cell.getAttribute("data-in") || "");
+        form.setAttribute("data-original-out", cell.getAttribute("data-out") || "");
+        document.getElementById("modalCheckIn").value = cell.getAttribute("data-in") || "";
+        document.getElementById("modalCheckOut").value = cell.getAttribute("data-out") || "";
+        document.getElementById("modalNote").value = "";
+
         var statusSelect = document.getElementById("modalStatus");
         if (statusSelect && status) statusSelect.value = status;
-        
+        // The shared form logic listens for this and fills empty times from the shift.
+        statusSelect.dispatchEvent(new Event("change", { bubbles: true }));
+
         modal.classList.add("open");
       });
     });

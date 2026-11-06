@@ -110,15 +110,15 @@
         <h2>Leave records</h2>
         <span class="spacer"></span>
         <form class="filters" method="get" action="/leave">
-          <div class="field"><input type="month" name="period" value="{{ period }}"></div>
+          <div class="field"><input type="month" name="period" value="{{ period }}" aria-label="Month"></div>
           <div class="field">
-            <select name="leave_type">
+            <select name="leave_type" aria-label="Leave type">
               <option value="all">All types</option>
               {% for value in leave_types %}<option value="{{ value }}" {{ 'selected' if filters.leave_type == value }}>{{ leave_labels[value] }}</option>{% endfor %}
             </select>
           </div>
           <div class="field">
-            <select name="status">
+            <select name="status" aria-label="Status">
               <option value="all" {{ 'selected' if filters.status == 'all' }}>All statuses</option>
               <option value="approved" {{ 'selected' if filters.status == 'approved' }}>Approved</option>
               <option value="cancelled" {{ 'selected' if filters.status == 'cancelled' }}>Cancelled</option>

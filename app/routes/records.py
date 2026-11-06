@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 
+from .. import notify
 from ..auth import SessionUser, require_employee, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..uploads import UploadError, human_size, path_for, read_capped
@@ -295,6 +296,7 @@ def decide_expense(
     decision: str,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
     note: str = Form(""),
 ):
@@ -306,14 +308,20 @@ def decide_expense(
             records.mark_claim_paid(storage, claim_id=claim_id, actor=user.username)
         except ValueError as exc:
             return redirect("/expenses", err=str(exc))
+        claim = records.get_claim(storage, claim_id)
+        notify.push_employee(storage, settings, claim["employee_id"], "Expense claim paid",
+                             f"Your {claim['category']} claim has been paid.", "/me/expenses", category="expense")
         return redirect("/expenses", ok="Claim marked paid.")
     try:
-        records.decide_claim(
+        claim = records.decide_claim(
             storage, claim_id=claim_id, approve=decision == "approve",
             decided_by=user.username, note=note or None,
         )
     except ValueError as exc:
         return redirect("/expenses", err=str(exc))
+    notify.push_employee(storage, settings, claim["employee_id"], f"Expense claim {claim['status']}",
+                         f"Your {claim['category']} claim was {claim['status']}." + (f" Note: {note}" if note else ""),
+                         "/me/expenses", category="expense")
     return redirect("/expenses", ok=f"Claim {decision}d.")
 
 
@@ -387,4 +395,6 @@ def submit_expense(
         )
     except (UploadError, ValueError) as exc:
         return redirect("/me/expenses", err=str(exc))
+    notify.push_hr(storage, settings, "New expense claim", f"{user.display_name} submitted a {category} claim.",
+                   "/expenses", category="expense")
     return redirect("/me/expenses", ok="Claim submitted — HR will review it.")
