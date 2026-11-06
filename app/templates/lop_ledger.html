@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Loss of pay · {{ ledger.label }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Loss of pay</h1>
+    <div class="sub">{{ ledger.label }} · {{ ledger.rows | length }} employee{{ '' if ledger.rows | length == 1 else 's' }} · {{ ledger.total_days | number }} days</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/attendance/register?period={{ ledger.period }}">Monthly register</a>
+    <a class="btn btn-primary" href="/payroll?period={{ ledger.period }}">Payroll</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="filters" method="get" action="/attendance/lop">
+      <div class="field">
+        <label for="period">Month</label>
+        <input id="period" name="period" type="month" value="{{ ledger.period }}">
+      </div>
+      <button class="btn btn-primary" type="submit">Show</button>
+    </form>
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="card-head"><h2>Why each deduction happens</h2></div>
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead>
+        <tr><th>Employee</th><th>Absent</th><th>Unpaid leave</th><th>Half days</th><th class="num">Late</th><th class="num">LOP days</th><th class="num">Payslip</th></tr>
+      </thead>
+      <tbody>
+      {% for row in ledger.rows %}
+        <tr>
+          <td data-label="Employee">
+            <a href="/employees/{{ row.employee.id }}"><strong>{{ row.employee.name }}</strong></a>
+            <span class="sub">{{ row.employee.code }}{% if row.employee.department %} · {{ row.employee.department }}{% endif %}</span>
+          </td>
+          <td data-label="Absent">{{ row.absent | join(', ') or '—' }}</td>
+          <td data-label="Unpaid leave">{{ row.unpaid_leave | join(', ') or '—' }}</td>
+          <td data-label="Half days">{{ row.half_unpaid | join(', ') or '—' }}</td>
+          <td data-label="Late" class="num">{{ row.late_lop | number if row.late_lop else '—' }}</td>
+          <td data-label="LOP days" class="num"><strong>{{ row.lop_days | number }}</strong></td>
+          <td data-label="Payslip" class="num">
+            {% if row.salary_cut is not none %}<span class="chip chip-danger">− {{ row.salary_cut | money }}</span>{% else %}<span class="muted">not generated</span>{% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="empty-state">No loss of pay in {{ ledger.label }}.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-foot small muted">
+    The dates are days of the month. Payslip shows monthly gross minus earned gross on the generated payslip, so it can also include pro-rating for a part month.
+  </div>
+</div>
+{% endblock %}

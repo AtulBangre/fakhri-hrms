@@ -25,6 +25,7 @@ from typing import Any
 from .. import notify
 from ..config import Settings
 from ..db import Storage, utcnow_iso
+from ..uploads import UploadError, delete_file, path_for, save_upload, sniff
 from . import employees as employees_service
 
 OTP_LENGTH = 6
@@ -186,6 +187,57 @@ def complete_reset(
 
 
 # -------------------------------------------------------- profile change flow
+FACE_FIELD = "face_photo"
+FIELD_LABELS: dict[str, str] = {**CHANGEABLE_FIELDS, FACE_FIELD: "Face registration"}
+FACE_PHOTO_REMOVED = "Photo reviewed and deleted"
+FACE_UPLOAD_KIND = "face_requests"
+
+
+def submit_face_request(
+    storage: Storage, settings: Settings, *, employee: dict[str, Any], photo: bytes, requested_by: int | None = None,
+) -> dict[str, Any]:
+    """Keep a photo for HR to review. Nothing reaches the face gallery until HR approves."""
+    if (sniff(photo) or ("",))[0] not in ("image/jpeg", "image/png", "image/webp"):
+        raise ValueError("Please send a JPEG, PNG or WebP photo.")
+    stored = save_upload(settings, FACE_UPLOAD_KIND, photo, original_name="face.jpg")
+    for row in storage.query(
+        "SELECT id, new_value FROM profile_change_requests WHERE employee_id = ? AND field = ? AND status = 'pending'",
+        (employee["id"], FACE_FIELD),
+    ):
+        discard_face_request(storage, settings, row)
+    cursor = storage.execute(
+        """
+        INSERT INTO profile_change_requests (employee_id, field, old_value, new_value, status,
+                                             requested_at, requested_by)
+        VALUES (?,?,?,?, 'pending', ?, ?)
+        """,
+        (employee["id"], FACE_FIELD, "Registered" if employee.get("face_id") else "Not registered",
+         stored.stored_name, utcnow_iso(), requested_by),
+    )
+    storage.audit(actor=employee.get("code"), action="face_registration_requested", entity="employee",
+                  entity_id=employee["id"])
+    notify.notify_hr(storage, settings, "profile_changed", category="profile_change", name=employee["name"],
+                     fields=FIELD_LABELS[FACE_FIELD])
+    return storage.query_one("SELECT * FROM profile_change_requests WHERE id = ?", (cursor.lastrowid,))
+
+
+def discard_face_request(storage: Storage, settings: Settings, row: dict[str, Any]) -> None:
+    """Remove a pending face request and its photo."""
+    delete_file(settings, FACE_UPLOAD_KIND, row["new_value"])
+    storage.execute("DELETE FROM profile_change_requests WHERE id = ?", (row["id"],))
+
+
+def face_request(storage: Storage, employee_id: int) -> dict[str, dict[str, Any] | None]:
+    """The employee's pending face request, and their latest rejected one."""
+    pending = storage.query_one(
+        "SELECT * FROM profile_change_requests WHERE employee_id = ? AND field = ? AND status = 'pending' "
+        "ORDER BY id DESC LIMIT 1", (employee_id, FACE_FIELD))
+    latest = storage.query_one(
+        "SELECT * FROM profile_change_requests WHERE employee_id = ? AND field = ? AND status != 'pending' "
+        "ORDER BY id DESC LIMIT 1", (employee_id, FACE_FIELD))
+    return {"pending": pending, "rejected": latest if latest and latest["status"] == "rejected" else None}
+
+
 def submit_change_requests(
     storage: Storage,
     settings: Settings,
@@ -260,8 +312,11 @@ def pending_changes(storage: Storage, *, employee_id: int | None = None) -> list
         params,
     )
     for row in rows:
-        row["field_label"] = CHANGEABLE_FIELDS.get(row["field"], row["field"])
+        row["field_label"] = FIELD_LABELS.get(row["field"], row["field"])
         row["masked"] = row["field"] in ("account_number",)
+        row["is_face"] = row["field"] == FACE_FIELD
+        if row["is_face"]:
+            row["new_value"] = "New photo"  # never the stored file name
     return rows
 
 
@@ -279,23 +334,39 @@ def decide(
     approve: bool,
     decided_by: str | None = None,
     note: str | None = None,
+    face: Any = None,
 ) -> dict[str, Any]:
-    """Approve (and apply) or reject one change request."""
+    """Approve (and apply) or reject one change request.
+
+    A face photo is enrolled only here, on approval. If enrolling fails, the request
+    stays pending and the error reaches HR. Either decision deletes the photo.
+    """
     row = storage.query_one("SELECT * FROM profile_change_requests WHERE id = ?", (request_id,))
     if row is None:
         raise ValueError("Change request not found.")
     if row["status"] != "pending":
         raise ValueError("That request has already been decided.")
-    if row["field"] not in CHANGEABLE_FIELDS:
+    if row["field"] not in FIELD_LABELS:
         raise ValueError("Unknown field.")
+    is_face = row["field"] == FACE_FIELD
 
-    if approve:
+    if approve and is_face:
+        try:
+            photo = path_for(settings, FACE_UPLOAD_KIND, row["new_value"]).read_bytes()
+        except UploadError as exc:
+            raise ValueError("The photo is no longer on the server. Ask the employee to send it again.") from exc
+        employees_service.enrol_face(storage, face, row["employee_id"], photo, actor=decided_by)
+    elif approve:
         employees_service.update_employee(
             storage, row["employee_id"], {row["field"]: row["new_value"], "_actor": decided_by}
         )
+    if is_face:
+        delete_file(settings, FACE_UPLOAD_KIND, row["new_value"])
+        row["new_value"] = FACE_PHOTO_REMOVED
     storage.execute(
-        "UPDATE profile_change_requests SET status = ?, decided_at = ?, decided_by = ?, note = ? WHERE id = ?",
-        ("approved" if approve else "rejected", utcnow_iso(), decided_by, note, request_id),
+        "UPDATE profile_change_requests SET status = ?, decided_at = ?, decided_by = ?, note = ?, new_value = ? "
+        "WHERE id = ?",
+        ("approved" if approve else "rejected", utcnow_iso(), decided_by, note, row["new_value"], request_id),
     )
     storage.audit(
         actor=decided_by,
@@ -307,8 +378,10 @@ def decide(
     employee = employees_service.get_employee(storage, row["employee_id"])
     decision = "approved" if approve else "rejected"
     notify.push_employee(storage, settings, row["employee_id"], f"Profile change {decision}",
-                         f"Your request to change {CHANGEABLE_FIELDS.get(row['field'], row['field'])} was {decision}.",
-                         "/me/profile", category="profile_change")
+                         (f"Your face photo was {decision}." if is_face else
+                          f"Your request to change {FIELD_LABELS.get(row['field'], row['field'])} was {decision}.")
+                         + (f" Reason: {note}" if note and not approve else ""),
+                         "/me/face" if is_face else "/me/profile", category="profile_change")
     target = (employee or {}).get("email")
     if target and settings.notify_email_enabled:
         notify.queue_email(
@@ -319,7 +392,7 @@ def decide(
             category="profile_change",
             name=(employee or {}).get("name") or "there",
             decision="approved" if approve else "rejected",
-            field_label=CHANGEABLE_FIELDS.get(row["field"], row["field"]),
+            field_label=FIELD_LABELS.get(row["field"], row["field"]),
             note=note or "",
         )
     updated = storage.query_one("SELECT * FROM profile_change_requests WHERE id = ?", (request_id,))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Request
 
+from .. import notify
 from ..auth import SessionUser, require_employee, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..services import employees as employees_service
@@ -124,6 +125,7 @@ def approve(
     exit_id: int,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
     last_working_day: str = Form(...),
     notice_days: str = Form("30"),
@@ -136,6 +138,9 @@ def approve(
                       actor=user.username)
     except exits.ValidationError as exc:
         return redirect(f"/exits/{exit_id}", err=str(exc))
+    row = exits.get(storage, exit_id)
+    notify.push_employee(storage, settings, row["employee_id"], "Your resignation was approved",
+                         f"Your last working day is {row['last_working_day']}.", "/me/exit", category="exit")
     return redirect(f"/exits/{exit_id}", ok="Exit approved. Clearance checklist created.")
 
 
@@ -158,6 +163,8 @@ def act(
     try:
         if action == "reject":
             exits.reject(storage, exit_id, actor=user.username)
+            notify.push_employee(storage, settings, exits.get(storage, exit_id)["employee_id"],
+                                 "Your resignation was not approved", "Please speak to HR.", "/me/exit", category="exit")
             message = "Resignation rejected."
         elif action == "withdraw":
             exits.withdraw(storage, exit_id, actor=user.username)

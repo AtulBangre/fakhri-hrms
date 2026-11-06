@@ -16,6 +16,9 @@ from ..services import orgtime, payroll
 
 router = APIRouter(tags=["dashboard"])
 
+AUDIT_SORTS = {"at": "id", "actor": "actor COLLATE NOCASE", "action": "action", "entity": "entity",
+               "detail": "detail COLLATE NOCASE", "ip": "ip"}
+
 
 @router.get("/dashboard")
 def dashboard(
@@ -76,14 +79,17 @@ def audit_log(
     storage=Depends(get_storage),
     page: int = 1,
     q: str | None = None,
+    sort: str = "at",
+    dir: str = "desc",
 ):
-    where, params = "", []
-    if q:
-        where = "WHERE actor LIKE ? OR action LIKE ? OR entity LIKE ? OR detail LIKE ?"
-        params = [f"%{q}%"] * 4
+    sort = sort if sort in AUDIT_SORTS else "at"
+    direction = "asc" if dir == "asc" else "desc"
+    clause, params = employees_service.search_clause(q, ("actor", "action", "entity", "detail", "ip"))
+    where = f"WHERE {clause}" if clause else ""
     pager = paginate(storage.scalar(f"SELECT COUNT(*) AS n FROM audit_log {where}", params), page, 100)
     rows = storage.query(
-        f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+        f"SELECT * FROM audit_log {where} ORDER BY {AUDIT_SORTS[sort]} {direction}, id DESC LIMIT ? OFFSET ?",
         (*params, pager["per_page"], pager["offset"]),
     )
-    return render(request, "audit.html", active="audit", user=user, rows=rows, pager=pager, q=q or "")
+    return render(request, "audit.html", active="audit", user=user, rows=rows, pager=pager, q=q or "",
+                  sort=sort, dir=direction)

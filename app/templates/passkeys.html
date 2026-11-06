@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Fingerprint sign-in · {{ org_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Fingerprint or Face ID sign-in</h1>
+    <div class="sub">Sign in with your phone's fingerprint, face or PIN. Your password keeps working too.</div>
+  </div>
+</div>
+
+<div class="card mb-3" style="max-width:560px">
+  <div class="card-head"><h2>Your devices</h2></div>
+  <div class="list">
+    {% for item in passkeys %}
+      <div class="list-row">
+        <div class="grow"><strong>{{ item.name }}</strong><span>Added {{ item.created_at }}</span></div>
+        <form method="post" action="/account/passkeys/remove" data-confirm="Remove this device from your account?">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="credential_id" value="{{ item.id }}">
+          <button class="btn btn-sm btn-danger" type="submit">Remove</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="empty-state">No device added yet.</div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card" style="max-width:560px">
+  <div class="card-head"><h2>Add this device</h2></div>
+  <div class="card-body">
+    {% if available %}
+      <div class="field">
+        <label for="passkeyName">Device name</label>
+        <input id="passkeyName" type="text" maxlength="40" placeholder="e.g. My phone">
+      </div>
+      <button class="btn btn-primary" type="button" id="passkeyAdd">Add this device</button>
+      <div class="small muted mt-1" id="passkeyStatus" role="status"></div>
+      <p class="small muted mt-2 mb-0">Your fingerprint or face stays on your device. The company never receives it.</p>
+    {% else %}
+      <p class="small muted mb-0">This works only on the app's secure (https) address.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/passkey.js?v={{ asset_version }}" defer></script>
+{% endblock %}

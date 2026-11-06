@@ -142,7 +142,8 @@ def test_c2_c3_onboarding_with_documents_and_email_link(hr_client: TestClient, s
     assert user["username"] == "nj001"
     mail = storage.query_one("SELECT * FROM notifications WHERE category = 'welcome'")
     assert mail["recipient"] == "joiner@example.com"
-    assert "Password</td>" in mail["body"]  # generated password delivered in email
+    assert "/set-password?token=" in mail["body"]  # a one-time link, so no password sits in the outbox
+    assert "Password</td>" not in mail["body"]
 
 
 def test_c2_skip_documents(hr_client: TestClient, storage: Storage):

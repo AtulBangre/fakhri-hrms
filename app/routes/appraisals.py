@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Request
 
+from .. import notify
 from ..auth import SessionUser, require_employee, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..services import appraisal, orgtime
@@ -102,6 +103,7 @@ def cycle_action(
     action: str,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
 ):
     verify_form_csrf(user, csrf)
@@ -109,6 +111,9 @@ def cycle_action(
     try:
         if action == "launch":
             count = appraisal.launch_cycle(storage, cycle_id, actor=user.username)
+            for row in appraisal.cycle_appraisals(storage, cycle_id):
+                notify.push_employee(storage, settings, row["employee_id"], "Your appraisal is open",
+                                     "Please complete your self-review.", "/me/appraisal", category="appraisal")
             return redirect(back, ok=f"Cycle launched for {count} employee(s). They can self-review from their portal.")
         if action == "close":
             appraisal.close_cycle(storage, cycle_id, actor=user.username)
@@ -145,18 +150,22 @@ async def save_review(
     appraisal_id: int,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
 ):
     form = await request.form()
     verify_form_csrf(user, str(form.get("_csrf") or ""))
     complete = form.get("complete") == "1"
     try:
-        appraisal.review(
+        row = appraisal.review(
             storage, appraisal_id, scores=_scores(form, "score_"), notes=_scores(form, "note_"),
             comment=str(form.get("comment") or ""), final_rating=form.get("final_rating"),
             increment_pct=form.get("increment_pct"), complete=complete, actor=user.username,
         )
     except appraisal.ValidationError as exc:
         return redirect(f"/appraisals/{appraisal_id}", err=str(exc))
+    if complete:  # no rating or increment here: this text can show on a lock screen
+        notify.push_employee(storage, settings, row["employee_id"], "Your appraisal is complete",
+                             "HR has finished your review.", "/me/appraisal", category="appraisal")
     return redirect(f"/appraisals/{appraisal_id}", ok="Review completed." if complete else "Draft saved.")
 
 

@@ -26,6 +26,9 @@ font families (Poppins headings, Inter body).
 | 7 | **Shift Master & Dynamic Attendance Form** | `/settings` & `/employees/bulk-update` — multi-shift management; PagarBook-style attendance corrections with blank same-day checkout |
 | 8 | **Visual Org Hierarchy Chart & Team Reassignment** | `/employees/chart` dynamic tree & `/employees/bulk-update` batch department/shift assigner |
 | 9a | **Notifications** | Bell and web push (needs HTTPS; on iPhone, the app must be added to the Home Screen first) for punches, missed-punch reminders, approvals and announcements. Birthday and anniversary emails go out automatically with a different wish each time, and HR is reminded 3 days ahead, the day before and on the day. The push signing key is created at `data/vapid_private.pem`: keep it with your backups, because a new key means every device must turn alerts on again. |
+| 9b | **Offline gate scans** | With no network, the gate saves an encrypted photo on the device. When the network returns, the server identifies the person and marks attendance at the capture time. The record shows as offline, the time comes from the device, and HR is told about any scan that could not be marked. No face templates are stored on the device. |
+| 9c | **Employee face registration** | An employee sends a photo from their portal. It is enrolled only when HR approves it under Profile changes, and the photo is deleted after the decision. |
+| 9d | **Fingerprint or Face ID sign-in** | Optional passkeys on the app's https address. The fingerprint or face stays on the device. |
 | 9 | **Ask HR Assistant** | Floating in-app chat that answers English and Hinglish questions from the app's own data. It is role-scoped and read-only, and sends nothing to an outside service. It matches keywords and does not use an LLM. |
 | 10 | **Mobile-first responsive PWA & Geofencing** | Sidebar on desktop, bottom tab bar on phones, installable manifests, GPS geofenced mobile punch for remote staff (`/field`) |
 | 11 | **HR & Gate Kiosk Roles** | `hr` role (full management), `kiosk` role (locked-down camera scanner), and `employee` role (self-service portal) |
@@ -293,6 +296,8 @@ The ones you will actually touch:
 | `HRMS_SECURE_COOKIES` | `false` | set `true` behind HTTPS |
 | `HRMS_KIOSK_DEBOUNCE` | `45` | seconds before the same face can scan again |
 | `HRMS_MIN_CHECKOUT_MINUTES` | `120` | minutes after check-in before a scan can check out |
+| `HRMS_KIOSK_OFFLINE` | `true` | gate scans keep working with no network, and sync when it returns |
+| `HRMS_KIOSK_OFFLINE_MAX_HOURS` | `72` | a saved scan older than this is refused at sync, and HR is told |
 | `HRMS_NOTIFY_PUSH` | `true` | the bell in the app, and web push to phones and computers |
 | `HRMS_NOTIFY_CELEBRATIONS` | `true` | birthday and anniversary wishes to employees, and reminders to HR |
 | `HRMS_CELEBRATION_HOUR` | `9` | local hour from which each day's wishes and reminders go out |

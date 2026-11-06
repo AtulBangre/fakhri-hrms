@@ -210,6 +210,8 @@ def source_label(record: dict | None) -> str | None:
     note = (record.get("note") or "").strip().lower()
     if source == "face":
         return "Gate scanner" + (f" · {device}" if device else "")
+    if source == "face_offline":
+        return "Gate scanner (offline)" + (f" · {device}" if device else "")
     if source == "field":
         place = device.split("·", 1)[1].strip() if "·" in device else ""
         return "Field (GPS)" + (f" · {place}" if place else "")

@@ -157,6 +157,19 @@ def register(
     )
 
 
+@router.get("/lop")
+def lop_ledger(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    period: str | None = None,
+):
+    parsed = orgtime.parse_period(period) if period else None
+    ledger = attendance_service.lop_ledger(storage, settings, parsed or orgtime.period_of(orgtime.today(settings)))
+    return render(request, "lop_ledger.html", active="lop", user=user, ledger=ledger)
+
+
 @router.get("/register.csv")
 def register_csv(
     user: SessionUser = Depends(require_hr),

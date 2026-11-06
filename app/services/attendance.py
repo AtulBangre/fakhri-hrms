@@ -654,6 +654,33 @@ def mark_by_face(
     )
 
 
+def mark_offline_scan(
+    storage: Storage,
+    settings: Settings,
+    employee: dict,
+    *,
+    moment: datetime,
+    device_label: str | None = None,
+    similarity: float | None = None,
+    photo_bytes: bytes | None = None,
+) -> MarkOutcome:
+    """Apply a scan taken while the gate had no network, at the time it was taken.
+
+    A scan older than the day's recorded check-in cannot be placed safely: it would
+    change the person's late mark and hours, so it is refused and HR decides.
+    """
+    existing = get_row(storage, employee["id"], moment.date())
+    if existing and existing.get("check_in") and orgtime.hhmmss(moment) < existing["check_in"]:
+        return MarkOutcome(
+            ok=False, action="out_of_order", kind="warning",
+            message=f"An offline scan at {orgtime.hhmmss(moment)[:5]} is earlier than the recorded check-in.",
+            employee=employee, attendance=existing, status=existing["status"], check_in=existing["check_in"],
+            check_out=existing.get("check_out"),
+        )
+    return mark_by_face(storage, settings, employee, device_label=device_label, moment=moment,
+                        similarity=similarity, source="face_offline", photo_bytes=photo_bytes)
+
+
 def mark_manual(
     storage: Storage,
     *,
@@ -975,7 +1002,40 @@ def monthly_register(
         "rows": register_rows,
         "department": department,
         "departments": employees_service.departments(storage),
+        "shift_names": sorted({row["shift"]["name"] or DEFAULT_SHIFT_LABEL for row in register_rows}),
     }
+
+
+DEFAULT_SHIFT_LABEL = "Company shift"
+
+
+def lop_ledger(storage: Storage, settings: Settings, period: str) -> dict:
+    """Who lost pay this month and for which days: the register's own figures, explained."""
+    register = monthly_register(storage, settings, period)
+    slips = {slip["employee_id"]: slip for slip in storage.query(
+        "SELECT employee_id, monthly_gross, earned_gross FROM payslips WHERE period = ?", (period,)
+    )}
+    rows = []
+    for row in register["rows"]:
+        if not row["totals"]["lop_days"]:
+            continue
+        days = {"absent": [], "leave_unpaid": [], "half_unpaid": []}
+        for day, cell in zip(register["days"], row["cells"]):
+            if cell["cls"] in days:
+                days[cell["cls"]].append(day["day"])
+        slip = slips.get(row["employee"]["id"])
+        rows.append({
+            "employee": row["employee"],
+            "absent": days["absent"],
+            "unpaid_leave": days["leave_unpaid"],
+            "half_unpaid": days["half_unpaid"],
+            "late_lop": row["totals"]["lop_days"] - len(days["absent"]) - len(days["leave_unpaid"])
+                        - 0.5 * len(days["half_unpaid"]),
+            "lop_days": row["totals"]["lop_days"],
+            "salary_cut": max(0.0, float(slip["monthly_gross"]) - float(slip["earned_gross"])) if slip else None,
+        })
+    return {"period": period, "label": register["label"], "rows": rows,
+            "total_days": sum(row["lop_days"] for row in rows)}
 
 
 _CLASS_STATUS = {

@@ -26,6 +26,7 @@ CHECKOUT_REMINDER_MINUTES = 30
 SUMMARY_AFTER_START_MINUTES = 60
 CLAIM_PREFIX = "alert_day:"
 INBOX_RETENTION_DAYS = 90
+OFFLINE_SCAN_ID_DAYS = 14         # long enough to outlast any scan a device may still resend
 
 KIND_LABELS = {"birthday": "Birthday", "anniversary": "Anniversary", "work": "Work anniversary"}
 
@@ -192,11 +193,18 @@ def _claim(storage: Storage, job: str, today: date) -> bool:
     return (cursor.rowcount or 0) == 1
 
 
+claim = _claim
+
+
 def _housekeeping(storage: Storage, today: date) -> None:
     """Keep the claims and the inbox from growing forever. Touches only their own rows."""
     keep_from = (today - timedelta(days=2)).isoformat()
     for row in storage.query("SELECT key FROM app_settings WHERE key LIKE ?", (f"{CLAIM_PREFIX}%",)):
         if row["key"][len(CLAIM_PREFIX):][:10] < keep_from:
+            storage.execute("DELETE FROM app_settings WHERE key = ?", (row["key"],))
+    keep_scans_from = (today - timedelta(days=OFFLINE_SCAN_ID_DAYS)).isoformat()
+    for row in storage.query("SELECT key FROM app_settings WHERE key LIKE 'offline_scan:%'"):
+        if row["key"].split(":")[1] < keep_scans_from:
             storage.execute("DELETE FROM app_settings WHERE key = ?", (row["key"],))
     storage.execute("DELETE FROM notifications WHERE channel = 'push' AND created_at < ?",
                     ((today - timedelta(days=INBOX_RETENTION_DAYS)).isoformat(),))

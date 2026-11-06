@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Register my face · {{ org_name }}{% endblock %}
+{% block brandsub %}My space{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Register my face</h1>
+    <div class="sub">Your face works at the gate scanner only after HR approves it.</div>
+  </div>
+  <div class="page-actions"><a class="btn" href="/me">← My day</a></div>
+</div>
+
+{% if pending %}
+  <div class="alert alert-info">{{ icon('clock-edit') }}<div><strong>Waiting for HR approval.</strong>
+    You submitted a photo on {{ pending.requested_at[:10] }}. Sending a new one replaces it.</div></div>
+{% elif employee.face_id %}
+  <div class="alert alert-ok">{{ icon('check-circle') }}<div><strong>Your face is registered.</strong>
+    Send a new photo only if the scanner has trouble recognising you. HR will review it first.</div></div>
+{% elif rejected %}
+  <div class="alert alert-warn">{{ icon('alert') }}<div><strong>HR did not approve your last photo.</strong>
+    {% if rejected.note %}Reason: {{ rejected.note }}. {% endif %}Please send a new one.</div></div>
+{% else %}
+  <div class="alert alert-warn">{{ icon('alert') }}<div><strong>Your face is not registered yet.</strong>
+    You cannot use the gate scanner until HR approves your photo.</div></div>
+{% endif %}
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head"><h2>Take a photo</h2></div>
+      <div class="card-body">
+        <div class="camera-box mb-2">
+          <video id="enrolVideo" playsinline muted autoplay class="hidden"></video>
+          <canvas id="enrolCanvas" class="hidden"></canvas>
+          <div id="enrolPlaceholder" class="empty-state" style="padding:1.4rem">Camera is off</div>
+        </div>
+        <div class="grid" style="gap:.5rem">
+          <button class="btn" type="button" id="enrolStart">Start camera</button>
+          <button class="btn btn-primary" type="button" id="enrolCapture" disabled>Capture and send to HR</button>
+          <button class="btn" type="button" id="enrolStop" disabled>Stop camera</button>
+        </div>
+        <div id="enrolStatus" class="small muted mt-1" role="status"></div>
+
+        <form method="post" action="/me/face" enctype="multipart/form-data" class="mt-2" data-downscale-image>
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <div class="field">
+            <label for="image">…or upload a photo</label>
+            <input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required>
+          </div>
+          <button class="btn btn-block" type="submit">Send photo to HR</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head"><h3>For a good photo</h3></div>
+      <div class="card-body small">
+        <p class="mb-1">Only your face, looking straight at the camera, in good light.</p>
+        <p class="mb-1">No mask, cap or dark glasses.</p>
+        <p class="muted mb-0">HR sees this photo to check it is you. It is deleted once HR decides. After approval, the
+          system keeps a face template for gate attendance.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    FakhriHRMS.initFaceEnrolment({ endpoint: "/me/face", csrf: "{{ csrf_token }}" });
+  });
+</script>
+{% endblock %}

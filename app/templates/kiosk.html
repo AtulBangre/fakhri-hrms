@@ -27,6 +27,7 @@
       <strong>{{ org_name }}</strong>
       <small>{{ device_label }}</small>
     </span>
+    <span class="kiosk-queue" id="offlineBadge" role="status" hidden></span>
     <span class="kiosk-state" id="stateDot" data-state="idle" title="Scanner status"></span>
     <span class="kiosk-clock" id="clock">{{ server_time }}</span>
     <form method="post" action="/logout" class="kiosk-quit">
@@ -87,6 +88,8 @@
       statusUrl: "/api/kiosk/status",
       markUrl: "/api/kiosk/scan",
       challengeUrl: "/api/kiosk/challenge",
+      offlineSyncUrl: "/api/kiosk/offline-sync",
+      offlineEnabled: {{ 'true' if offline_enabled else 'false' }},
       activeChallenge: {{ 'true' if active_challenge else 'false' }},
       csrf: "{{ csrf_token }}",
       showName: {{ 'true' if show_name else 'false' }},
@@ -96,6 +99,7 @@
     };
   </script>
   <script src="/static/js/pwa.js?v={{ asset_version }}" defer></script>
+  <script src="/static/js/kiosk-offline.js?v={{ asset_version }}" defer></script>
 <script src="/static/js/kiosk.js?v={{ asset_version }}" defer></script>
 </body>
 </html>

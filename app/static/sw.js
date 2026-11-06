@@ -14,11 +14,13 @@
  * A stale attendance screen is worse than an error, so nothing carrying data is
  * ever served from cache.
  */
-const CACHE = "fakhri-hrms-v2";
+const CACHE = "fakhri-hrms-v3";
 const SHELL = [
   "/static/css/app.css",
   "/static/js/app.js",
   "/static/js/kiosk.js",
+  "/static/js/kiosk-offline.js",
+  "/static/js/pwa.js",
   "/static/img/icon-192.png",
   "/static/img/icon-512.png",
   "/offline"
@@ -47,11 +49,19 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;              // live data only
 
   if (request.mode === "navigate") {
+    // The scanner is the one page kept for offline use. It carries no names or data.
+    const isKiosk = url.pathname === "/kiosk";
     event.respondWith(
       fetch(request)
-        .then((response) => response)
+        .then((response) => {
+          if (isKiosk && response.ok && !response.redirected) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put("/kiosk", copy));
+          }
+          return response;
+        })
         .catch(() =>
-          caches.match(request).then((cached) => cached || caches.match("/offline"))
+          caches.match(isKiosk ? "/kiosk" : request).then((cached) => cached || caches.match("/offline"))
         )
     );
     return;
@@ -91,6 +101,8 @@ self.addEventListener("push", (event) => {
   } catch (error) {
     data = {};
   }
+  // A dot on the app icon. The page sets the exact count once it opens.
+  if (self.navigator.setAppBadge) self.navigator.setAppBadge().catch(() => {});
   event.waitUntil(
     self.registration.showNotification(data.title || "Fakhri HRMS", {
       body: data.body || "",

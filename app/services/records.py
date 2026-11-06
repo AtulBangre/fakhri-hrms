@@ -228,10 +228,10 @@ def list_assets(
     if category and category != "all":
         clauses.append("category = ?")
         params.append(category)
-    if q:
-        clauses.append("(tag LIKE ? OR name LIKE ? OR serial LIKE ?)")
-        like = f"%{q}%"
-        params.extend([like, like, like])
+    clause, words = employees_service.search_clause(q, ("tag", "name", "serial"))
+    if clause:
+        clauses.append(clause)
+        params.extend(words)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     params.append(limit)
     rows = storage.query(f"SELECT * FROM assets {where} ORDER BY tag LIMIT ?", params)

@@ -59,6 +59,20 @@
   </div>
 </section>
 
+{% if not employee.face_id or face_pending %}
+  <a class="me-face-cta" href="/me/face">
+    <span class="ico">{{ icon('scan') }}</span>
+    <span class="grow">
+      {% if face_pending %}
+        <strong>Face photo sent</strong><span>Waiting for HR approval. Tap to send a new one.</span>
+      {% else %}
+        <strong>Register your face</strong><span>Needed for the gate scanner. HR approves it first.</span>
+      {% endif %}
+    </span>
+    {{ icon('chevron-right') }}
+  </a>
+{% endif %}
+
 <nav class="me-actions" aria-label="Quick actions">
   <a class="me-action" href="/me/attendance"><span class="ico">{{ icon('calendar') }}</span>Attendance</a>
   <a class="me-action" href="/me/leave"><span class="ico">{{ icon('leave') }}</span>Apply leave</a>

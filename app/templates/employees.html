@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_pager.html" import pager_bar %}
+{% from "_pager.html" import pager_bar, sort_th %}
 {% block title %}Employees · {{ org_name }} HRMS{% endblock %}
 
 {% block content %}
@@ -37,6 +37,8 @@
 <div class="card flush">
   <div class="card-head">
     <form class="filters" method="get" action="/employees">
+      <input type="hidden" name="sort" value="{{ filters.sort }}">
+      <input type="hidden" name="dir" value="{{ filters.dir }}">
       <div class="field">
         <label for="q">Search</label>
         <input id="q" type="search" name="q" value="{{ filters.q }}" placeholder="name, code, phone…">
@@ -64,11 +66,16 @@
   </div>
 
   <div class="table-wrap">
-    <table class="data m-table">
+    <table class="data m-table" data-server-sort>
       <thead>
         <tr>
-          <th class="m-fill">Employee</th><th class="m-hide-xs">Dept</th><th class="m-hide">Joined</th><th class="num">Gross</th>
-          <th>Face</th><th class="m-hide">Status</th><th class="m-hide"></th>
+          {{ sort_th('Employee', 'name', '/employees', filters, filters.sort, filters.dir, 'm-fill') }}
+          {{ sort_th('Dept', 'department', '/employees', filters, filters.sort, filters.dir, 'm-hide-xs') }}
+          {{ sort_th('Joined', 'joined', '/employees', filters, filters.sort, filters.dir, 'm-hide') }}
+          {{ sort_th('Gross', 'gross', '/employees', filters, filters.sort, filters.dir, 'num') }}
+          {{ sort_th('Face', 'face', '/employees', filters, filters.sort, filters.dir) }}
+          {{ sort_th('Status', 'status', '/employees', filters, filters.sort, filters.dir, 'm-hide') }}
+          <th class="m-hide"></th>
         </tr>
       </thead>
       <tbody>

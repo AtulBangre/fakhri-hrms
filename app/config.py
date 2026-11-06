@@ -101,6 +101,10 @@ class Settings:
     default_kiosk_password: str = field(default_factory=lambda: _env("HRMS_DEFAULT_KIOSK_PASSWORD", ""))
     #: Duplicate kiosk scans from the same face inside this window are ignored.
     kiosk_debounce_seconds: int = field(default_factory=lambda: int(_env("HRMS_KIOSK_DEBOUNCE", "45")))
+    #: Gate scans keep working with no network, and sync when it returns.
+    kiosk_offline: bool = field(default_factory=lambda: _env_bool("HRMS_KIOSK_OFFLINE", True))
+    #: A saved scan older than this is refused at sync and HR is told.
+    kiosk_offline_max_hours: int = field(default_factory=lambda: int(_env("HRMS_KIOSK_OFFLINE_MAX_HOURS", "72")))
     #: Gate and field scans cannot check out until this long after check-in.
     min_checkout_minutes: int = field(default_factory=lambda: int(_env("HRMS_MIN_CHECKOUT_MINUTES", "120")))
 

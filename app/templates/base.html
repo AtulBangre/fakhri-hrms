@@ -15,6 +15,7 @@
     {{ navlink('/me/profile', 'me-profile', 'user', 'Profile') }}
     <div class="nav-section">Work</div>
     {% if self_punch and self_punch != 'disabled' %}{{ navlink('/me/field', 'me-field', 'pin', 'Field attendance') }}{% endif %}
+    {{ navlink('/me/face', 'me-face', 'scan', 'Register face') }}
     {{ navlink('/me/assets', 'me-assets', 'laptop', 'Assets') }}
     {{ navlink('/me/expenses', 'me-expenses', 'receipt', 'Expenses') }}
     {{ navlink('/me/exit', 'me-exit', 'user-x', 'Resignation') }}
@@ -25,6 +26,7 @@
     {{ navlink('/attendance', 'attendance', 'calendar', 'Daily board') }}
     {{ navlink('/attendance/register', 'register', 'grid', 'Monthly register') }}
     {{ navlink('/attendance/regularizations', 'regularizations', 'clock-edit', 'Regularizations', _pending.get('regularizations')) }}
+    {{ navlink('/attendance/lop', 'lop', 'file-edit', 'Loss of pay') }}
     {{ navlink('/leave', 'leave', 'leave', 'Leave', _pending.get('leave')) }}
     <div class="nav-section">People</div>
     {{ navlink('/employees', 'employees', 'users', 'Employees') }}
@@ -293,6 +295,7 @@
 
 <script src="/static/js/pwa.js?v={{ asset_version }}" defer></script>
 <script src="/static/js/app.js?v={{ asset_version }}" defer></script>
+<script src="/static/js/tables.js?v={{ asset_version }}" defer></script>
 {% if user and (user.is_hr or user.is_employee) %}
   <div class="inbox-toast hidden no-print" id="inboxToast" role="status"></div>
   <script src="/static/js/inbox.js?v={{ asset_version }}" defer></script>

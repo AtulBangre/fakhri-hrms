@@ -1,4 +1,11 @@
 {# Previous / next links for a paged list. pager = {page, pages, total, per_page, first, last}; params keeps the filters. #}
+{# A header that sorts on the server, for lists split across pages. It goes back to page 1. #}
+{% macro sort_th(label, key, base, params, current, direction, cls='') -%}
+  {% set next_dir = 'desc' if current == key and direction == 'asc' else 'asc' %}
+  {% set kept = params | dictsort | selectattr(1) | rejectattr(0, 'in', ['sort', 'dir', 'page']) | list %}
+  <th class="{{ cls }}"{% if current == key %} aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}><a class="th-sort" href="{{ base }}?{{ (kept + [('sort', key), ('dir', next_dir)]) | urlencode }}" title="Sort by {{ label }}">{{ label }}</a></th>
+{%- endmacro %}
+
 {% macro pager_bar(pager, base, params={}) -%}
   {% if pager.total %}
   <div class="pager">

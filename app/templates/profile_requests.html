@@ -28,7 +28,13 @@
           </td>
           <td data-label="Field"><span class="chip chip-primary">{{ item.field_label }}</span></td>
           <td data-label="Current" class="small muted">{{ item.old_value or '—' }}</td>
-          <td data-label="Requested" class="small"><strong>{{ item.new_value }}</strong></td>
+          <td data-label="Requested" class="small">
+            {% if item.is_face %}
+              <a href="/profile-requests/{{ item.id }}/photo" target="_blank" title="Open the full photo">
+                <img class="face-thumb" src="/profile-requests/{{ item.id }}/photo" alt="Photo sent by {{ item.employee_name }}">
+              </a>
+            {% else %}<strong>{{ item.new_value }}</strong>{% endif %}
+          </td>
           <td data-label="When" class="small nowrap">{{ item.requested_at[:16].replace('T', ' ') }}</td>
           <td class="actions-cell">
             <div style="display:flex;gap:.3rem;flex-wrap:wrap;justify-content:flex-end">
@@ -39,7 +45,11 @@
               <form method="post" action="/profile-requests/{{ item.id }}/reject"
                     data-confirm="Reject this change?">
                 <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                <input type="hidden" name="note" value="">
+                {% if item.is_face %}
+                  <input name="note" type="text" placeholder="Reason, shown to the employee" aria-label="Reason for rejecting" style="min-width:11rem">
+                {% else %}
+                  <input type="hidden" name="note" value="">
+                {% endif %}
                 <button class="btn btn-sm btn-danger" type="submit">Reject</button>
               </form>
             </div>

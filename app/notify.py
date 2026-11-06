@@ -489,7 +489,6 @@ def _whatsapp_text(template: str, settings: Settings, **ctx: Any) -> str:
         return f"*{settings.org_name}* — password reset code: {ctx['code']} (valid {ctx['minutes']} min)."
     if template == "welcome":
         base = settings.public_base_url.rstrip("/")
-        pw = ctx.get("password") or "—"
         parts = [f"*{settings.org_name}* — Welcome {ctx['name']}! Your employee portal login is ready.\n"]
         parts.append(f"Portal: {base}/login")
         if ctx.get("code"):
@@ -499,8 +498,11 @@ def _whatsapp_text(template: str, settings: Settings, **ctx: Any) -> str:
             parts.append(f"Email: {ctx['email']}")
         if ctx.get("phone"):
             parts.append(f"Mobile: {ctx['phone']}")
-        parts.append(f"Password: {pw}")
-        parts.append("\nYou can sign in with your email, mobile number, or username using this password.")
+        if ctx.get("link"):
+            parts.append(f"Set your password: {base}{ctx['link']}")
+            parts.append(f"\nThe link works once and expires in {ctx.get('hours', 72)} hours.")
+        else:
+            parts.append("\nAsk HR for your password. Please change it after you sign in.")
         return "\n".join(parts)
     return _sanitise(ctx.get("message") or "Notification from HRMS")
 

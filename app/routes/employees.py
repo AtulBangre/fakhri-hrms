@@ -21,6 +21,11 @@ from ..services import appraisal as appraisal_service
 from ..services import exits as exits_service
 from ..services import orgtime
 
+def _set_password_link(storage, portal_user: dict) -> str:
+    """A one-time link for login messages, so a password is never stored in the outbox."""
+    return f"/set-password?token={auth.issue_password_link(storage, portal_user['id'])}"
+
+
 router = APIRouter(prefix="/employees", tags=["employees"])
 
 ALLOWED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp", "image/bmp")
@@ -44,12 +49,17 @@ def list_page(
     department: str | None = None,
     status: str = "active",
     page: int = 1,
+    sort: str = "name",
+    dir: str = "asc",
 ):
+    sort = sort if sort in employees_service.EMPLOYEE_SORTS else "name"
+    direction = "desc" if dir == "desc" else "asc"
     pager = paginate(
         employees_service.count_employees(storage, q=q, department=department, status=status), page, PER_PAGE
     )
     people = employees_service.list_employees(
-        storage, q=q, department=department, status=status, limit=PER_PAGE, offset=pager["offset"]
+        storage, q=q, department=department, status=status, limit=PER_PAGE, offset=pager["offset"],
+        sort=sort, direction=direction,
     )
     export_query = urlencode({k: v for k, v in (("q", q or ""), ("department", department or ""), ("status", status or "all")) if v})
     return render(
@@ -60,7 +70,7 @@ def list_page(
         employees=people,
         stats=employees_service.stats(storage),
         departments=employees_service.departments(storage),
-        filters={"q": q or "", "department": department or "", "status": status},
+        filters={"q": q or "", "department": department or "", "status": status, "sort": sort, "dir": direction},
         pager=pager,
         missing_face={row["id"] for row in employees_service.employees_missing_face(storage)},
         export_query=export_query,
@@ -342,11 +352,12 @@ async def create(
                     name=employee["name"].split(" ")[0],
                     code=employee.get("code") or "",
                     username=portal_user["username"],
-                    password=password,
+                    link=_set_password_link(storage, portal_user),
+                    hours=auth.PASSWORD_LINK_HOURS,
                     email=employee["email"],
                     phone=employee.get("phone"),
                 )
-                login_note = f" Login credentials (email, mobile & password) emailed to {employee['email']}."
+                login_note = f" A link to set their password was emailed to {employee['email']}."
             if employee.get("phone") and data.get("send_welcome", "1") in ("1", "true", "on"):
                 try:
                     notify.queue_whatsapp(
@@ -354,7 +365,8 @@ async def create(
                         name=employee["name"].split(" ")[0],
                         code=employee.get("code") or "",
                         username=portal_user["username"],
-                        password=password,
+                        link=_set_password_link(storage, portal_user),
+                        hours=auth.PASSWORD_LINK_HOURS,
                         email=employee.get("email"),
                         phone=employee["phone"],
                     )
@@ -735,18 +747,20 @@ def create_portal_login(
                 storage, employee["email"], "welcome", settings=settings, category="welcome",
                 name=employee["name"].split(" ")[0],
                 username=portal_user["username"],
-                password=password,
+                link=_set_password_link(storage, portal_user),
+                hours=auth.PASSWORD_LINK_HOURS,
                 email=employee["email"],
                 phone=employee.get("phone"),
             )
-            delivery_note = f" Login details emailed to {employee['email']}."
+            delivery_note = f" A link to set a password was emailed to {employee['email']}."
         if employee.get("phone"):
             try:
                 notify.queue_whatsapp(
                     storage, employee["phone"], "welcome", settings=settings,
                     name=employee["name"].split(" ")[0],
                     username=portal_user["username"],
-                    password=password,
+                    link=_set_password_link(storage, portal_user),
+                    hours=auth.PASSWORD_LINK_HOURS,
                     email=employee.get("email"),
                     phone=employee["phone"],
                 )

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from .. import auth
 from ..auth import SessionUser, current_user, require_employee, require_hr, verify_form_csrf
-from ..deps import get_settings_dep, get_storage, redirect, render
+from ..deps import get_face, get_settings_dep, get_storage, redirect, render
+from ..face import FaceServiceError, FaceServiceUnavailable
 from ..services import account as account_service
 from ..services import employees as employees_service
 from ..services import records
-from ..uploads import human_size
+from ..uploads import UploadError, human_size, path_for, read_capped
 
 router = APIRouter(tags=["account"])
 
@@ -156,7 +158,7 @@ def my_profile(
         categories=records.DOC_CATEGORIES,
         sizes={row["id"]: human_size(row["size"]) for row in documents},
         required=records.REQUIRED_DOCS,
-        fields=account_service.CHANGEABLE_FIELDS,
+        fields=account_service.FIELD_LABELS,
         pending=account_service.pending_changes(storage, employee_id=employee["id"]),
         history=storage.query(
             "SELECT * FROM profile_change_requests WHERE employee_id = ? AND status != 'pending' "
@@ -211,6 +213,7 @@ def cancel_profile_request(
     request_id: int,
     user: SessionUser = Depends(require_employee),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
 ):
     verify_form_csrf(user, csrf)
@@ -219,8 +222,52 @@ def cancel_profile_request(
         return redirect("/me/profile", err="That request was not found in your account.")
     if row["status"] != "pending":
         return redirect("/me/profile", err="That request has already been decided.")
-    storage.execute("DELETE FROM profile_change_requests WHERE id = ?", (request_id,))
+    if row["field"] == account_service.FACE_FIELD:
+        account_service.discard_face_request(storage, settings, row)
+    else:
+        storage.execute("DELETE FROM profile_change_requests WHERE id = ?", (request_id,))
     return redirect("/me/profile", ok="Request withdrawn.")
+
+
+# ------------------------------------------- employee: ask to register a face
+@router.get("/me/face")
+def my_face(request: Request, user: SessionUser = Depends(require_employee), storage=Depends(get_storage)):
+    employee = employees_service.require_employee(storage, int(user.employee_id or 0))
+    state = account_service.face_request(storage, employee["id"])
+    return render(request, "me_face.html", active="me-face", user=user, employee=employee, **state)
+
+
+@router.post("/me/face")
+def submit_my_face(
+    request: Request,
+    user: SessionUser = Depends(require_employee),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    face=Depends(get_face),
+    csrf: str = Form("", alias="_csrf"),
+    image: UploadFile = File(...),
+):
+    verify_form_csrf(user, csrf)
+    employee = employees_service.require_employee(storage, int(user.employee_id or 0))
+    try:
+        photo = read_capped(image.file)
+    except UploadError as exc:
+        return redirect("/me/face", err=str(exc))
+    if not photo:
+        return redirect("/me/face", err="Empty capture. Please try again in better light.")
+    # Say at once if the photo cannot work, rather than making HR reject it. This only
+    # reads: nothing is added to the gallery. If the service is down, HR still reviews it.
+    try:
+        check = face.identify(photo, checks=True)
+        if check.decision == "retry" or not (check.faces_in_probe or 0):
+            return redirect("/me/face", err="No clear face found. Look straight at the camera, in good light.")
+    except FaceServiceError:
+        pass
+    try:
+        account_service.submit_face_request(storage, settings, employee=employee, photo=photo, requested_by=user.id)
+    except (UploadError, ValueError) as exc:
+        return redirect("/me/face", err=str(exc))
+    return redirect("/me/face", ok="Photo sent. HR will review it.")
 
 
 # --------------------------------------------------- HR: approve the requests
@@ -243,8 +290,29 @@ def profile_requests(
             WHERE r.status != 'pending' ORDER BY r.decided_at DESC, r.id DESC LIMIT 25
             """
         ),
-        fields=account_service.CHANGEABLE_FIELDS,
+        fields=account_service.FIELD_LABELS,
     )
+
+
+@router.get("/profile-requests/{request_id}/photo")
+def face_request_photo(
+    request_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    """The submitted photo, for HR to compare with the employee. HR only."""
+    row = storage.query_one(
+        "SELECT new_value FROM profile_change_requests WHERE id = ? AND field = ? AND status = 'pending'",
+        (request_id, account_service.FACE_FIELD),
+    )
+    if row is None:
+        return redirect("/profile-requests", err="That photo is no longer available.")
+    try:
+        path = path_for(settings, account_service.FACE_UPLOAD_KIND, row["new_value"])
+    except UploadError as exc:
+        return redirect("/profile-requests", err=str(exc))
+    return FileResponse(path, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/profile-requests/{request_id}/{decision}")
@@ -255,6 +323,7 @@ def decide_profile_request(
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
     settings=Depends(get_settings_dep),
+    face=Depends(get_face),
     csrf: str = Form("", alias="_csrf"),
     note: str = Form(""),
 ):
@@ -264,11 +333,15 @@ def decide_profile_request(
     try:
         row = account_service.decide(
             storage, settings, request_id=request_id, approve=decision == "approve",
-            decided_by=user.username, note=note or None,
+            decided_by=user.username, note=note or None, face=face,
         )
+    except employees_service.DuplicateFaceError as exc:
+        return redirect("/profile-requests", err=f"Not approved: {exc}")
+    except FaceServiceUnavailable as exc:
+        return redirect("/profile-requests", err=f"Face service offline, so nothing changed. Try again later. {exc}")
+    except FaceServiceError as exc:
+        return redirect("/profile-requests", err=f"This photo could not be enrolled: {exc.message}")
     except ValueError as exc:
         return redirect("/profile-requests", err=str(exc))
-    return redirect(
-        "/profile-requests",
-        ok=f"{row['field']} {'updated' if row['status'] == 'approved' else 'change rejected'}.",
-    )
+    label = account_service.FIELD_LABELS.get(row["field"], row["field"])
+    return redirect("/profile-requests", ok=f"{label} {row['status']}.")

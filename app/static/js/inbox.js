@@ -52,6 +52,10 @@
     badge.textContent = state.unread > 9 ? "9+" : String(state.unread);
     badge.classList.toggle("hidden", !state.unread);
     bell.setAttribute("aria-label", state.unread ? "Notifications, " + state.unread + " unread" : "Notifications");
+    // The number on the installed app's icon, where the phone or computer supports it.
+    if (navigator.setAppBadge) {
+      (state.unread ? navigator.setAppBadge(state.unread) : navigator.clearAppBadge()).catch(function () {});
+    }
   }
 
   function renderList() {

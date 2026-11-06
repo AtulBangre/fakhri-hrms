@@ -1,18 +1,20 @@
 {% extends "base.html" %}
-{% from "_pager.html" import pager_bar %}
+{% from "_pager.html" import pager_bar, sort_th %}
 {% block title %}Audit log · {{ org_name }} HRMS{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div class="titles">
     <h1>Audit log</h1>
-    <div class="sub">Who did what, and when. {{ pager.total }} entries, newest first.</div>
+    <div class="sub">Who did what, and when. {{ pager.total }} entries.</div>
   </div>
 </div>
 
 <div class="card flush">
   <div class="card-head">
     <form class="filters" method="get" action="/audit">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="dir" value="{{ dir }}">
       <div class="field"><label for="q">Search</label>
         <input id="q" type="search" name="q" value="{{ q }}" placeholder="actor, action, detail…"></div>
       <button class="btn btn-primary" type="submit">Filter</button>
@@ -20,8 +22,9 @@
     </form>
   </div>
   <div class="table-wrap">
-    <table class="data stack">
-      <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th><th>IP</th></tr></thead>
+    {% set params = {'q': q} %}
+    <table class="data stack" data-server-sort>
+      <thead><tr>{{ sort_th('When', 'at', '/audit', params, sort, dir) }}{{ sort_th('Actor', 'actor', '/audit', params, sort, dir) }}{{ sort_th('Action', 'action', '/audit', params, sort, dir) }}{{ sort_th('Target', 'entity', '/audit', params, sort, dir) }}{{ sort_th('Detail', 'detail', '/audit', params, sort, dir) }}{{ sort_th('IP', 'ip', '/audit', params, sort, dir) }}</tr></thead>
       <tbody>
       {% for row in rows %}
         <tr>
@@ -38,6 +41,6 @@
       </tbody>
     </table>
   </div>
-  {{ pager_bar(pager, '/audit', {'q': q}) }}
+  {{ pager_bar(pager, '/audit', {'q': q, 'sort': sort, 'dir': dir}) }}
 </div>
 {% endblock %}

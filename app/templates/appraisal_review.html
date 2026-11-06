@@ -30,7 +30,7 @@
       <div class="card flush mb-3">
         <div class="card-head"><h2>Goals</h2><span class="spacer"></span><span class="small muted">1 needs improvement · 3 meets · 5 outstanding</span></div>
         <div class="table-wrap">
-          <table class="data stack">
+          <table class="data stack" data-no-sort>
             <thead><tr><th>Goal</th><th class="num">Weight</th><th>Self</th><th>HR score</th><th>HR note</th>{% if editable %}<th></th>{% endif %}</tr></thead>
             <tbody>
             {% for goal in row.goals %}

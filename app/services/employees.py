@@ -69,6 +69,23 @@ def next_employee_code(storage: Storage, prefix: str = "FITS") -> str:
 
 
 # ------------------------------------------------------------------ queries
+def search_clause(q: str | None, columns: tuple[str, ...]) -> tuple[str, list[Any]]:
+    """Every word must appear in some column, in any order. ``%`` and ``_`` are plain text."""
+    clauses: list[str] = []
+    params: list[Any] = []
+    for word in (q or "").split():
+        escaped = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        clauses.append("(" + " OR ".join(f"COALESCE({column}, '') LIKE ? ESCAPE '\\'" for column in columns) + ")")
+        params.extend([f"%{escaped}%"] * len(columns))
+    return " AND ".join(clauses), params
+
+
+EMPLOYEE_SORTS = {
+    "name": "name COLLATE NOCASE", "code": "code COLLATE NOCASE", "department": "department COLLATE NOCASE",
+    "joined": "joined_on", "gross": "monthly_gross", "face": "face_id IS NULL", "status": "status",
+}
+
+
 def _employee_filters(q: str | None, department: str | None, status: str) -> tuple[str, list[Any]]:
     """Shared WHERE clause, so a list and its count always agree."""
     clauses: list[str] = []
@@ -79,10 +96,10 @@ def _employee_filters(q: str | None, department: str | None, status: str) -> tup
     if department:
         clauses.append("department = ? COLLATE NOCASE")
         params.append(department.strip())
-    if q:
-        clauses.append("(name LIKE ? OR code LIKE ? OR email LIKE ? OR phone LIKE ? OR designation LIKE ?)")
-        like = f"%{q}%"
-        params.extend([like] * 5)
+    clause, words = search_clause(q, ("name", "code", "email", "phone", "designation", "department"))
+    if clause:
+        clauses.append(clause)
+        params.extend(words)
     return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
 
 
@@ -94,11 +111,18 @@ def list_employees(
     status: str = "active",
     limit: int = 200,
     offset: int = 0,
+    sort: str = "name",
+    direction: str = "asc",
 ) -> list[dict[str, Any]]:
     where, params = _employee_filters(q, department, status)
     params.extend([limit, offset])
+    # Only names from our own table reach the SQL. Blanks stay last in both directions.
+    column = EMPLOYEE_SORTS.get(sort, EMPLOYEE_SORTS["name"])
+    order = "DESC" if direction == "desc" else "ASC"
     return storage.query(
-        f"SELECT * FROM employees {where} ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?", params
+        f"SELECT * FROM employees {where} ORDER BY {column.split()[0]} IS NULL, {column} {order}, "
+        "name COLLATE NOCASE LIMIT ? OFFSET ?",
+        params,
     )
 
 

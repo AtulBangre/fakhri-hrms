@@ -498,6 +498,16 @@ table.data tr.detail-row:hover { background: var(--subtle); }
 .me-action .ico { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--primary-soft); color: var(--primary); }
 .me-action .ico svg.i { width: 20px; height: 20px; }
 
+.me-face-cta {
+  display: flex; align-items: center; gap: .7rem; padding: .7rem .85rem; margin-bottom: .75rem; color: var(--ink);
+  background: var(--warning-soft); border: 1px solid var(--warning-border); border-radius: 14px;
+}
+.me-face-cta:hover { text-decoration: none; }
+.me-face-cta .ico { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 10px; background: #fff; color: var(--warning); }
+.me-face-cta .grow { flex: 1; min-width: 0; }
+.me-face-cta strong { display: block; font-size: .86rem; }
+.me-face-cta .grow span { display: block; font-size: .76rem; color: var(--ink-soft); }
+
 .me-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .4rem; margin-bottom: .5rem; }
 .me-stat { padding: .55rem .2rem; border-radius: 10px; background: var(--subtle); text-align: center; min-width: 0; }
 .me-stat strong { display: block; font-size: 1.2rem; font-weight: 650; line-height: 1.15; font-variant-numeric: tabular-nums; }
@@ -531,6 +541,29 @@ table.data tr.detail-row:hover { background: var(--subtle); }
   .me-grid .btn { height: 42px; border-radius: 10px; }
   .me-grid .card-head .btn { height: 30px; border-radius: var(--radius); }
 }
+
+/* Sorting and searching */
+.th-sort {
+  all: unset; display: inline-flex; align-items: center; gap: .25rem; cursor: pointer;
+  font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit;
+}
+.th-sort:hover { color: var(--ink); text-decoration: none; }
+.th-sort:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.th-sort::after { content: "↕"; font-size: 1.05em; opacity: .6; }
+th[aria-sort="ascending"] .th-sort::after { content: "↑"; opacity: 1; color: var(--primary); }
+th[aria-sort="descending"] .th-sort::after { content: "↓"; opacity: 1; color: var(--primary); }
+th[aria-sort] { color: var(--ink); }
+.table-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .5rem .85rem; border-bottom: 1px solid var(--border); }
+.table-tools .table-search { flex: 1 1 200px; max-width: 320px; }
+.table-tools .table-count { white-space: nowrap; }
+.table-tools .table-sort-menu { display: none; flex: 1 1 130px; width: auto; }
+@media (max-width: 720px) {
+  .table-tools .table-sort-menu { display: block; }
+  .table-tools .table-search { max-width: none; }
+  table.m-table .th-sort::after { font-size: .75em; }
+}
+@media (min-width: 721px) { .table-tools.phone-only { display: none; } }
+.card > .table-tools { margin: 0 !important; }
 
 /* -------------------------------------------------------------------- chips */
 .chip {
@@ -691,6 +724,11 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
   background: rgba(255, 255, 255, .45);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, .12);
 }
+.kiosk-queue {
+  margin-left: auto; flex: none; padding: .15rem .55rem; border-radius: 999px; white-space: nowrap;
+  background: #fbbf24; color: #3b2606; font-size: .7rem; font-weight: 600;
+}
+.kiosk-queue + .kiosk-state { margin-left: 0; }
 .kiosk-state[data-state="ok"]  { background: #34d399; box-shadow: 0 0 0 3px rgba(52, 211, 153, .22); }
 .kiosk-state[data-state="bad"] { background: #fbbf24; box-shadow: 0 0 0 3px rgba(251, 191, 36, .22); }
 
@@ -1184,6 +1222,14 @@ input[type=file]::file-selector-button {
     max-height: calc(100dvh - var(--header-h) - var(--bottom-nav-h) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 20px);
   }
 }
+
+.dept-summary { cursor: pointer; list-style: none; }
+.dept-summary::-webkit-details-marker { display: none; }
+.dept-summary::before { content: "›"; font-size: 1.1rem; color: var(--muted); transition: transform .12s ease; }
+details[open] > .dept-summary::before { transform: rotate(90deg); }
+details:not([open]) > .dept-summary { border-bottom: 0; }
+
+td[data-label="Source"] .chip { white-space: normal; height: auto; padding-block: .1rem; line-height: 1.25; }
 
 /* Coming up: birthdays and anniversaries */
 .celebrate-card { border-color: var(--primary-soft-border); }

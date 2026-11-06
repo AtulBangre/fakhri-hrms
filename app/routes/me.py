@@ -23,6 +23,7 @@ from fastapi import Response
 from ..deps import get_settings_dep, get_storage, redirect, render
 from ..pdf import filename_for, render_payslip
 from .. import notify
+from ..services import account as account_service
 from ..services import announcements as announcement_service
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
@@ -82,6 +83,7 @@ def dashboard(
         today=today,
         today_row=row,
         checkout_after=checkout_after,
+        face_pending=account_service.face_request(storage, employee["id"])["pending"],
         today_label=orgtime.human_day(today),
         kind=orgtime.day_kind(storage, today),
         summary=summary,

@@ -844,7 +844,7 @@ def test_service_worker_is_network_first_for_assets(client: TestClient):
     assert worker.status_code == 200
     text = worker.text
     # a bumped cache name is what purges the stale copy on existing devices
-    assert 'const CACHE = "fakhri-hrms-v2"' in text
+    assert 'const CACHE = "fakhri-hrms-v3"' in text
     assert "network first, cache as the offline fallback" in text
     # and it must not go back to serving assets from cache first
     assert "caches.match(request).then((cached) => {\n        if (cached) return cached;" not in text

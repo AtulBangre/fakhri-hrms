@@ -33,6 +33,13 @@
       <button class="btn btn-primary" type="submit">Show</button>
       <a class="btn" href="/attendance/register">This month</a>
       <div class="field" style="margin-left:auto">
+        <label for="shiftQuickFilter">Shift</label>
+        <select id="shiftQuickFilter">
+          <option value="">All shifts</option>
+          {% for name in register.shift_names %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
         <label for="statusQuickFilter">Filter Exceptions</label>
         <select id="statusQuickFilter">
           <option value="">All statuses</option>
@@ -66,7 +73,7 @@
     </thead>
     <tbody>
       {% for row in register.rows %}
-        <tr class="emp-row" data-search="{{ (row.employee.name ~ ' ' ~ row.employee.code ~ ' ' ~ (row.employee.department or '')) | lower }}"
+        <tr class="emp-row" data-shift="{{ row.shift.name or 'Company shift' }}" data-search="{{ (row.employee.name ~ ' ' ~ row.employee.code ~ ' ' ~ (row.employee.department or '')) | lower }}"
             data-codes="{% for c in row.cells %}{{ c.code }} {% endfor %}">
           <td class="sticky-col">
             <a href="/employees/{{ row.employee.id }}"><strong>{{ row.employee.name }}</strong></a>
@@ -207,6 +214,7 @@
     // 1. Live Filters
     var filterInput = document.getElementById("empFilter");
     var statusFilter = document.getElementById("statusQuickFilter");
+    var shiftFilter = document.getElementById("shiftQuickFilter");
 
     function applyFilters() {
       var query = filterInput ? filterInput.value.toLowerCase().trim() : "";
@@ -217,12 +225,14 @@
         var codes = row.getAttribute("data-codes") || "";
         var matchesText = !query || searchTxt.indexOf(query) !== -1;
         var matchesStatus = !requiredCode || codes.indexOf(requiredCode) !== -1;
-        row.style.display = (matchesText && matchesStatus) ? "" : "none";
+        var matchesShift = !shiftFilter || !shiftFilter.value || row.getAttribute("data-shift") === shiftFilter.value;
+        row.style.display = (matchesText && matchesStatus && matchesShift) ? "" : "none";
       });
     }
 
     if (filterInput) filterInput.addEventListener("input", applyFilters);
     if (statusFilter) statusFilter.addEventListener("change", applyFilters);
+    if (shiftFilter) shiftFilter.addEventListener("change", applyFilters);
 
     // 2. Interactive Modal
     var modal = document.getElementById("quickMarkModal");

@@ -25,12 +25,12 @@
 
 <div class="grid grid-2" id="orgTreeContainer">
   {% for dept, members in departments.items() %}
-    <div class="card dept-card" data-dept="{{ dept | lower }}">
-      <div class="card-head">
+    <details class="card flush dept-card" data-dept="{{ dept | lower }}" open>
+      <summary class="card-head dept-summary">
         <h2>{{ dept }}</h2>
         <span class="spacer"></span>
         <span class="chip chip-primary">{{ members | length }} members</span>
-      </div>
+      </summary>
       <div class="list">
         {% for m in members %}
           <div class="list-row member-node" data-search="{{ (m.name ~ ' ' ~ m.code ~ ' ' ~ (m.designation or '')) | lower }}">
@@ -47,7 +47,7 @@
           </div>
         {% endfor %}
       </div>
-    </div>
+    </details>
   {% else %}
     <div class="card">
       <div class="card-body empty-state">No active employees found.</div>
@@ -75,6 +75,7 @@
           }
         });
         dept.style.display = (!q || visibleCount > 0) ? "" : "none";
+        if (q && visibleCount > 0) dept.open = true;
       });
     });
   })();

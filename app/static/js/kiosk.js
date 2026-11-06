@@ -185,7 +185,25 @@
     canvas.toBlob(onBlob, "image/jpeg", 0.75);
   }
 
-  function postScan(data, done) {
+  var offline = window.KioskOffline || { available: false };
+
+  function isUnreachable(body) {
+    return !!body && (body.action === "connection" || body.action === "service_down");
+  }
+
+  /** Keep the frame on this device. The server identifies the person when it syncs. */
+  function saveOffline(blob, done) {
+    offline.save(blob).then(function () {
+      busy = false;
+      refreshQueue();
+      done({ action: "saved_offline" });
+    }).catch(function (error) {
+      busy = false;
+      done({ action: error && error.message === "full" ? "offline_full" : "offline_failed" });
+    });
+  }
+
+  function postScan(data, done, fallbackFrame) {
     data.append("_csrf", cfg.csrf);
     fetch(cfg.markUrl, { method: "POST", body: data, credentials: "same-origin" })
       .then(function (response) {
@@ -193,22 +211,38 @@
       })
       .then(function (out) { return out.body; })
       .catch(function () { return { action: "connection" }; })
-      .then(function (body) { busy = false; done(body); });
+      .then(function (body) {
+        if (isUnreachable(body) && offline.available && fallbackFrame) return saveOffline(fallbackFrame, done);
+        busy = false;
+        done(body);
+      });
   }
 
-  /** Send one frame, or a head-turn sequence. ``done(body)`` runs once with the response (or null). */
-  function capture(done) {
+  /**
+   * Send one frame, or a head-turn sequence. ``done(body)`` runs once with the response (or null).
+   * ``byTap``: someone asked for this scan. With no network the server cannot say whether a
+   * frame holds a face, so the automatic loop must not save a photo every tick.
+   */
+  function capture(done, byTap) {
     done = done || function () {};
     if (!stream || busy || !running || Date.now() < pausedUntil) return done(null);
     if (!video.videoWidth || !video.videoHeight) return done(null);
+    var noNetwork = offline.available && navigator.onLine === false;
+    if (noNetwork && !byTap) return done(null);
 
     busy = true;
+    if (noNetwork) {
+      return grabFrame(function (blob) {
+        if (!blob) { busy = false; return done(null); }
+        saveOffline(blob, done);
+      });
+    }
     if (cfg.activeChallenge) return challengeScan(done);
     grabFrame(function (blob) {
       if (!blob) { busy = false; return done(null); }
       var data = new FormData();
       data.append("image", blob, "scan.jpg");
-      postScan(data, done);
+      postScan(data, done, blob);
     });
   }
 
@@ -220,8 +254,16 @@
       .catch(function () { return { action: "connection" }; })
       .then(function (challenge) {
         if (!challenge || !challenge.challenge_token) {
+          var reply = challenge && challenge.action ? challenge : { action: "service_down" };
+          // A head-turn needs the server, so an offline scan is the single frame.
+          if (isUnreachable(reply) && offline.available) {
+            return grabFrame(function (blob) {
+              if (!blob) { busy = false; return done(reply); }
+              saveOffline(blob, done);
+            });
+          }
           busy = false;
-          return done(challenge && challenge.action ? challenge : { action: "service_down" });
+          return done(reply);
         }
         collectFrames(challenge, done);
       });
@@ -232,10 +274,12 @@
     var data = new FormData();
     data.append("challenge_token", challenge.challenge_token);
     var taken = 0;
+    var firstFrame = null;
 
     function next() {
       grabFrame(function (blob) {
         if (!blob) { busy = false; hud.hidden = true; return done(null); }
+        firstFrame = firstFrame || blob;
         data.append("frames", blob, taken + ".jpg");
         taken += 1;
         if (taken === 1) {
@@ -247,7 +291,7 @@
           return;
         }
         hudTxt.textContent = "Verifying identity…";
-        postScan(data, done);
+        postScan(data, done, firstFrame);
       });
     }
     next();
@@ -261,6 +305,22 @@
     var name = cfg.showName && body.employee ? (body.employee.name || "") : "";
 
     switch (body.action) {
+      case "saved_offline":
+        show("ok", "Saved", "offline · marks when back online", HOLD_SUCCESS_MS);
+        beep("ok");
+        pausedUntil = Date.now() + HOLD_SUCCESS_MS;
+        setState("bad");
+        return;
+      case "offline_full":
+        show("bad", "Offline storage is full", "ask HR to mark you", HOLD_ERROR_MS);
+        beep("bad");
+        pausedUntil = Date.now() + HOLD_ERROR_MS;
+        return;
+      case "offline_failed":
+        show("bad", "Could not save the scan", "please try again", HOLD_ERROR_MS);
+        beep("bad");
+        pausedUntil = Date.now() + HOLD_ERROR_MS;
+        return;
       case "check_in":
       case "check_out":
         if (showCard(body.card)) {
@@ -345,7 +405,7 @@
   function holdFor(body) {
     if (!body) return HOLD_NOTICE_MS;
     if (body.card) return HOLD_CARD_MS;
-    if (body.action === "check_in" || body.action === "check_out") return HOLD_SUCCESS_MS;
+    if (body.action === "check_in" || body.action === "check_out" || body.action === "saved_offline") return HOLD_SUCCESS_MS;
     return body.kind === "error" || body.action === "connection" ? HOLD_ERROR_MS : HOLD_NOTICE_MS;
   }
 
@@ -380,7 +440,7 @@
           session = false;
           startBtn.hidden = false;
         }, holdFor(body));
-      });
+      }, true);
     }
   }
 
@@ -394,7 +454,7 @@
       startBtn.querySelector("small").textContent = "open this page over https://";
       return onReady(false);
     }
-    if (cfg.faceRequired && !cfg.faceHealthy) {
+    if (cfg.faceRequired && !cfg.faceHealthy && !offline.available) {
       show("bad", "Scanner disabled", "face service offline", 4000);
       startBtn.hidden = false;
       return onReady(false);
@@ -474,15 +534,38 @@
     if (document.visibilityState === "visible" && stream) requestWakeLock();
   });
 
+  /* --------------------------------------------------- saved offline scans */
+  var queueBadge = $("offlineBadge");
+  var needsSignIn = false;
+
+  function refreshQueue() {
+    if (!offline.available) return Promise.resolve(0);
+    return offline.count().then(function (total) {
+      queueBadge.hidden = !total;
+      queueBadge.textContent = needsSignIn ? total + " saved · sign in to send" : total + " saved";
+      return total;
+    });
+  }
+
+  function syncSaved() {
+    if (!offline.available) return;
+    offline.sync().then(function (outcome) {
+      needsSignIn = outcome.state === "auth";
+      refreshQueue();
+    });
+  }
+
   /* ------------------------------------------------------------ status dot */
   function poll() {
     fetch(cfg.statusUrl, { credentials: "same-origin" })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.server_time) clock.textContent = data.server_time;
+        if (offline.available) offline.serverStatus(data);
         var face = data.face_service || {};
         setState(face.ok ? (running ? "ok" : "idle") : "bad");
         stateDot.title = face.ok ? "Scanner ready" : ("Face service: " + (face.detail || "offline"));
+        if (face.ok) syncSaved();
       })
       .catch(function () {
         setState("bad");
@@ -500,8 +583,23 @@
       if (tapMode) { tapScan(); return; }
       if (!running) { startCamera(); return; }
       pausedUntil = 0;
-      capture(function (body) { if (body) handle(body); });
+      capture(function (body) { if (body) handle(body); }, true);
     });
+
+    window.addEventListener("online", poll);
+    window.addEventListener("offline", function () {
+      setState("bad");
+      stateDot.title = "No network: scans are saved on this device";
+    });
+    var quit = document.querySelector(".kiosk-quit");
+    if (quit) {
+      quit.addEventListener("submit", function (event) {
+        if (!queueBadge.hidden && !window.confirm("Scans saved on this device have not been sent yet. They stay here and send after the next sign-in. Sign out?")) {
+          event.preventDefault();
+        }
+      });
+    }
+    refreshQueue();
 
     flipBtn.addEventListener("click", function () {
       facing = facing === "user" ? "environment" : "user";

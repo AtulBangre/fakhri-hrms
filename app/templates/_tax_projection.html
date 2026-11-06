@@ -9,7 +9,7 @@
         <div>
           <div class="section-title">{{ key | title }} regime
             {% if (profile.regime or 'new') == key %}<span class="chip chip-primary">chosen</span>{% endif %}</div>
-          <table class="data">
+          <table class="data" data-no-sort>
             <tbody>
             {% for step in p.steps %}
               <tr class="{{ 'total-row' if step.label.startswith('Taxable') or step.label.startswith('Total') }}">
