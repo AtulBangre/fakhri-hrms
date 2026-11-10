@@ -55,7 +55,11 @@
       </form>
 
       <!-- Face Login Scanner View -->
-      <div id="faceLoginView" hidden class="face-login-view">
+      <div id="faceLoginView" hidden class="face-login-view" style="display:none;">
+        <div class="center mb-2" style="width:100%">
+          <h2 style="font-size:1.15rem;margin:0 0 .25rem 0">Face Sign-in</h2>
+          <p class="small muted mb-0">Look directly into the camera to sign in</p>
+        </div>
         <div class="face-scanner-box">
           <video id="faceVideo" autoplay playsinline muted></video>
           <div class="face-oval-guide" id="faceOvalGuide"></div>
@@ -69,6 +73,7 @@
 
       <!-- Instant Alternative Logins -->
       <div id="instantAuthOptions">
+        <div class="divider"></div>
         <div id="faceLoginOption" class="mt-2" hidden>
           <button class="btn btn-block btn-lg btn-face-login" type="button" id="openFaceScanBtn">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -50,9 +50,18 @@
 
   function closeFaceView() {
     stopCamera();
-    if (faceView) faceView.hidden = true;
-    if (passForm) passForm.hidden = false;
-    if (instantOpts) instantOpts.hidden = false;
+    if (faceView) {
+      faceView.hidden = true;
+      faceView.style.display = "none";
+    }
+    if (passForm) {
+      passForm.hidden = false;
+      passForm.style.display = "";
+    }
+    if (instantOpts) {
+      instantOpts.hidden = false;
+      instantOpts.style.display = "";
+    }
     setOval("");
     setStatus("Position your face in the oval");
     if (scanBtn) scanBtn.disabled = false;
@@ -173,9 +182,18 @@
 
   // Event listeners
   openBtn.addEventListener("click", function () {
-    if (passForm) passForm.hidden = true;
-    if (instantOpts) instantOpts.hidden = true;
-    if (faceView) faceView.hidden = false;
+    if (passForm) {
+      passForm.hidden = true;
+      passForm.style.display = "none";
+    }
+    if (instantOpts) {
+      instantOpts.hidden = true;
+      instantOpts.style.display = "none";
+    }
+    if (faceView) {
+      faceView.hidden = false;
+      faceView.style.display = "flex";
+    }
     startCamera();
   });
 

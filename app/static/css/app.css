@@ -58,6 +58,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -1340,6 +1341,9 @@ td[data-label="Source"] .chip { white-space: normal; height: auto; padding-block
   flex-direction: column;
   align-items: center;
   width: 100%;
+}
+.face-login-view[hidden] {
+  display: none !important;
 }
 .face-scanner-box {
   position: relative;
