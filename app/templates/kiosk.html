@@ -15,7 +15,7 @@
   <meta name="csrf-token" content="{{ csrf_token }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Poppins:wght@500;600;700&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/app.css?v={{ asset_version }}">
 </head>
 <body class="kiosk-body">
@@ -23,7 +23,7 @@
   {# ---- minimal bar: brand, scanner state, clock, sign out or back to HR ---- #}
   <header class="kiosk-bar">
     {% if user and user.is_hr %}
-      <a href="/dashboard" class="kiosk-back-btn" title="Back to HR Dashboard">
+      <a href="/dashboard" class="kiosk-back-btn" title="Back to HR Dashboard" onclick="if(window.history.length > 1 &amp;&amp; document.referrer.indexOf(window.location.host) !== -1){window.history.back(); return false;}">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="15 18 9 12 15 6"></polyline>
         </svg>
@@ -112,12 +112,12 @@
       csrf: "{{ csrf_token }}",
       showName: {{ 'true' if show_name else 'false' }},
       scanMode: "{{ 'continuous' if scan_mode == 'continuous' else 'tap' }}",
-      faceHealthy: {{ 'true' if health.ok else 'false' }},
-      faceRequired: {{ 'true' if settings.face_required_for_kiosk else 'false' }}
+      faceHealthy: {{ 'true' if health and health.ok else 'false' }},
+      faceRequired: {{ 'true' if settings and settings.face_required_for_kiosk else 'false' }}
     };
   </script>
   <script src="/static/js/pwa.js?v={{ asset_version }}" defer></script>
   <script src="/static/js/kiosk-offline.js?v={{ asset_version }}" defer></script>
-<script src="/static/js/kiosk.js?v={{ asset_version }}" defer></script>
+  <script src="/static/js/kiosk.js?v={{ asset_version }}" defer></script>
 </body>
 </html>

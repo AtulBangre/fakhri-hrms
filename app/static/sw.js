@@ -14,7 +14,7 @@
  * A stale attendance screen is worse than an error, so nothing carrying data is
  * ever served from cache.
  */
-const CACHE = "fakhri-hrms-v3";
+const CACHE = "fakhri-hrms-v4";
 const SHELL = [
   "/static/css/app.css",
   "/static/js/app.js",
