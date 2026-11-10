@@ -467,9 +467,13 @@ def update_slip(
     other_deduction: float = 0.0,
     tds: float | None = None,
     note: str | None = None,
+    bonus_note: str | None = None,
+    advance_note: str | None = None,
+    other_deduction_note: str | None = None,
+    tds_note: str | None = None,
     actor: str | None = None,
 ) -> dict[str, Any]:
-    """Apply HR adjustments (bonus, advance, other deduction, TDS) to a payslip.
+    """Apply HR adjustments (bonus, advance, other deduction, TDS and individual notes) to a payslip.
 
     ``tds=None`` keeps the computed income tax as it is.
     """
@@ -499,11 +503,15 @@ def update_slip(
     storage.execute(
         """
         UPDATE payslips SET bonus = ?, advance = ?, other_deduction = ?, tds = ?, total_deductions = ?,
-                            net_pay = ?, rounding = ?, note = ?, tds_override = ?, updated_at = ?
+                            net_pay = ?, rounding = ?, note = ?, tds_override = ?,
+                            bonus_note = ?, advance_note = ?, other_deduction_note = ?, tds_note = ?,
+                            updated_at = ?
         WHERE id = ?
         """,
         (bonus, advance, other_deduction, round(tds, 2), round(total_deductions, 2), settled["net_pay"],
-         settled["rounding"], note, tds_override, utcnow_iso(), slip_id),
+         settled["rounding"], note, tds_override,
+         bonus_note, advance_note, other_deduction_note, tds_note,
+         utcnow_iso(), slip_id),
     )
     _recompute_totals(storage, slip["run_id"])
     storage.audit(actor=actor, action="update_payslip", entity="payslip", entity_id=slip_id,

@@ -14,6 +14,7 @@
     {{ navlink('/me/appraisal', 'me-appraisal', 'star', 'Appraisal') }}
     {{ navlink('/me/profile', 'me-profile', 'user', 'Profile') }}
     <div class="nav-section">Work</div>
+    {% if remote_work_enabled %}{{ navlink('/kiosk', 'kiosk', 'scan', 'Kiosk punch') }}{% endif %}
     {% if self_punch and self_punch != 'disabled' %}{{ navlink('/me/field', 'me-field', 'pin', 'Field attendance') }}{% endif %}
     {{ navlink('/me/face', 'me-face', 'scan', 'Register face') }}
     {{ navlink('/me/assets', 'me-assets', 'laptop', 'Assets') }}
@@ -108,7 +109,7 @@
             </div>
           </div>
         {% endif %}
-        {% if not user.is_employee %}<a class="icon-btn" href="/kiosk" title="Gate scanner">{{ icon('scan') }}</a>{% endif %}
+        {% if not user.is_employee or remote_work_enabled %}<a class="icon-btn" href="/kiosk" title="{{ 'Kiosk attendance scanner' if remote_work_enabled else 'Gate scanner' }}">{{ icon('scan') }}</a>{% endif %}
         <span class="topbar-user">
           <span class="avatar">{{ user | initials }}</span>
           <span class="who"><strong>{{ user.display_name }}</strong><small>{{ user.role | upper }}{% if user.device_label %} · {{ user.device_label }}{% endif %}</small></span>

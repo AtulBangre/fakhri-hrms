@@ -100,6 +100,8 @@ def device_label_for(user: SessionUser) -> str:
     """Label recorded on scans: the configured device, else a sensible default."""
     if user.device_label:
         return user.device_label
+    if user.is_employee:
+        return f"Remote ({user.display_name or user.name})"
     return "Gate kiosk" if user.is_kiosk else "HR console"
 
 
@@ -345,6 +347,17 @@ def kiosk_scan(
     employee, similarity, problem = _identify_person(request, storage, settings, user, device, identification)
     if problem is not None:
         return problem
+
+    if user.is_employee and user.employee_id and employee["id"] != user.employee_id:
+        return JSONResponse(
+            {
+                "ok": False,
+                "action": "identity_mismatch",
+                "kind": "error",
+                "message": f"Face recognised as {employee.get('name')}, but you are signed in as {user.name}. Please scan your own face.",
+            },
+            status_code=403,
+        )
 
     outcome = attendance_service.mark_by_face(
         storage,

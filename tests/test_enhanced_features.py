@@ -661,6 +661,164 @@ def test_hr_backdated_leave_replaces_absent(storage: Storage, settings):
     assert row_after["leave_type"] == "casual"
 
 
+def test_payroll_adjustment_individual_notes(client: TestClient, hr_client: TestClient, storage: Storage, settings):
+    """Test salary adjustment dialog with individual amount and note for each adjustment type."""
+    from app.services import payroll as payroll_service
+
+    emp_id = employees_service.create_employee(storage, {
+        "name": "Adj Test Emp",
+        "code": "ADJ001",
+        "joined_on": "2026-01-01",
+        "monthly_gross": 50000,
+    })
+
+    # Generate payroll run
+    period = "2026-04"
+    payroll_service.generate_run(storage, settings, period, actor="hr")
+    slips = payroll_service.list_slips(storage, period)
+    slip = next(s for s in slips if s["employee_id"] == emp_id)
+
+    # Post adjustment with individual notes
+    token = csrf_of(hr_client, f"/payroll?period={period}")
+    resp = hr_client.post(
+        f"/payroll/slip/{slip['id']}",
+        data={
+            "_csrf": token,
+            "period": period,
+            "bonus": "3500",
+            "bonus_note": "Quarterly KPI Excellence Bonus",
+            "advance": "1500",
+            "advance_note": "Salary Advance EM1 recovery",
+            "other_deduction": "300",
+            "other_deduction_note": "ID card replacement fee",
+            "tds": "800",
+            "tds_note": "Revised slab deduction",
+            "note": "Overall payroll review complete",
+        },
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+
+    # Verify persisted in database
+    updated = storage.query_one("SELECT * FROM payslips WHERE id = ?", (slip["id"],))
+    assert updated["bonus"] == 3500.0
+    assert updated["bonus_note"] == "Quarterly KPI Excellence Bonus"
+    assert updated["advance"] == 1500.0
+    assert updated["advance_note"] == "Salary Advance EM1 recovery"
+    assert updated["other_deduction"] == 300.0
+    assert updated["other_deduction_note"] == "ID card replacement fee"
+    assert updated["tds"] == 800.0
+    assert updated["tds_note"] == "Revised slab deduction"
+    assert updated["note"] == "Overall payroll review complete"
+
+    # Verify dialog structure in page HTML
+    page_resp = hr_client.get(f"/payroll?period={period}")
+    assert f'id="adj-modal-{slip["id"]}"' in page_resp.text
+    assert "Quarterly KPI Excellence Bonus" in page_resp.text
+    assert "Salary Advance EM1 recovery" in page_resp.text
+
+
+def test_leave_carry_forward_and_policy_mode(storage: Storage, settings):
+    """Test fixed vs accrual PL policy and carry forward calculations across cycles."""
+    emp_id = employees_service.create_employee(storage, {
+        "name": "Leave Policy Emp",
+        "code": "LP001",
+        "joined_on": "2025-01-01",
+        "monthly_gross": 40000,
+    })
+
+    # 1. Fixed mode with carry forward disabled
+    storage.set_setting("pl_policy_mode", "fixed")
+    storage.set_setting("pl_annual_quota", "12.0")
+    storage.set_setting("leave_carry_forward", "no")
+    storage.set_setting("leave_carry_forward_cycle", "financial_year")
+
+    b_no_cf = leave_service.balance(storage, settings, emp_id, as_of=date(2026, 5, 1))
+    assert b_no_cf["policy_mode"] == "fixed"
+    assert b_no_cf["carried_forward"] == 0.0
+    assert b_no_cf["accrued"] == 12.0
+
+    # 2. Fixed mode with carry forward enabled (financial year: 2025-04-01 to 2026-03-31)
+    # Give employee 3 days used in previous cycle (2025-06-10)
+    leave_service.apply_leave(
+        storage, settings,
+        employee_id=emp_id,
+        leave_type="paid",
+        from_date="2025-06-10",
+        to_date="2025-06-12",
+        status="approved",
+        actor="hr",
+    )
+    # Unused in previous cycle was 12 - 3 = 9 days
+    storage.set_setting("leave_carry_forward", "yes")
+    storage.set_setting("leave_max_carry_forward", "0")  # unlimited
+
+    b_cf = leave_service.balance(storage, settings, emp_id, as_of=date(2026, 5, 1))
+    assert b_cf["carried_forward"] == 9.0
+    assert b_cf["accrued"] == 21.0  # 12 current + 9 carried forward
+
+    # 3. Test max carry forward cap (e.g. max 5 days)
+    storage.set_setting("leave_max_carry_forward", "5.0")
+    b_capped = leave_service.balance(storage, settings, emp_id, as_of=date(2026, 5, 1))
+    assert b_capped["carried_forward"] == 5.0
+    assert b_capped["accrued"] == 17.0
+
+    # 4. Test calendar year cycle (Jan 1 to Dec 31)
+    storage.set_setting("leave_carry_forward_cycle", "calendar_year")
+    b_cal = leave_service.balance(storage, settings, emp_id, as_of=date(2026, 5, 1))
+    assert b_cal["cycle_type"] == "calendar_year"
+
+
+def test_employee_remote_work_and_kiosk_access(client: TestClient, hr_client: TestClient, storage: Storage, settings):
+    """Test remote work toggle and restricted kiosk scanner access for employees."""
+    emp_id = employees_service.create_employee(storage, {
+        "name": "Remote Tester",
+        "code": "RMT001",
+        "email": "remote@fakhri.com",
+        "joined_on": "2026-01-01",
+        "monthly_gross": 45000,
+        "remote_work_enabled": 0,
+    })
+
+    # Create employee login
+    portal_user, password = auth.ensure_employee_login(storage, employees_service.get_employee(storage, emp_id))
+
+    emp_client = TestClient(client.app)
+    emp_client.post(
+        "/login",
+        data={"username": portal_user["username"], "password": password},
+        follow_redirects=True,
+    )
+
+    # Initially remote_work_enabled == 0, employee MUST get 403 on /kiosk
+    resp_kiosk_blocked = emp_client.get("/kiosk")
+    assert resp_kiosk_blocked.status_code == 403
+    assert "The gate scanner is for the kiosk device" in resp_kiosk_blocked.text
+
+    # HR toggles remote work
+    csrf_hr = csrf_of(hr_client, f"/employees/{emp_id}")
+    resp_toggle = hr_client.post(
+        f"/employees/{emp_id}/toggle-remote",
+        data={"_csrf": csrf_hr},
+        follow_redirects=True,
+    )
+    assert resp_toggle.status_code == 200
+    emp_refreshed = employees_service.get_employee(storage, emp_id)
+    assert emp_refreshed["remote_work_enabled"] == 1
+
+    # Now employee MUST be allowed to open /kiosk
+    resp_kiosk_allowed = emp_client.get("/kiosk")
+    assert resp_kiosk_allowed.status_code == 200
+    assert "Fakhri IT Services" in resp_kiosk_allowed.text
+
+    # In /me dashboard, Kiosk Punch should now be visible
+    resp_me = emp_client.get("/me")
+    assert resp_me.status_code == 200
+    assert "Remote Attendance (Kiosk Scanner)" in resp_me.text
+    assert "/kiosk" in resp_me.text
+
+
+
 
 
 

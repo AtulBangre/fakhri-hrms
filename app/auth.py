@@ -249,11 +249,16 @@ def require_employee(request: Request) -> SessionUser:
 
 
 def require_hr_or_kiosk(request: Request) -> SessionUser:
-    """The gate scanner. An employee login must not be able to open it."""
+    """The gate scanner. An employee login must not be able to open it unless remote work is enabled."""
     session = current_user(request)
     if session.is_employee:
+        storage = getattr(request.app.state, "storage", None)
+        if storage is not None and session.employee_id:
+            emp = storage.query_one("SELECT remote_work_enabled FROM employees WHERE id = ?", (session.employee_id,))
+            if emp and emp.get("remote_work_enabled"):
+                return session
         # A plain 403 for pages and API alike; browsers get the branded error page.
-        raise HTTPException(status_code=403, detail="The gate scanner is for the kiosk device and HR only. "
+        raise HTTPException(status_code=403, detail="The gate scanner is for the kiosk device, HR, and approved remote employees only. "
                                                     "Your attendance is marked when you scan at the gate.")
     return session
 

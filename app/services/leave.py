@@ -459,10 +459,15 @@ def count_pending(storage: Storage) -> int:
 
 def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: date | None = None) -> dict[str, Any]:
     """Accrued vs taken paid leave, counted from the joining date."""
+    from datetime import timedelta
     employee = employees_service.require_employee(storage, employee_id)
     as_of = as_of or orgtime.today(settings)
-    fy_start, fy_end = orgtime.fiscal_year_bounds(as_of)
     pl_policy_mode = storage.get_setting("pl_policy_mode", "accrual")
+    carry_forward_enabled = storage.get_setting("leave_carry_forward", "no") == "yes"
+    cycle_type = storage.get_setting("leave_carry_forward_cycle", "financial_year")
+    max_carry_forward = storage.get_float("leave_max_carry_forward", 0.0)
+
+    cycle_start, cycle_end = orgtime.leave_cycle_bounds(as_of, cycle_type)
 
     custom_pl = employee.get("custom_pl_quota") or employee.get("custom_pl_accrual")
     joined = orgtime.parse_date(employee["joined_on"]) if employee.get("joined_on") else as_of.replace(day=1)
@@ -476,16 +481,32 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         if as_of.day >= effective_join_day:
             months += 1  # the current month counts once its joining day has passed
 
+    carried_forward = 0.0
     if pl_policy_mode == "fixed":
         annual_pl = float(custom_pl) if custom_pl is not None and str(custom_pl).strip() != "" else storage.get_float("pl_annual_quota", 6.0)
-        accrued = round(annual_pl, 2)
+        # Check carry-forward from previous cycle if enabled
+        if carry_forward_enabled and joined < cycle_start:
+            prev_end = cycle_start - timedelta(days=1)
+            prev_start, _ = orgtime.leave_cycle_bounds(prev_end, cycle_type)
+            prev_used = float(
+                storage.scalar(
+                    "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+                    "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'paid' "
+                    "AND from_date >= ? AND from_date <= ?",
+                    (employee_id, prev_start.isoformat(), prev_end.isoformat()),
+                ) or 0
+            )
+            unused_prev = max(round(annual_pl - prev_used, 2), 0.0)
+            carried_forward = min(unused_prev, max_carry_forward) if max_carry_forward > 0 else unused_prev
+
+        accrued = round(annual_pl + carried_forward, 2)
         accrual = round(annual_pl / 12.0, 2)
         used_pl = float(
             storage.scalar(
                 "SELECT COALESCE(SUM(days),0) FROM leave_requests "
                 "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'paid' "
                 "AND from_date >= ? AND from_date <= ?",
-                (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+                (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
             ) or 0
         )
         pending_pl = float(
@@ -493,11 +514,12 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
                 "SELECT COALESCE(SUM(days),0) FROM leave_requests "
                 "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'paid' "
                 "AND from_date >= ? AND from_date <= ?",
-                (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+                (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
             ) or 0
         )
     else:
         accrual = float(custom_pl) if custom_pl is not None and str(custom_pl).strip() != "" else storage.get_float("pl_accrual_per_month", 1.5)
+        annual_pl = round(accrual * 12.0, 1)
         accrued = round(months * accrual, 2)
         used_pl = float(
             storage.scalar(
@@ -514,13 +536,13 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             ) or 0
         )
 
-    # Annual quotas (Sick Leave & Casual Leave) reset each financial year
+    # Annual quotas (Sick Leave & Casual Leave) reset each cycle
     pending_sl = float(
         storage.scalar(
             "SELECT COALESCE(SUM(days),0) FROM leave_requests "
             "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'sick' "
             "AND from_date >= ? AND from_date <= ?",
-            (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+            (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
         ) or 0
     )
     pending_cl = float(
@@ -528,7 +550,7 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             "SELECT COALESCE(SUM(days),0) FROM leave_requests "
             "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'casual' "
             "AND from_date >= ? AND from_date <= ?",
-            (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+            (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
         ) or 0
     )
 
@@ -537,7 +559,7 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             "SELECT COALESCE(SUM(days),0) FROM leave_requests "
             "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'sick' "
             "AND from_date >= ? AND from_date <= ?",
-            (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+            (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
         ) or 0
     )
     used_cl = float(
@@ -545,7 +567,7 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             "SELECT COALESCE(SUM(days),0) FROM leave_requests "
             "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'casual' "
             "AND from_date >= ? AND from_date <= ?",
-            (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+            (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
         ) or 0
     )
 
@@ -619,9 +641,14 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
     ]
 
     return {
+        "policy_mode": pl_policy_mode,
+        "cycle_type": cycle_type,
+        "carry_forward_enabled": carry_forward_enabled,
+        "annual_pl": annual_pl,
         "accrual_per_month": accrual,
         "months_of_service": months,
         "accrued": accrued,
+        "carried_forward": carried_forward,
         "used_paid": round(used_paid, 2),
         "used_unpaid": round(used_unpaid, 2),
         "pending": round(pending, 2),

@@ -135,6 +135,19 @@ def fiscal_year_bounds(ref: date | str) -> tuple[date, date]:
     return date(start_year, 4, 1), date(start_year + 1, 3, 31)
 
 
+def calendar_year_bounds(ref: date | str) -> tuple[date, date]:
+    """Returns (start_date, end_date) for a calendar year (Jan 1 to Dec 31)."""
+    d = parse_date(ref) if isinstance(ref, str) else ref
+    return date(d.year, 1, 1), date(d.year, 12, 31)
+
+
+def leave_cycle_bounds(ref: date | str, cycle: str = "financial_year") -> tuple[date, date]:
+    """Returns (start_date, end_date) for the leave cycle ('financial_year' or 'calendar_year')."""
+    if cycle == "calendar_year":
+        return calendar_year_bounds(ref)
+    return fiscal_year_bounds(ref)
+
+
 def fiscal_year_months(fy: str) -> list[str]:
     """The twelve ``YYYY-MM`` periods of a financial year, April first."""
     start = int(fy.split("-")[0])

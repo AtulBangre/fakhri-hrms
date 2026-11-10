@@ -692,6 +692,10 @@ class Storage:
             ("reimbursement", "REAL NOT NULL DEFAULT 0"),
             ("late_fine", "REAL NOT NULL DEFAULT 0"),
             ("rounding", "REAL NOT NULL DEFAULT 0"),
+            ("bonus_note", "TEXT"),
+            ("advance_note", "TEXT"),
+            ("other_deduction_note", "TEXT"),
+            ("tds_note", "TEXT"),
         ],
         "notifications": [
             ("next_attempt_at", "TEXT"),
@@ -728,6 +732,7 @@ class Storage:
             ("custom_cl_quota", "REAL"),
             ("date_of_birth", "TEXT"),
             ("anniversary", "TEXT"),
+            ("remote_work_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ],
     }
 

@@ -59,6 +59,17 @@
   </div>
 </section>
 
+{% if employee.remote_work_enabled %}
+  <a class="me-face-cta" href="/kiosk" style="border-color:var(--primary);background:linear-gradient(135deg, rgba(135,8,8,0.06), rgba(135,8,8,0.02));margin-bottom:1rem">
+    <span class="ico" style="background:var(--primary);color:#fff">{{ icon('scan') }}</span>
+    <span class="grow">
+      <strong style="color:var(--primary)">Remote Attendance (Kiosk Scanner)</strong>
+      <span>Work from home enabled. Tap to scan your face and mark attendance.</span>
+    </span>
+    {{ icon('chevron-right') }}
+  </a>
+{% endif %}
+
 {% if not employee.face_id or face_pending %}
   <a class="me-face-cta" href="/me/face">
     <span class="ico">{{ icon('scan') }}</span>
@@ -74,6 +85,11 @@
 {% endif %}
 
 <nav class="me-actions" aria-label="Quick actions">
+  {% if employee.remote_work_enabled %}
+    <a class="me-action" href="/kiosk" style="color:var(--primary)">
+      <span class="ico" style="background:var(--primary-soft);color:var(--primary)">{{ icon('scan') }}</span>Kiosk punch
+    </a>
+  {% endif %}
   <a class="me-action" href="/me/attendance"><span class="ico">{{ icon('calendar') }}</span>Attendance</a>
   <a class="me-action" href="/me/leave"><span class="ico">{{ icon('leave') }}</span>Apply leave</a>
   <a class="me-action" href="/me/payslips"><span class="ico">{{ icon('file') }}</span>Payslips</a>

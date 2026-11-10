@@ -121,7 +121,10 @@
         </div>
         <div class="kv small mt-2">
           <div><span class="k">Total allocated</span><span class="v">{{ balance.total_allocated | number }}</span></div>
-          <div><span class="k">Earned PL</span><span class="v">{{ balance.accrued | number }}</span></div>
+          <div><span class="k">{{ 'Annual PL quota' if balance.policy_mode == 'fixed' else 'Earned PL' }}</span><span class="v">{{ (balance.accrued - balance.carried_forward) | number }}</span></div>
+          {% if balance.carried_forward %}
+            <div><span class="k">Carried forward PL</span><span class="v chip chip-ok" style="font-size:0.75rem">+{{ balance.carried_forward | number }}</span></div>
+          {% endif %}
           <div><span class="k">Total taken</span><span class="v">{{ balance.total_used | number }}</span></div>
           <div><span class="k">Unpaid taken</span><span class="v">{{ balance.used_unpaid | number }}</span></div>
           <div><span class="k">Waiting for approval</span><span class="v">{{ balance.pending | number }}</span></div>

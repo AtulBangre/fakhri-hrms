@@ -224,6 +224,12 @@ def page_context(request: Request, *, active: str, user: SessionUser | None, **e
     settings = get_settings_dep(request)
     storage = get_storage(request)
     org_name = storage.get_setting("org_name", settings.org_name)
+    remote_work_enabled = False
+    if user and user.is_employee and user.employee_id:
+        emp = storage.query_one("SELECT remote_work_enabled FROM employees WHERE id = ?", (user.employee_id,))
+        if emp and emp.get("remote_work_enabled"):
+            remote_work_enabled = True
+
     context: dict[str, Any] = {
         "request": request,
         "active": active,
@@ -237,6 +243,7 @@ def page_context(request: Request, *, active: str, user: SessionUser | None, **e
         "nav_items": [],
         "nav_pending": _pending_counts(storage) if user and user.is_hr else {},
         "self_punch": _self_punch(storage, user),
+        "remote_work_enabled": remote_work_enabled,
     }
     context.update(extra)
     return context

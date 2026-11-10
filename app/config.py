@@ -247,6 +247,12 @@ SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
      "Annual sick leave quota granted to each employee."),
     ("cl_annual_quota", "6.0", "Casual leave quota / year", "number",
      "Annual casual leave quota granted to each employee."),
+    ("leave_carry_forward", "no", "Carry forward leaves", "select:no|yes",
+     "Whether unused leaves from previous cycle carry forward into the new cycle."),
+    ("leave_carry_forward_cycle", "financial_year", "Leave carry forward cycle", "select:financial_year|calendar_year",
+     "financial_year = 1 April to 31 March · calendar_year = 1 January to 31 December."),
+    ("leave_max_carry_forward", "0", "Max carry forward days (0 = unlimited)", "number",
+     "Maximum number of unused leave days to carry forward. 0 = carry forward all unused days."),
     ("week_off_days", "6", "Weekly off days", "weekdays",
      "Tick every day that is always off — e.g. Saturday + Sunday for a 5-day week. Changes apply to draft "
      "and future months; finalised payroll months keep their figures."),

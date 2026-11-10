@@ -145,6 +145,10 @@ def update_slip(
     other_deduction: str = Form("0"),
     tds: str = Form(""),
     note: str = Form(""),
+    bonus_note: str = Form(""),
+    advance_note: str = Form(""),
+    other_deduction_note: str = Form(""),
+    tds_note: str = Form(""),
     period: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
@@ -153,7 +157,12 @@ def update_slip(
             storage, slip_id, bonus=_as_float(bonus), advance=_as_float(advance),
             other_deduction=_as_float(other_deduction),
             tds=_as_float(tds) if tds.strip() else None,
-            note=note or None, actor=user.username,
+            note=note or None,
+            bonus_note=bonus_note.strip() or None,
+            advance_note=advance_note.strip() or None,
+            other_deduction_note=other_deduction_note.strip() or None,
+            tds_note=tds_note.strip() or None,
+            actor=user.username,
         )
     except employees_service.ValidationError as exc:
         return redirect("/payroll", err=str(exc), period=period or None)

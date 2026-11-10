@@ -27,7 +27,11 @@
                   {% for option in options %}
                     <option value="{{ option }}" {{ 'selected' if values.get(key) == option }}>
                       {% if key == 'pl_policy_mode' %}
-                        {{ 'Monthly Accrual (Earned per month of service)' if option == 'accrual' else 'Fixed Annual Quota (Granted upfront each financial year)' }}
+                        {{ 'Monthly Accrual (Earned per month of service)' if option == 'accrual' else 'Fixed Annual Quota (Granted upfront each cycle)' }}
+                      {% elif key == 'leave_carry_forward' %}
+                        {{ 'No (Leaves reset every cycle)' if option == 'no' else 'Yes (Carry forward unused leaves)' }}
+                      {% elif key == 'leave_carry_forward_cycle' %}
+                        {{ 'Financial Year (1 April – 31 March)' if option == 'financial_year' else 'Calendar Year (1 January – 31 December)' }}
                       {% else %}
                         {{ option }}
                       {% endif %}

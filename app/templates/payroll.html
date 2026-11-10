@@ -184,37 +184,91 @@
             <td data-label="Deductions" class="num">{{ slip.total_deductions | money }}</td>
             <td data-label="Net pay" class="num"><strong>{{ slip.net_pay | money }}</strong></td>
             <td class="actions-cell">
-              {% if run.status == 'draft' %}<button class="btn btn-sm" type="button" data-toggle-row="adj-{{ slip.id }}">{{ icon('edit') }} Adjust</button>{% endif %}
+              {% if run.status == 'draft' %}<button class="btn btn-sm" type="button" onclick="document.getElementById('adj-modal-{{ slip.id }}').showModal()">{{ icon('edit') }} Adjust</button>{% endif %}
               <a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}">Payslip</a>
               <a class="btn btn-sm btn-ghost" href="/payroll/slip/{{ slip.id }}.pdf" title="Download PDF">{{ icon('download') }}</a>
             </td>
           </tr>
           {% if run.status == 'draft' %}
-            <tr class="detail-row hidden" id="adj-{{ slip.id }}">
-              <td colspan="11">
-                    <form method="post" action="/payroll/slip/{{ slip.id }}">
-                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                      <input type="hidden" name="period" value="{{ period }}">
-                      <div class="form-row cols-4">
-                        <div class="field"><label for="bonus{{ slip.id }}">Bonus / incentive</label>
-                          <input id="bonus{{ slip.id }}" name="bonus" type="number" min="0" step="100" value="{{ slip.bonus | round(0) | int }}"></div>
-                        <div class="field"><label for="advance{{ slip.id }}">Salary advance recovered</label>
-                          <input id="advance{{ slip.id }}" name="advance" type="number" min="0" step="100" value="{{ slip.advance | round(0) | int }}"></div>
-                        <div class="field"><label for="other{{ slip.id }}">Other deduction</label>
-                          <input id="other{{ slip.id }}" name="other_deduction" type="number" min="0" step="100" value="{{ slip.other_deduction | round(0) | int }}"></div>
-                        <div class="field"><label for="tds{{ slip.id }}">Income tax (TDS)</label>
-                          <input id="tds{{ slip.id }}" name="tds" type="number" min="0" step="1" value="{{ slip.tds | round(0) | int }}">
-                          <div class="hint">From the tax profile — override only if your CA says so.</div></div>
-                      </div>
-                      <div class="field"><label for="note{{ slip.id }}">Note on the payslip</label>
-                        <input id="note{{ slip.id }}" name="note" type="text" value="{{ slip.note or '' }}"></div>
-                      <div class="form-actions">
-                        <button class="btn btn-primary btn-sm" type="submit">Save adjustment</button>
-                        <button class="btn btn-ghost btn-sm" type="button" data-toggle-row="adj-{{ slip.id }}">Cancel</button>
-                      </div>
-                    </form>
-              </td>
-            </tr>
+            <dialog class="modal-dialog" id="adj-modal-{{ slip.id }}" style="max-width: 680px; width: 95%; border: none; border-radius: var(--radius-lg); padding: 0; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2), 0 10px 10px -5px rgba(0,0,0,0.1); background: var(--card)">
+              <div class="card" style="margin: 0; border: none">
+                <div class="card-head" style="background: var(--subtle); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem">
+                  <div>
+                    <h2 style="margin: 0; font-size: 1.15rem; font-weight: 700">Salary Adjustments</h2>
+                    <div class="sub" style="font-size: 0.85rem; color: var(--muted)">{{ slip.name }} ({{ slip.code }}) · {{ period_label }}</div>
+                  </div>
+                  <button type="button" class="icon-btn" onclick="document.getElementById('adj-modal-{{ slip.id }}').close()" aria-label="Close">✕</button>
+                </div>
+                <form method="post" action="/payroll/slip/{{ slip.id }}" style="padding: 1.25rem">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="period" value="{{ period }}">
+
+                  <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary); margin-bottom: 0.5rem">
+                    1. Earnings &amp; Incentives
+                  </div>
+                  <div class="form-row cols-2 mb-3">
+                    <div class="field">
+                      <label for="bonus{{ slip.id }}">Bonus / Incentive (₹)</label>
+                      <input id="bonus{{ slip.id }}" name="bonus" type="number" min="0" step="100" value="{{ slip.bonus | round(0) | int }}">
+                    </div>
+                    <div class="field">
+                      <label for="bnote{{ slip.id }}">Bonus Note / Reason</label>
+                      <input id="bnote{{ slip.id }}" name="bonus_note" type="text" placeholder="e.g. Diwali performance bonus, project reward" value="{{ slip.bonus_note or '' }}">
+                    </div>
+                  </div>
+
+                  <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: #b45309; margin-bottom: 0.5rem">
+                    2. Deductions &amp; Recoveries
+                  </div>
+                  <div class="form-row cols-2 mb-2">
+                    <div class="field">
+                      <label for="advance{{ slip.id }}">Salary Advance Recovered (₹)</label>
+                      <input id="advance{{ slip.id }}" name="advance" type="number" min="0" step="100" value="{{ slip.advance | round(0) | int }}">
+                    </div>
+                    <div class="field">
+                      <label for="anote{{ slip.id }}">Advance Note / Reason</label>
+                      <input id="anote{{ slip.id }}" name="advance_note" type="text" placeholder="e.g. Advance recovery instalment 2 of 4" value="{{ slip.advance_note or '' }}">
+                    </div>
+                  </div>
+
+                  <div class="form-row cols-2 mb-2">
+                    <div class="field">
+                      <label for="other{{ slip.id }}">Other Deduction (₹)</label>
+                      <input id="other{{ slip.id }}" name="other_deduction" type="number" min="0" step="100" value="{{ slip.other_deduction | round(0) | int }}">
+                    </div>
+                    <div class="field">
+                      <label for="onote{{ slip.id }}">Other Deduction Note / Reason</label>
+                      <input id="onote{{ slip.id }}" name="other_deduction_note" type="text" placeholder="e.g. Damage recovery, penalty, canteen" value="{{ slip.other_deduction_note or '' }}">
+                    </div>
+                  </div>
+
+                  <div class="form-row cols-2 mb-3">
+                    <div class="field">
+                      <label for="tds{{ slip.id }}">Income Tax (TDS) (₹)</label>
+                      <input id="tds{{ slip.id }}" name="tds" type="number" min="0" step="1" value="{{ slip.tds | round(0) | int }}">
+                      <div class="hint">Calculated from tax profile. Override only if instructed.</div>
+                    </div>
+                    <div class="field">
+                      <label for="tdsnote{{ slip.id }}">TDS Note / Reason</label>
+                      <input id="tdsnote{{ slip.id }}" name="tds_note" type="text" placeholder="e.g. Extra TDS deduction as per employee request" value="{{ slip.tds_note or '' }}">
+                    </div>
+                  </div>
+
+                  <div style="font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.5rem">
+                    3. Remarks on Payslip
+                  </div>
+                  <div class="field mb-3">
+                    <label for="note{{ slip.id }}">General Remarks (Printed on payslip)</label>
+                    <input id="note{{ slip.id }}" name="note" type="text" placeholder="Overall remarks or message to employee" value="{{ slip.note or '' }}">
+                  </div>
+
+                  <div class="card-foot" style="background: var(--subtle); border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.5rem; margin: 0 -1.25rem -1.25rem; padding: 0.75rem 1.25rem">
+                    <button class="btn" type="button" onclick="document.getElementById('adj-modal-{{ slip.id }}').close()">Cancel</button>
+                    <button class="btn btn-primary" type="submit">Save Adjustments</button>
+                  </div>
+                </form>
+              </div>
+            </dialog>
           {% endif %}
         {% else %}
           <tr><td colspan="11" class="empty-state">No payslips in this run.</td></tr>

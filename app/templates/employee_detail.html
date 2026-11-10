@@ -11,9 +11,22 @@
       {% if employee.department %}· {{ employee.department }}{% endif %}
       · joined {{ employee.joined_on | nice_date }}
       <span class="chip {{ 'chip-ok' if employee.status == 'active' else 'chip-muted' }}" style="margin-left:.35rem">{{ employee.status }}</span>
+      {% if employee.remote_work_enabled %}
+        <span class="chip chip-ok" style="margin-left:.35rem;background:#EBF5EC;color:#1E7E34;font-weight:600">Remote (WFH)</span>
+      {% endif %}
     </div>
   </div>
   <div class="page-actions">
+    <form method="post" action="/employees/{{ employee.id }}/toggle-remote" style="display:inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button class="btn" type="submit" title="Toggle Remote Work / WFH permission">
+        {% if employee.remote_work_enabled %}
+          Disable Remote
+        {% else %}
+          Enable Remote (WFH)
+        {% endif %}
+      </button>
+    </form>
     <a class="btn" href="/attendance?day={{ today.isoformat() }}">Attendance board</a>
     <a class="btn" href="/employees/{{ employee.id }}/payslips">Payslips</a>
     <a class="btn" href="/tax/employee/{{ employee.id }}">Tax / TDS</a>
@@ -448,6 +461,13 @@
           <div><span class="k">Type</span><span class="v">{{ employee.employment_type.replace('_', ' ') }}</span></div>
           <div><span class="k">Joined</span><span class="v">{{ employee.joined_on | nice_date }}</span></div>
           <div><span class="k">Service</span><span class="v">{{ balance.months_of_service }} months</span></div>
+          <div><span class="k">Work mode</span><span class="v">
+            {% if employee.remote_work_enabled %}
+              <span class="chip chip-ok" style="font-size:0.75rem">Remote (WFH enabled)</span>
+            {% else %}
+              <span class="chip chip-muted" style="font-size:0.75rem">On-site only</span>
+            {% endif %}
+          </span></div>
         </div>
         {% if employee.notes %}<hr class="divider"><div class="small muted">{{ employee.notes }}</div>{% endif %}
       </div>

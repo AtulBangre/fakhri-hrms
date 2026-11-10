@@ -90,7 +90,7 @@
               {% endif %}
               <div class="who">
                 <a href="/employees/{{ person.id }}"><strong>{{ person.name }}</strong></a>
-                <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}{% if person.status != 'active' %}<span class="m-only"> · {{ person.status }}</span>{% endif %}</span>
+                <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}{% if person.remote_work_enabled %}<span class="chip chip-ok" style="font-size:0.65rem;padding:0.1rem 0.35rem;margin-left:0.25rem">Remote</span>{% endif %}{% if person.status != 'active' %}<span class="m-only"> · {{ person.status }}</span>{% endif %}</span>
               </div>
             </div>
           </td>

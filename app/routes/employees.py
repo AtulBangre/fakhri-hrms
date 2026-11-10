@@ -247,6 +247,9 @@ def new_page(request: Request, user: SessionUser = Depends(require_hr), storage=
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
         form={},
+        pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
+        pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
+        pl_accrual_default=storage.get_float("pl_accrual_per_month", 0.5),
     )
 
 
@@ -263,6 +266,9 @@ def _form_error(request, user, storage, data, message):
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
+        pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
+        pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
+        pl_accrual_default=storage.get_float("pl_accrual_per_month", 0.5),
         status_code=422,
     )
 
@@ -297,6 +303,7 @@ async def create(
         "custom_pl_accrual": text("custom_pl_accrual") or None,
         "custom_sl_quota": text("custom_sl_quota") or None,
         "custom_cl_quota": text("custom_cl_quota") or None,
+        "remote_work_enabled": 1 if text("remote_work_enabled") in ("1", "on", "true") else 0,
         **{field: text(field) for field in IDENTITY_FIELDS},
         "skip_documents": text("skip_documents"), "create_login": text("create_login"),
         "send_welcome": text("send_welcome"), "portal_username": text("portal_username"),
@@ -414,6 +421,9 @@ def edit_page(
         masked_aadhaar=employees_service.masked_aadhaar(employee.get("aadhaar_last4")),
         self_punch_labels=employees_service.SELF_PUNCH_LABELS,
         company_punch_mode=storage.get_setting("allow_employee_self_punch", "disabled"),
+        pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
+        pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
+        pl_accrual_default=storage.get_float("pl_accrual_per_month", 0.5),
     )
 
 
@@ -516,6 +526,7 @@ def update(
     custom_pl_accrual: str = Form(""),
     custom_sl_quota: str = Form(""),
     custom_cl_quota: str = Form(""),
+    remote_work_enabled: str = Form("0"),
 ):
     from ..auth import verify_form_csrf
 
@@ -535,6 +546,7 @@ def update(
         "custom_pl_accrual": float(custom_pl_accrual) if custom_pl_accrual.strip() else None,
         "custom_sl_quota": float(custom_sl_quota) if custom_sl_quota.strip() else None,
         "custom_cl_quota": float(custom_cl_quota) if custom_cl_quota.strip() else None,
+        "remote_work_enabled": 1 if remote_work_enabled in ("1", "on", "true") else 0,
     }
     if aadhaar.strip():  # empty means "keep what is on file"
         data["aadhaar"] = aadhaar
@@ -552,6 +564,26 @@ def update(
     except employees_service.ValidationError as exc:
         return redirect(f"/employees/{employee_id}/edit", err=str(exc))
     return redirect(f"/employees/{employee_id}", ok="Employee details updated.")
+
+
+@router.post("/{employee_id}/toggle-remote")
+def toggle_remote(
+    employee_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+):
+    from ..auth import verify_form_csrf
+
+    verify_form_csrf(user, csrf)
+    emp = employees_service.get_employee(storage, employee_id)
+    if emp is None:
+        return redirect("/employees", err="Employee not found.")
+    new_val = 0 if emp.get("remote_work_enabled") else 1
+    employees_service.update_employee(storage, employee_id, {"remote_work_enabled": new_val})
+    storage.audit(actor=user.username, action="toggle_remote_work", entity="employee", entity_id=employee_id, detail=f"remote_work={new_val}")
+    status_label = "enabled" if new_val else "disabled"
+    return redirect(f"/employees/{employee_id}", ok=f"Remote work {status_label} for {emp['name']}.")
 
 
 @router.post("/{employee_id}/salary")

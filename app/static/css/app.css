@@ -1082,6 +1082,14 @@ details.disclosure > form, details.disclosure > div:not(.card-body) { padding: .
   padding: .75rem 1.1rem; border-top: 1px solid var(--border); background: var(--subtle);
 }
 
+dialog.modal-dialog {
+  margin: auto; border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--card); color: var(--ink); box-shadow: var(--shadow-lg);
+}
+dialog.modal-dialog::backdrop {
+  background: rgba(24, 24, 27, .45); backdrop-filter: blur(2px);
+}
+
 /* Interactive register pills */
 table.register td.interactive-cell {
   cursor: pointer; transition: transform .1s ease, box-shadow .1s ease;
