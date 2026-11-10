@@ -166,8 +166,8 @@ def _my_month(storage: Storage, settings: Settings, employee: dict) -> dict[str,
 
 def _my_leave(storage: Storage, settings: Settings, employee: dict, tokens: set[str]) -> dict[str, Any]:
     bal = leave_service.balance(storage, settings, employee["id"])
-    lines = [f"You have {_number(bal['available'])} paid leave days available."]
-    lines.append(f"Earned {_number(bal['accrued'])}, taken {_number(bal['used_paid'])}, "
+    lines = [f"You have {_number(bal['available'])} paid leave days available ({_number(bal['total_available'])} total leaves available across all quotas)."]
+    lines.append(f"Earned PL {_number(bal['accrued'])}, total leave taken {_number(bal['total_used'])}, "
                  f"waiting for approval {_number(bal['pending'])}.")
     if bal["used_unpaid"]:
         lines.append(f"Unpaid leave taken: {_number(bal['used_unpaid'])}.")
@@ -343,7 +343,7 @@ def _hr_person(storage: Storage, settings: Settings, person: dict) -> dict[str, 
     if row:
         text += (f"\nToday: {row['status_label']}, in {row['check_in_label']}, out {row['check_out_label']}"
                  + (f", {row['late_minutes']} minutes late." if row["late_minutes"] else "."))
-    text += f"\nLeave available: {_number(bal['available'])} days."
+    text += f"\nLeave available: {_number(bal['total_available'])} days (PL: {_number(bal['pl_available'])}, SL: {_number(bal['sl_available'])}, CL: {_number(bal['cl_available'])})."
     return _reply(text, ["Today's attendance", "Pending approvals"], ("Open employee", f"/employees/{person['id']}"))
 
 

@@ -168,22 +168,20 @@
         <span class="small muted">accrued from joining date, {{ balances[0].accrual_per_month if balances else 1.5 }}/month</span></div>
       <div class="table-wrap">
         <table class="data stack">
-          <thead><tr><th>Employee</th><th class="num">Months</th><th class="num">Accrued</th><th class="num">Paid taken</th><th class="num">Unpaid taken</th><th class="num">Balance</th></tr></thead>
+          <thead><tr><th>Employee</th><th class="num">Months</th><th class="num">Accrued PL</th><th class="num">Leave taken</th><th class="num">Unpaid</th><th class="num">Total available</th></tr></thead>
           <tbody>
           {% for item in balances %}
             <tr>
               <td data-label="Employee"><a href="/employees/{{ item.employee.id }}">{{ item.employee.name }}</a>
                 <span class="sub">{{ item.employee.code }}</span></td>
               <td data-label="Months" class="num">{{ item.months_of_service }}</td>
-              <td data-label="Accrued" class="num">{{ item.accrued | number }}</td>
-              <td data-label="Paid taken" class="num">{{ item.used_paid | number }}</td>
-              <td data-label="Unpaid taken" class="num">{{ item.used_unpaid | number }}</td>
-              <td data-label="Balance" class="num">
+              <td data-label="Accrued PL" class="num">{{ item.accrued | number }}</td>
+              <td data-label="Leave taken" class="num">{{ item.total_used | number }}</td>
+              <td data-label="Unpaid" class="num">{{ item.used_unpaid | number }}</td>
+              <td data-label="Total available" class="num">
                 <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
-                  <span class="chip {{ 'chip-ok' if item.balance >= 0 else 'chip-danger' }}" style="font-weight:700">{{ item.balance | number }}</span>
-                  <div style="width:65px;height:5px;background:#e5e7eb;border-radius:999px;overflow:hidden" title="PL quota consumed: {{ item.quotas[0].pct if item.quotas else 0 }}%">
-                    <div style="height:100%;width:{{ [item.quotas[0].pct if item.quotas else 0, 100] | min }}%;background:var(--primary)"></div>
-                  </div>
+                  <span class="chip {{ 'chip-ok' if item.total_available >= 0 else 'chip-danger' }}" style="font-weight:700" title="PL: {{ item.pl_available | number }} | SL: {{ item.sl_available | number }} | CL: {{ item.cl_available | number }}">{{ item.total_available | number }} days</span>
+                  <span class="small muted" style="font-size:0.75rem">PL: {{ item.pl_available | number }} · SL: {{ item.sl_available | number }} · CL: {{ item.cl_available | number }}</span>
                 </div>
               </td>
             </tr>

@@ -29,7 +29,7 @@
         <div class="value">{{ summary.present | number }}</div>
         <div class="foot">{{ summary.half_days | number }} half day · {{ summary.late_marks }} late</div>
       </div>
-      <div class="stat"><div class="label">Paid leave</div><div class="value">{{ summary.paid_leave | number }}</div><div class="foot">balance {{ balance.balance | number }} days</div></div>
+      <div class="stat"><div class="label">Leave balance</div><div class="value">{{ balance.total_available | number }}<small style="font-size:0.8rem;font-weight:normal;color:var(--muted)"> days</small></div><div class="foot">PL: {{ balance.pl_available | number }} · SL: {{ balance.sl_available | number }} · CL: {{ balance.cl_available | number }}</div></div>
       <div class="stat {{ 'danger' if summary.absent else 'ok' }}"><div class="label">Absent (LOP)</div><div class="value">{{ (summary.absent + summary.unpaid_leave) | number }}</div><div class="foot">{{ summary.unpaid_leave | number }} unpaid leave</div></div>
       <div class="stat"><div class="label">Worked hours</div><div class="value">{{ (summary.worked_minutes / 60) | round(0) | int }}h</div><div class="foot">{{ period_label }}</div></div>
     </div>
@@ -108,7 +108,7 @@
       <div class="card-head">
         <h2>Leave</h2>
         <span class="spacer"></span>
-        <span class="chip chip-info">balance {{ balance.balance | number }} / accrued {{ balance.accrued | number }}</span>
+        <span class="chip chip-info" title="PL: {{ balance.pl_available | number }} / {{ balance.accrued | number }} | SL: {{ balance.sl_available | number }} / {{ balance.annual_sl | number }} | CL: {{ balance.cl_available | number }} / {{ balance.annual_cl | number }}">Total available: {{ balance.total_available | number }} days (PL: {{ balance.pl_available | number }}, SL: {{ balance.sl_available | number }}, CL: {{ balance.cl_available | number }})</span>
       </div>
       <div class="table-wrap">
         <table class="data m-table">

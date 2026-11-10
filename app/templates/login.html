@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -10,110 +11,120 @@
   <link rel="apple-touch-icon" href="/static/img/icon-192.png?v={{ asset_version }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@500;600;700&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="/static/css/app.css?v={{ asset_version }}">
 </head>
-<body>
-<div class="auth-wrap">
-  <div class="auth-card">
-    <div class="auth-head">
-      <span class="brand-mark">F</span>
-      <h1>{{ org_name }}</h1>
-      <p>{{ brand.tagline }}</p>
-    </div>
-    <div class="auth-body">
-      {% if error %}<div class="alert alert-err"><div>{{ error }}</div></div>{% endif %}
 
-      <form id="passwordLoginForm" method="post" action="/login" autocomplete="on">
-        <input type="hidden" name="next" value="{{ next_url or '' }}">
-        <div class="field">
-          <label for="username">Username, email or mobile number</label>
-          <input id="username" name="username" type="text" required autofocus
-                 autocapitalize="none" autocomplete="username" value="{{ username_value or '' }}"
-                 placeholder="username / email / mobile">
-        </div>
-        <div class="field">
-          <label for="password">Password</label>
-          <div style="position:relative;display:flex;align-items:center">
-            <input id="password" name="password" type="password" required autocomplete="current-password"
-                   placeholder="••••••••" style="padding-right:2.6rem;width:100%">
-            <button type="button" id="toggle-password" aria-label="Show or hide password" title="Show/Hide password"
-                    style="position:absolute;right:0;top:0;bottom:0;min-width:44px;background:none;border:none;cursor:pointer;padding:0;color:var(--muted);display:inline-flex;align-items:center;justify-content:center">
-              <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                <circle cx="12" cy="12" r="3"></circle>
-              </svg>
-              <svg id="eye-off-icon" style="display:none" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                <line x1="1" y1="1" x2="23" y2="23"></line>
-              </svg>
-            </button>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-head">
+        <span class="brand-mark">F</span>
+        <h1>{{ org_name }}</h1>
+        <p>{{ brand.tagline }}</p>
+      </div>
+      <div class="auth-body">
+        {% if error %}<div class="alert alert-err">
+          <div>{{ error }}</div>
+        </div>{% endif %}
+
+        <form id="passwordLoginForm" method="post" action="/login" autocomplete="on">
+          <input type="hidden" name="next" value="{{ next_url or '' }}">
+          <div class="field">
+            <label for="username">Username, email or mobile number</label>
+            <input id="username" name="username" type="text" required autofocus autocapitalize="none"
+              autocomplete="username" value="{{ username_value or '' }}" placeholder="username / email / mobile">
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <div style="position:relative;display:flex;align-items:center">
+              <input id="password" name="password" type="password" required autocomplete="current-password"
+                placeholder="••••••••" style="padding-right:2.6rem;width:100%">
+              <button type="button" id="toggle-password" aria-label="Show or hide password" title="Show/Hide password"
+                style="position:absolute;right:0;top:0;bottom:0;min-width:44px;background:none;border:none;cursor:pointer;padding:0;color:var(--muted);display:inline-flex;align-items:center;justify-content:center">
+                <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <svg id="eye-off-icon" style="display:none" xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <path
+                    d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24">
+                  </path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block btn-lg" type="submit">Sign in</button>
+          <div class="center mt-2"><a class="small" href="/forgot-password">Forgot your password?</a></div>
+        </form>
+
+        <!-- Face Login Scanner View -->
+        <div id="faceLoginView" hidden class="face-login-view" style="display:none;">
+          <div class="center mb-2" style="width:100%">
+            <h2 style="font-size:1.15rem;margin:0 0 .25rem 0">Face Sign-in</h2>
+            <p class="small muted mb-0">Look directly into the camera to sign in</p>
+          </div>
+          <div class="face-scanner-box">
+            <video id="faceVideo" autoplay playsinline muted></video>
+            <div class="face-oval-guide" id="faceOvalGuide"></div>
+          </div>
+          <div id="faceLoginStatus" class="face-status-text" role="status">Position your face in the oval</div>
+          <div class="mt-2" style="width:100%;display:flex;flex-direction:column;gap:.5rem">
+            <button class="btn btn-primary btn-block btn-lg" type="button" id="triggerFaceScanBtn">Scan Face</button>
+            <button class="btn btn-ghost btn-block" type="button" id="closeFaceScanBtn">Cancel and use password</button>
           </div>
         </div>
-        <button class="btn btn-primary btn-block btn-lg" type="submit">Sign in</button>
-        <div class="center mt-2"><a class="small" href="/forgot-password">Forgot your password?</a></div>
-      </form>
 
-      <!-- Face Login Scanner View -->
-      <div id="faceLoginView" hidden class="face-login-view" style="display:none;">
-        <div class="center mb-2" style="width:100%">
-          <h2 style="font-size:1.15rem;margin:0 0 .25rem 0">Face Sign-in</h2>
-          <p class="small muted mb-0">Look directly into the camera to sign in</p>
-        </div>
-        <div class="face-scanner-box">
-          <video id="faceVideo" autoplay playsinline muted></video>
-          <div class="face-oval-guide" id="faceOvalGuide"></div>
-        </div>
-        <div id="faceLoginStatus" class="face-status-text" role="status">Position your face in the oval</div>
-        <div class="mt-2" style="width:100%;display:flex;flex-direction:column;gap:.5rem">
-          <button class="btn btn-primary btn-block btn-lg" type="button" id="triggerFaceScanBtn">Scan Face</button>
-          <button class="btn btn-ghost btn-block" type="button" id="closeFaceScanBtn">Cancel and use password</button>
-        </div>
-      </div>
+        <!-- Instant Alternative Logins -->
+        <div id="instantAuthOptions">
+          <div class="divider"></div>
+          <div id="faceLoginOption" class="mt-2" hidden>
+            <button class="btn btn-block btn-lg btn-face-login" type="button" id="openFaceScanBtn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+                <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+                <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+                <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+                <path d="M9 9h.01"></path>
+                <path d="M15 9h.01"></path>
+                <path d="M10 13a4 4 0 0 0 4 0"></path>
+              </svg>
+              Sign in with Face
+            </button>
+          </div>
 
-      <!-- Instant Alternative Logins -->
-      <div id="instantAuthOptions">
-        <div class="divider"></div>
-        <div id="faceLoginOption" class="mt-2" hidden>
-          <button class="btn btn-block btn-lg btn-face-login" type="button" id="openFaceScanBtn">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
-              <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
-              <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
-              <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
-              <path d="M9 9h.01"></path>
-              <path d="M15 9h.01"></path>
-              <path d="M10 13a4 4 0 0 0 4 0"></path>
-            </svg>
-            Sign in with Face
-          </button>
+          <div data-passkey-area hidden class="mt-2">
+            <button class="btn btn-ghost btn-block" type="button" id="passkeyLogin">Sign in with device passkey</button>
+            <div class="small muted center mt-1" id="passkeyNote" role="status"></div>
+          </div>
         </div>
+        <script>
+          (function () {
+            var btn = document.getElementById('toggle-password');
+            var input = document.getElementById('password');
+            var eye = document.getElementById('eye-icon');
+            var eyeOff = document.getElementById('eye-off-icon');
+            if (btn && input) {
+              btn.addEventListener('click', function () {
+                var show = input.type === 'password';
+                input.type = show ? 'text' : 'password';
+                if (eye && eyeOff) {
+                  eye.style.display = show ? 'none' : 'inline-block';
+                  eyeOff.style.display = show ? 'inline-block' : 'none';
+                }
+              });
+            }
+          })();
+        </script>
 
-        <div data-passkey-area hidden class="mt-2">
-          <button class="btn btn-ghost btn-block" type="button" id="passkeyLogin">Sign in with device passkey</button>
-          <div class="small muted center mt-1" id="passkeyNote" role="status"></div>
-        </div>
-      </div>
-      <script>
-        (function() {
-          var btn = document.getElementById('toggle-password');
-          var input = document.getElementById('password');
-          var eye = document.getElementById('eye-icon');
-          var eyeOff = document.getElementById('eye-off-icon');
-          if (btn && input) {
-            btn.addEventListener('click', function() {
-              var show = input.type === 'password';
-              input.type = show ? 'text' : 'password';
-              if (eye && eyeOff) {
-                eye.style.display = show ? 'none' : 'inline-block';
-                eyeOff.style.display = show ? 'inline-block' : 'none';
-              }
-            });
-          }
-        })();
-      </script>
-
-      <div class="divider"></div>
+        <!-- <div class="divider"></div>
 
       <div class="small muted">
         <p class="mb-1"><strong>HR login</strong> — full access to people, attendance, leave and payroll.</p>
@@ -121,20 +132,22 @@
           Ask HR if you do not have one yet.</p>
         <p class="mb-0"><strong>Gate / kiosk login</strong> — opens the face scanner only. Put it on the
           phone or tablet at the gate and “Add to Home screen” so it installs as an app.</p>
-      </div>
+      </div> -->
 
-      {% if demo_hint %}
+        {% if demo_hint %}
         <div class="alert alert-info mt-2" style="margin-bottom:0">
           <div class="small">First run: the generated HR and kiosk passwords are in
             <span class="mono">data/initial_credentials.txt</span> on the server (they are also printed in the
-            server log once). Sign in as <span class="mono">hr</span> and change them in Settings.</div>
+            server log once). Sign in as <span class="mono">hr</span> and change them in Settings.
+          </div>
         </div>
-      {% endif %}
+        {% endif %}
+      </div>
     </div>
   </div>
-</div>
   <script src="/static/js/pwa.js?v={{ asset_version }}" defer></script>
   <script src="/static/js/passkey.js?v={{ asset_version }}" defer></script>
   <script src="/static/js/face-login.js?v={{ asset_version }}" defer></script>
 </body>
+
 </html>

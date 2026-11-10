@@ -176,7 +176,7 @@ def apply_leave(
     locks.assert_period_open(storage, start, end)
     _check_overlap(storage, employee_id, start, end)
     if leave_type in orgtime.PAID_LEAVE_TYPES and not allow_negative:
-        _check_balance(storage, settings, employee_id, days)
+        _check_balance(storage, settings, employee_id, days, leave_type=leave_type)
 
     now = utcnow_iso()
     cursor = storage.execute(
@@ -237,19 +237,57 @@ def _check_overlap(storage: Storage, employee_id: int, start: date, end: date) -
 
 
 def _check_balance(storage: Storage, settings: Settings, employee_id: int, days: float,
-                   *, ignore_pending_id: int | None = None) -> None:
+                   *, leave_type: str | None = None, ignore_pending_id: int | None = None) -> None:
     info = balance(storage, settings, employee_id)
-    available = info["available"]
-    if ignore_pending_id is not None:
-        pending_self = storage.scalar(
-            "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type IN ('paid','sick','casual')",
-            (ignore_pending_id,), 0,
-        )
-        available += float(pending_self or 0)
+    if leave_type == "sick":
+        quota_label = "sick leave"
+        available = info["sl_available"]
+        allocated = info["annual_sl"]
+        used = info["used_sl"]
+        if ignore_pending_id is not None:
+            pending_self = storage.scalar(
+                "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type = 'sick'",
+                (ignore_pending_id,), 0,
+            )
+            available += float(pending_self or 0)
+    elif leave_type == "casual":
+        quota_label = "casual leave"
+        available = info["cl_available"]
+        allocated = info["annual_cl"]
+        used = info["used_cl"]
+        if ignore_pending_id is not None:
+            pending_self = storage.scalar(
+                "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type = 'casual'",
+                (ignore_pending_id,), 0,
+            )
+            available += float(pending_self or 0)
+    elif leave_type == "paid":
+        quota_label = "paid leave"
+        available = info["pl_available"]
+        allocated = info["accrued"]
+        used = info["used_pl"]
+        if ignore_pending_id is not None:
+            pending_self = storage.scalar(
+                "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type = 'paid'",
+                (ignore_pending_id,), 0,
+            )
+            available += float(pending_self or 0)
+    else:
+        quota_label = "leave"
+        available = info["total_available"]
+        allocated = info["total_allocated"]
+        used = info["total_used"]
+        if ignore_pending_id is not None:
+            pending_self = storage.scalar(
+                "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type IN ('paid','sick','casual')",
+                (ignore_pending_id,), 0,
+            )
+            available += float(pending_self or 0)
+
     if days > available + 1e-9:
         raise employees_service.ValidationError(
-            f"Not enough leave balance: {days:g} day(s) requested, {max(available, 0):g} available "
-            f"({info['balance']:g} earned and unused, {info['pending_paid']:g} already requested)."
+            f"Not enough {quota_label} balance: {days:g} day(s) requested, {max(available, 0):g} available "
+            f"({allocated:g} quota, {used:g} taken)."
         )
 
 
@@ -285,7 +323,7 @@ def approve_leave(
     locks.assert_period_open(storage, leave["from_date"], leave["to_date"])
     if leave["leave_type"] in orgtime.PAID_LEAVE_TYPES and leave["status"] == "pending" and not allow_negative:
         _check_balance(storage, storage_settings(storage), leave["employee_id"], float(leave["days"]),
-                       ignore_pending_id=leave_id)
+                       leave_type=leave["leave_type"], ignore_pending_id=leave_id)
     applied, skipped = stamp_attendance(storage, leave, actor=actor)
     if not applied:
         raise employees_service.ValidationError(
@@ -459,6 +497,28 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         )
     )
 
+    pending_pl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'paid'",
+            (employee_id,),
+        ) or 0
+    )
+    pending_sl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'sick'",
+            (employee_id,),
+        ) or 0
+    )
+    pending_cl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'casual'",
+            (employee_id,),
+        ) or 0
+    )
+
     used_pl = float(
         storage.scalar(
             "SELECT COALESCE(SUM(days),0) FROM leave_requests "
@@ -486,6 +546,13 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
     custom_cl = employee.get("custom_cl_quota")
     annual_cl = float(custom_cl) if custom_cl is not None and str(custom_cl).strip() != "" else storage.get_float("cl_annual_quota", 8.0)
 
+    pl_available = max(round(accrued - used_pl - pending_pl, 1), 0.0)
+    sl_available = max(round(annual_sl - used_sl - pending_sl, 1), 0.0)
+    cl_available = max(round(annual_cl - used_cl - pending_cl, 1), 0.0)
+    total_available = round(pl_available + sl_available + cl_available, 1)
+    total_allocated = round(accrued + annual_sl + annual_cl, 1)
+    total_used = round(used_pl + used_sl + used_cl, 1)
+
     quotas = [
         {
             "code": "PL",
@@ -493,6 +560,7 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             "used": round(used_pl, 1),
             "allocated": round(accrued, 1),
             "remaining": max(round(accrued - used_pl, 1), 0),
+            "available": pl_available,
             "pct": min(int(round((used_pl / max(accrued, 1)) * 100)), 100),
             "color": "var(--primary)",
             "bg": "var(--primary-soft)",
@@ -504,6 +572,7 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             "used": round(used_sl, 1),
             "allocated": round(annual_sl, 1),
             "remaining": max(round(annual_sl - used_sl, 1), 0),
+            "available": sl_available,
             "pct": min(int(round((used_sl / max(annual_sl, 1)) * 100)), 100),
             "color": "#0D9488",
             "bg": "#F0FDFA",
@@ -515,6 +584,7 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             "used": round(used_cl, 1),
             "allocated": round(annual_cl, 1),
             "remaining": max(round(annual_cl - used_cl, 1), 0),
+            "available": cl_available,
             "pct": min(int(round((used_cl / max(annual_cl, 1)) * 100)), 100),
             "color": "#D97706",
             "bg": "#FFFBEB",
@@ -532,6 +602,20 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         "balance": round(accrued - used_paid, 2),
         "pending_paid": round(pending_paid, 2),
         "available": round(accrued - used_paid - pending_paid, 2),
+        "total_available": total_available,
+        "total_allocated": total_allocated,
+        "total_used": total_used,
+        "pl_available": pl_available,
+        "sl_available": sl_available,
+        "cl_available": cl_available,
+        "annual_sl": annual_sl,
+        "annual_cl": annual_cl,
+        "used_pl": used_pl,
+        "used_sl": used_sl,
+        "used_cl": used_cl,
+        "pending_pl": pending_pl,
+        "pending_sl": pending_sl,
+        "pending_cl": pending_cl,
         "quotas": quotas,
         "joined_on": employee.get("joined_on"),
         "as_of": as_of.isoformat(),

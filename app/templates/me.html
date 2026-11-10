@@ -145,16 +145,16 @@
     <div class="card mb-3 me-order-2">
       <div class="card-head"><h3>Leave balance</h3></div>
       <div class="card-body">
-        <div class="me-big">{{ balance.balance | number }}<small>days</small></div>
+        <div class="me-big">{{ balance.total_available | number }}<small>days available</small></div>
         <div class="progress">
-          {% set leave_pct = [[(balance.used_paid / balance.accrued * 100) if balance.accrued else 0, 100] | min, 0] | max | round(1) %}
+          {% set leave_pct = [[(balance.total_used / balance.total_allocated * 100) if balance.total_allocated else 0, 100] | min, 0] | max | round(1) %}
           <span {{ ('style="width: ' ~ leave_pct ~ '%;"') | safe }}></span>
         </div>
         <div class="kv small">
-          <div><span class="k">Earned</span><span class="v">{{ balance.accrued | number }}</span></div>
-          <div><span class="k">Taken</span><span class="v">{{ balance.used_paid | number }}</span></div>
+          <div><span class="k">Paid leave (PL)</span><span class="v">{{ balance.pl_available | number }} / {{ balance.accrued | number }}</span></div>
+          <div><span class="k">Sick leave (SL)</span><span class="v">{{ balance.sl_available | number }} / {{ balance.annual_sl | number }}</span></div>
+          <div><span class="k">Casual leave (CL)</span><span class="v">{{ balance.cl_available | number }} / {{ balance.annual_cl | number }}</span></div>
           <div><span class="k">Pending approval</span><span class="v">{{ balance.pending | number }}</span></div>
-          <div><span class="k">Accrual</span><span class="v">{{ balance.accrual_per_month | number }} / month</span></div>
         </div>
       </div>
     </div>
