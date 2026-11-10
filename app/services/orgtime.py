@@ -128,6 +128,13 @@ def fiscal_year(period: str) -> str:
     return f"{start}-{str(start + 1)[-2:]}"
 
 
+def fiscal_year_bounds(ref: date | str) -> tuple[date, date]:
+    """Returns (start_date, end_date) for the Indian fiscal year (April 1 to March 31)."""
+    d = parse_date(ref) if isinstance(ref, str) else ref
+    start_year = d.year if d.month >= 4 else d.year - 1
+    return date(start_year, 4, 1), date(start_year + 1, 3, 31)
+
+
 def fiscal_year_months(fy: str) -> list[str]:
     """The twelve ``YYYY-MM`` periods of a financial year, April first."""
     start = int(fy.split("-")[0])

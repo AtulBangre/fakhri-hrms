@@ -674,11 +674,16 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
 
 .kiosk-body {
   margin: 0;
-  min-height: 100vh;
+  height: 100vh;
   height: 100dvh;
+  max-height: 100dvh;
+  position: fixed;
+  inset: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-sizing: border-box;
   background: #0b0709;
   color: #fff;
   font-family: var(--font-body);
@@ -740,15 +745,45 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
   letter-spacing: .01em;
 }
 .kiosk-quit { margin: 0; }
-.kiosk-quit button {
+.kiosk-quit button,
+.kiosk-exit-btn {
   width: 36px; height: 36px;
   display: grid; place-items: center;
   border-radius: 10px; cursor: pointer;
   border: 1px solid rgba(255, 255, 255, .25);
   background: rgba(255, 255, 255, .12);
   color: #fff; font-size: 1rem; line-height: 1;
+  text-decoration: none;
+  transition: background .15s ease;
+  flex: none;
 }
-.kiosk-quit button:active { background: rgba(255, 255, 255, .26); }
+.kiosk-quit button:active,
+.kiosk-exit-btn:active { background: rgba(255, 255, 255, .26); }
+
+.kiosk-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .35rem .75rem .35rem .55rem;
+  background: rgba(255, 255, 255, .18);
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 999px;
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: .82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background .15s ease, transform .1s ease;
+  white-space: nowrap;
+  flex: none;
+}
+.kiosk-back-btn:hover,
+.kiosk-back-btn:active {
+  background: rgba(255, 255, 255, .32);
+  color: #fff;
+  text-decoration: none;
+  transform: scale(.97);
+}
 
 /* -- camera stage ----------------------------------------------------------- */
 .kiosk-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -774,11 +809,11 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
 
 /* the oval the person lines up with */
 .kiosk-guide {
-  position: absolute; top: 46%; left: 50%;
+  position: absolute; top: 44%; left: 50%;
   transform: translate(-50%, -50%);
-  width: min(66%, 340px);
+  width: min(64%, 280px);
   aspect-ratio: 3 / 4;
-  border: 3px dashed rgba(255, 255, 255, .5);
+  border: 3px dashed rgba(255, 255, 255, .55);
   border-radius: 50% / 42%;
   transition: border-color .18s ease, border-style .18s ease, width .18s ease;
   pointer-events: none;
@@ -925,34 +960,37 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
   align-items: center;
   justify-content: center;
   gap: 2.6rem;
-  padding: .85rem 1rem calc(.85rem + env(safe-area-inset-bottom));
+  padding: .65rem 1rem calc(.75rem + env(safe-area-inset-bottom, 12px));
   background: #0b0709;
-  border-top: 1px solid rgba(255, 255, 255, .07);
+  border-top: 1px solid rgba(255, 255, 255, .1);
+  box-sizing: border-box;
+  position: relative;
+  z-index: 10;
 }
 .dock-btn {
   display: flex; flex-direction: column; align-items: center; gap: .25rem;
-  width: 68px; padding: 0;
+  width: 72px; padding: 0;
   background: none; border: 0; cursor: pointer;
-  color: rgba(255, 255, 255, .8);
+  color: rgba(255, 255, 255, .85);
   font-family: var(--font-body);
 }
 .dock-btn .ico {
-  width: 54px; height: 54px;
+  width: 50px; height: 50px;
   display: grid; place-items: center;
   border-radius: 50%;
-  font-size: 1.35rem;
-  background: rgba(255, 255, 255, .09);
-  border: 1px solid rgba(255, 255, 255, .14);
+  font-size: 1.3rem;
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .18);
   transition: background .15s ease, transform .1s ease, border-color .15s ease;
 }
-.dock-btn .lbl { font-size: .7rem; letter-spacing: .02em; }
+.dock-btn .lbl { font-size: .72rem; font-weight: 500; letter-spacing: .02em; color: rgba(255, 255, 255, .85); }
 .dock-btn:active .ico { transform: scale(.94); }
 .dock-btn.is-on .ico {
   background: var(--primary);
   border-color: var(--primary-light);
   color: #fff;
 }
-.dock-btn.is-active .ico { background: rgba(255, 255, 255, .22); }
+.dock-btn.is-active .ico { background: rgba(255, 255, 255, .25); }
 
 @media (min-width: 720px) {
   /* Tablet on a stand: keep the camera centred and the dock compact. */

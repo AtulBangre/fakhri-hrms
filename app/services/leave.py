@@ -368,7 +368,7 @@ def reject_leave(
     return updated
 
 
-def cancel_leave(storage: Storage, leave_id: int, *, actor: str | None = None) -> dict[str, Any]:
+def cancel_leave(storage: Storage, leave_id: int, *, actor: str | None = None, allow_past: bool | None = None) -> dict[str, Any]:
     """Cancel a leave record and remove the attendance rows it created."""
     leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (leave_id,))
     if leave is None:
@@ -377,6 +377,13 @@ def cancel_leave(storage: Storage, leave_id: int, *, actor: str | None = None) -
         return leave
 
     if leave["status"] == "approved":
+        today = orgtime.today(storage_settings(storage))
+        to_d = orgtime.parse_date(leave["to_date"])
+        enforce_future = (actor is not None) if allow_past is None else (not allow_past)
+        if to_d < today and enforce_future:
+            raise employees_service.ValidationError(
+                f"Approved leave #{leave_id} cannot be cancelled because the leave date ({leave['to_date']}) has already passed."
+            )
         locks.assert_period_open(storage, leave["from_date"], leave["to_date"])
         unstamp_attendance(storage, leave)
     storage.execute(
@@ -453,9 +460,10 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
     """Accrued vs taken paid leave, counted from the joining date."""
     employee = employees_service.require_employee(storage, employee_id)
     as_of = as_of or orgtime.today(settings)
-    custom_pl = employee.get("custom_pl_accrual")
-    accrual = float(custom_pl) if custom_pl is not None and str(custom_pl).strip() != "" else storage.get_float("pl_accrual_per_month", 1.5)
+    fy_start, fy_end = orgtime.fiscal_year_bounds(as_of)
+    pl_policy_mode = storage.get_setting("pl_policy_mode", "accrual")
 
+    custom_pl = employee.get("custom_pl_quota") or employee.get("custom_pl_accrual")
     joined = orgtime.parse_date(employee["joined_on"]) if employee.get("joined_on") else as_of.replace(day=1)
     if as_of < joined:
         months = 0
@@ -466,15 +474,83 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         effective_join_day = min(joined.day, max_day)
         if as_of.day >= effective_join_day:
             months += 1  # the current month counts once its joining day has passed
-    accrued = round(months * accrual, 2)
 
-    used_paid = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) AS n FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'approved' AND leave_type IN ('paid','sick','casual')",
-            (employee_id,),
+    if pl_policy_mode == "fixed":
+        annual_pl = float(custom_pl) if custom_pl is not None and str(custom_pl).strip() != "" else storage.get_float("pl_annual_quota", 6.0)
+        accrued = round(annual_pl, 2)
+        accrual = round(annual_pl / 12.0, 2)
+        used_pl = float(
+            storage.scalar(
+                "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+                "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'paid' "
+                "AND from_date >= ? AND from_date <= ?",
+                (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+            ) or 0
         )
+        pending_pl = float(
+            storage.scalar(
+                "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+                "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'paid' "
+                "AND from_date >= ? AND from_date <= ?",
+                (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+            ) or 0
+        )
+    else:
+        accrual = float(custom_pl) if custom_pl is not None and str(custom_pl).strip() != "" else storage.get_float("pl_accrual_per_month", 1.5)
+        accrued = round(months * accrual, 2)
+        used_pl = float(
+            storage.scalar(
+                "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+                "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'paid'",
+                (employee_id,),
+            ) or 0
+        )
+        pending_pl = float(
+            storage.scalar(
+                "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+                "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'paid'",
+                (employee_id,),
+            ) or 0
+        )
+
+    # Annual quotas (Sick Leave & Casual Leave) reset each financial year
+    pending_sl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'sick' "
+            "AND from_date >= ? AND from_date <= ?",
+            (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+        ) or 0
     )
+    pending_cl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'casual' "
+            "AND from_date >= ? AND from_date <= ?",
+            (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+        ) or 0
+    )
+
+    used_sl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'sick' "
+            "AND from_date >= ? AND from_date <= ?",
+            (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+        ) or 0
+    )
+    used_cl = float(
+        storage.scalar(
+            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
+            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'casual' "
+            "AND from_date >= ? AND from_date <= ?",
+            (employee_id, fy_start.isoformat(), fy_end.isoformat()),
+        ) or 0
+    )
+
+    used_paid = round(used_pl + used_sl + used_cl, 2)
+    pending_paid = round(pending_pl + pending_sl + pending_cl, 2)
+
     used_unpaid = float(
         storage.scalar(
             "SELECT COALESCE(SUM(days),0) AS n FROM leave_requests "
@@ -488,57 +564,6 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
             "WHERE employee_id = ? AND status = 'pending'",
             (employee_id,),
         )
-    )
-    pending_paid = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) AS n FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'pending' AND leave_type IN ('paid','sick','casual')",
-            (employee_id,),
-        )
-    )
-
-    pending_pl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'paid'",
-            (employee_id,),
-        ) or 0
-    )
-    pending_sl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'sick'",
-            (employee_id,),
-        ) or 0
-    )
-    pending_cl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'casual'",
-            (employee_id,),
-        ) or 0
-    )
-
-    used_pl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'paid'",
-            (employee_id,),
-        ) or 0
-    )
-    used_sl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'sick'",
-            (employee_id,),
-        ) or 0
-    )
-    used_cl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'casual'",
-            (employee_id,),
-        ) or 0
     )
     custom_sl = employee.get("custom_sl_quota")
     annual_sl = float(custom_sl) if custom_sl is not None and str(custom_sl).strip() != "" else storage.get_float("sl_annual_quota", 7.0)

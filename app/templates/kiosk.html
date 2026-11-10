@@ -20,9 +20,18 @@
 </head>
 <body class="kiosk-body">
 
-  {# ---- minimal bar: brand, scanner state, clock, sign out. Nothing personal. ---- #}
+  {# ---- minimal bar: brand, scanner state, clock, sign out or back to HR ---- #}
   <header class="kiosk-bar">
-    <span class="kiosk-logo" aria-hidden="true">F</span>
+    {% if user and user.is_hr %}
+      <a href="/dashboard" class="kiosk-back-btn" title="Back to HR Dashboard">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+        <span>Back</span>
+      </a>
+    {% else %}
+      <span class="kiosk-logo" aria-hidden="true">F</span>
+    {% endif %}
     <span class="kiosk-brand">
       <strong>{{ org_name }}</strong>
       <small>{{ device_label }}</small>
@@ -30,10 +39,19 @@
     <span class="kiosk-queue" id="offlineBadge" role="status" hidden></span>
     <span class="kiosk-state" id="stateDot" data-state="idle" title="Scanner status"></span>
     <span class="kiosk-clock" id="clock">{{ server_time }}</span>
-    <form method="post" action="/logout" class="kiosk-quit">
-      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-      <button type="submit" aria-label="Sign out" title="Sign out">⏏</button>
-    </form>
+    {% if user and user.is_hr %}
+      <a href="/dashboard" class="kiosk-exit-btn" title="Back to HR Dashboard" aria-label="Back to HR Dashboard">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </a>
+    {% else %}
+      <form method="post" action="/logout" class="kiosk-quit">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button type="submit" aria-label="Sign out" title="Sign out">⏏</button>
+      </form>
+    {% endif %}
   </header>
 
   {# ---- the camera is the whole screen ---- #}

@@ -122,11 +122,15 @@
               <td data-label="Status">{{ item.status }}</td>
               <td class="actions-cell">
                 {% if item.status == 'approved' %}
-                  <form method="post" action="/leave/{{ item.id }}/cancel" data-confirm="Cancel this leave and restore the attendance days?">
-                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                    <input type="hidden" name="period" value="{{ period }}">
-                    <button class="btn btn-sm btn-danger" type="submit">Cancel</button>
-                  </form>
+                  {% if item.to_date >= today.isoformat() %}
+                    <form method="post" action="/leave/{{ item.id }}/cancel" data-confirm="Cancel this leave and restore the attendance days?">
+                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                      <input type="hidden" name="period" value="{{ period }}">
+                      <button class="btn btn-sm btn-danger" type="submit">Cancel</button>
+                    </form>
+                  {% else %}
+                    <span class="small muted" title="Past approved leave cannot be cancelled">Past leave</span>
+                  {% endif %}
                 {% endif %}
               </td>
             </tr>

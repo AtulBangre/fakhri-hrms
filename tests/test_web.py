@@ -348,6 +348,47 @@ def test_register_and_csv_exports(hr_client: TestClient, storage, staff):
 
 # --------------------------------------------------------------------- leave
 def test_apply_and_cancel_leave_from_the_ui(hr_client: TestClient, storage, staff):
+    from datetime import timedelta
+    from app.services import attendance as attendance_service
+    from app.services import leave as leave_service
+
+    token = csrf_of(hr_client, "/leave")
+    target_date = date.today() + timedelta(days=10)
+    target_end = target_date + timedelta(days=1)
+    period = target_date.strftime("%Y-%m")
+
+    response = hr_client.post(
+        "/leave/apply",
+        data={
+            "_csrf": token,
+            "employee_id": staff[0]["id"],
+            "leave_type": "paid",
+            "from_date": target_date.isoformat(),
+            "to_date": target_end.isoformat(),
+            "reason": "family function",
+            "period": period,
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "ok=" in response.headers["location"]
+
+    row = attendance_service.get_row(storage, staff[0]["id"], target_date)
+    assert row["status"] == "leave"
+
+    leave_id = leave_service.list_leave(storage)[0]["id"]
+    response = hr_client.post(
+        f"/leave/{leave_id}/cancel", data={"_csrf": token, "period": period}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    assert "ok=" in response.headers["location"]
+    assert attendance_service.get_row(storage, staff[0]["id"], target_date) is None
+
+
+def test_cancel_past_approved_leave_is_rejected(hr_client: TestClient, storage, staff):
+    from app.services import attendance as attendance_service
+    from app.services import leave as leave_service
+
     token = csrf_of(hr_client, "/leave")
     response = hr_client.post(
         "/leave/apply",
@@ -357,7 +398,7 @@ def test_apply_and_cancel_leave_from_the_ui(hr_client: TestClient, storage, staf
             "leave_type": "paid",
             "from_date": "2026-01-05",
             "to_date": "2026-01-06",
-            "reason": "family function",
+            "reason": "past leave",
             "period": "2026-01",
         },
         follow_redirects=False,
@@ -365,18 +406,13 @@ def test_apply_and_cancel_leave_from_the_ui(hr_client: TestClient, storage, staf
     assert response.status_code == 303
     assert "ok=" in response.headers["location"]
 
-    from app.services import attendance as attendance_service
-    from app.services import leave as leave_service
-
-    row = attendance_service.get_row(storage, staff[0]["id"], date(2026, 1, 5))
-    assert row["status"] == "leave"
-
     leave_id = leave_service.list_leave(storage)[0]["id"]
     response = hr_client.post(
         f"/leave/{leave_id}/cancel", data={"_csrf": token, "period": "2026-01"}, follow_redirects=False
     )
     assert response.status_code == 303
-    assert attendance_service.get_row(storage, staff[0]["id"], date(2026, 1, 5)) is None
+    assert "err=" in response.headers["location"]
+    assert attendance_service.get_row(storage, staff[0]["id"], date(2026, 1, 5))["status"] == "leave"
 
 
 def test_half_day_leave_writes_a_half_day(hr_client: TestClient, storage, staff):
