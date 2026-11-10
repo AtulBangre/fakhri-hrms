@@ -24,7 +24,7 @@
     <div class="auth-body">
       {% if error %}<div class="alert alert-err"><div>{{ error }}</div></div>{% endif %}
 
-      <form method="post" action="/login" autocomplete="on">
+      <form id="passwordLoginForm" method="post" action="/login" autocomplete="on">
         <input type="hidden" name="next" value="{{ next_url or '' }}">
         <div class="field">
           <label for="username">Username, email or mobile number</label>
@@ -53,9 +53,41 @@
         <button class="btn btn-primary btn-block btn-lg" type="submit">Sign in</button>
         <div class="center mt-2"><a class="small" href="/forgot-password">Forgot your password?</a></div>
       </form>
-      <div data-passkey-area hidden class="mt-2">
-        <button class="btn btn-block btn-lg" type="button" id="passkeyLogin">Sign in with fingerprint or Face ID</button>
-        <div class="small muted center mt-1" id="passkeyNote" role="status"></div>
+
+      <!-- Face Login Scanner View -->
+      <div id="faceLoginView" hidden class="face-login-view">
+        <div class="face-scanner-box">
+          <video id="faceVideo" autoplay playsinline muted></video>
+          <div class="face-oval-guide" id="faceOvalGuide"></div>
+        </div>
+        <div id="faceLoginStatus" class="face-status-text" role="status">Position your face in the oval</div>
+        <div class="mt-2" style="width:100%;display:flex;flex-direction:column;gap:.5rem">
+          <button class="btn btn-primary btn-block btn-lg" type="button" id="triggerFaceScanBtn">Scan Face</button>
+          <button class="btn btn-ghost btn-block" type="button" id="closeFaceScanBtn">Cancel and use password</button>
+        </div>
+      </div>
+
+      <!-- Instant Alternative Logins -->
+      <div id="instantAuthOptions">
+        <div id="faceLoginOption" class="mt-2" hidden>
+          <button class="btn btn-block btn-lg btn-face-login" type="button" id="openFaceScanBtn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
+              <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
+              <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
+              <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
+              <path d="M9 9h.01"></path>
+              <path d="M15 9h.01"></path>
+              <path d="M10 13a4 4 0 0 0 4 0"></path>
+            </svg>
+            Sign in with Face
+          </button>
+        </div>
+
+        <div data-passkey-area hidden class="mt-2">
+          <button class="btn btn-ghost btn-block" type="button" id="passkeyLogin">Sign in with device passkey</button>
+          <div class="small muted center mt-1" id="passkeyNote" role="status"></div>
+        </div>
       </div>
       <script>
         (function() {
@@ -98,5 +130,6 @@
 </div>
   <script src="/static/js/pwa.js?v={{ asset_version }}" defer></script>
   <script src="/static/js/passkey.js?v={{ asset_version }}" defer></script>
+  <script src="/static/js/face-login.js?v={{ asset_version }}" defer></script>
 </body>
 </html>

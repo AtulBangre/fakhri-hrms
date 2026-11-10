@@ -25,6 +25,7 @@ PUBLIC = {
     "/login", "/logout", "/", "/forgot-password", "/reset-password", "/set-password", "/offline", "/healthz",
     "/api/health", "/manifest.webmanifest", "/kiosk.webmanifest", "/sw.js", "/favicon.ico",
     "/api/passkey/available", "/api/passkey/login/options", "/api/passkey/login/verify",
+    "/api/auth/face-available", "/api/auth/face-login",
 }
 # Their handlers check the person or role themselves; each has its own test below.
 SELF_CHECKED = {
