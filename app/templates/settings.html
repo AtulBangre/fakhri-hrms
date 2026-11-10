@@ -25,7 +25,13 @@
                 {% set options = kind.split(':', 1)[1].split('|') %}
                 <select id="s-{{ key }}" name="{{ key }}">
                   {% for option in options %}
-                    <option value="{{ option }}" {{ 'selected' if values.get(key) == option }}>{{ option }}</option>
+                    <option value="{{ option }}" {{ 'selected' if values.get(key) == option }}>
+                      {% if key == 'pl_policy_mode' %}
+                        {{ 'Monthly Accrual (Earned per month of service)' if option == 'accrual' else 'Fixed Annual Quota (Granted upfront each financial year)' }}
+                      {% else %}
+                        {{ option }}
+                      {% endif %}
+                    </option>
                   {% endfor %}
                 </select>
               {% elif kind == 'weekdays' %}

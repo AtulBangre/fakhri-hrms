@@ -110,10 +110,11 @@
                   <span class="chip" style="background:{{ q.bg }};border:1px solid {{ q.border }};color:{{ q.color }};padding:1px 6px;font-size:0.7rem;font-weight:700">{{ q.code }}</span>
                   <span style="font-size:0.82rem">{{ q.name }}</span>
                 </span>
-                <span class="small"><strong>{{ q.used | number }}</strong> / {{ q.allocated | number }} days</span>
+                <span class="small"><strong>{{ q.available | number }}</strong> available <span class="muted">({{ q.used | number }} taken / {{ q.allocated | number }} total)</span></span>
               </div>
               <div class="quota-bar-track">
-                <div class="quota-bar-fill" style="width: {{ q.pct }}%; background: {{ q.color }};"></div>
+                {% set rem_pct = (([q.available, 0] | max / ([q.allocated, 1] | max)) * 100) | round | int %}
+                <div class="quota-bar-fill" style="width: {{ [rem_pct, 100] | min }}%; background: {{ q.color }};"></div>
               </div>
             </div>
           {% endfor %}

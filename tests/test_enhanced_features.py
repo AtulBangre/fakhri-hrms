@@ -564,6 +564,104 @@ def test_employee_export_contains_all_details_with_dob_and_anniversary(
     assert "2021-11-14" in res_csv.text
 
 
+def test_leave_policy_toggle_fixed_vs_accrual(storage: Storage, settings):
+    """Verify pl_policy_mode toggle between accrual and fixed upfront quota."""
+    emp_id = employees_service.create_employee(storage, {
+        "name": "Quota Test Emp",
+        "code": "QT001",
+        "joined_on": "2025-04-01",
+        "monthly_gross": 40000,
+    })
+
+    as_of = date(2026, 6, 1)  # 15 months of service
+
+    # 1. Accrual mode (0.5 per month -> 15 * 0.5 = 7.5 days)
+    storage.set_setting("pl_policy_mode", "accrual")
+    storage.set_setting("pl_accrual_per_month", "0.5")
+    b_accrual = leave_service.balance(storage, settings, emp_id, as_of=as_of)
+    assert b_accrual["accrued"] == 7.5
+    assert b_accrual["pl_available"] == 7.5
+
+    # 2. Fixed mode (6.0 annual quota upfront for the financial year)
+    storage.set_setting("pl_policy_mode", "fixed")
+    storage.set_setting("pl_annual_quota", "6.0")
+    b_fixed = leave_service.balance(storage, settings, emp_id, as_of=as_of)
+    assert b_fixed["accrued"] == 6.0
+    assert b_fixed["pl_available"] == 6.0
+
+
+def test_annual_quotas_financial_year_reset(storage: Storage, settings):
+    """Verify sick and casual leave reset each financial year (April 1 - March 31)."""
+    emp_id = employees_service.create_employee(storage, {
+        "name": "Reset Test Emp",
+        "code": "RST001",
+        "joined_on": "2024-04-01",
+        "monthly_gross": 40000,
+    })
+    storage.set_setting("sl_annual_quota", "6.0")
+    storage.set_setting("cl_annual_quota", "6.0")
+
+    # Record 6 sick leaves in previous FY (November 2024)
+    storage.execute(
+        """
+        INSERT INTO leave_requests (employee_id, leave_type, from_date, to_date, days, status, created_at, decided_at)
+        VALUES (?, 'sick', '2024-11-10', '2024-11-15', 6.0, 'approved', '2024-11-10T10:00:00', '2024-11-10T10:00:00')
+        """,
+        (emp_id,),
+    )
+
+    # In current FY (e.g. June 2026), full 6.0 SL should be available again!
+    b_current = leave_service.balance(storage, settings, emp_id, as_of=date(2026, 6, 1))
+    assert b_current["annual_sl"] == 6.0
+    assert b_current["used_sl"] == 0.0
+    assert b_current["sl_available"] == 6.0
+
+    # In previous FY (November 2024), used_sl was 6.0 and sl_available was 0.0
+    b_past = leave_service.balance(storage, settings, emp_id, as_of=date(2024, 11, 20))
+    assert b_past["used_sl"] == 6.0
+    assert b_past["sl_available"] == 0.0
+
+
+def test_hr_backdated_leave_replaces_absent(storage: Storage, settings):
+    """HR can apply backdated leave, cleanly replacing an absent record on past dates."""
+    from app.services import attendance as attendance_service
+
+    emp_id = employees_service.create_employee(storage, {
+        "name": "Backdated Emp",
+        "code": "BKD001",
+        "joined_on": "2026-01-01",
+        "monthly_gross": 30000,
+    })
+
+    past_date = date(2026, 5, 12)
+    # Mark absent initially
+    attendance_service.mark_manual(
+        storage, employee_id=emp_id, work_date=past_date.isoformat(),
+        status="absent", actor="hr",
+    )
+    row_before = attendance_service.get_row(storage, emp_id, past_date)
+    assert row_before["status"] == "absent"
+
+    # HR applies approved leave for that backdated day
+    result = leave_service.apply_leave(
+        storage, settings,
+        employee_id=emp_id,
+        leave_type="casual",
+        from_date=past_date.isoformat(),
+        to_date=past_date.isoformat(),
+        status="approved",
+        actor="hr",
+        reason="Family emergency",
+    )
+    assert result["leave"]["status"] == "approved"
+
+    # Attendance should now be 'leave'
+    row_after = attendance_service.get_row(storage, emp_id, past_date)
+    assert row_after["status"] == "leave"
+    assert row_after["leave_type"] == "casual"
+
+
+
 
 
 

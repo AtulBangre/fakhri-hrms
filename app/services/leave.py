@@ -382,7 +382,8 @@ def cancel_leave(storage: Storage, leave_id: int, *, actor: str | None = None, a
         enforce_future = (actor is not None) if allow_past is None else (not allow_past)
         if to_d < today and enforce_future:
             raise employees_service.ValidationError(
-                f"Approved leave #{leave_id} cannot be cancelled because the leave date ({leave['to_date']}) has already passed."
+                f"Approved leave #{leave_id} ({leave['from_date']} to {leave['to_date']}) "
+                "cannot be cancelled because the leave date has already passed."
             )
         locks.assert_period_open(storage, leave["from_date"], leave["to_date"])
         unstamp_attendance(storage, leave)
@@ -566,10 +567,10 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         )
     )
     custom_sl = employee.get("custom_sl_quota")
-    annual_sl = float(custom_sl) if custom_sl is not None and str(custom_sl).strip() != "" else storage.get_float("sl_annual_quota", 7.0)
+    annual_sl = float(custom_sl) if custom_sl is not None and str(custom_sl).strip() != "" else storage.get_float("sl_annual_quota", 6.0)
 
     custom_cl = employee.get("custom_cl_quota")
-    annual_cl = float(custom_cl) if custom_cl is not None and str(custom_cl).strip() != "" else storage.get_float("cl_annual_quota", 8.0)
+    annual_cl = float(custom_cl) if custom_cl is not None and str(custom_cl).strip() != "" else storage.get_float("cl_annual_quota", 6.0)
 
     pl_available = max(round(accrued - used_pl - pending_pl, 1), 0.0)
     sl_available = max(round(annual_sl - used_sl - pending_sl, 1), 0.0)

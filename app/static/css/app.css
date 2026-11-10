@@ -368,6 +368,14 @@ table.data td a:hover strong { color: var(--primary); }
 table.data td.actions-cell { text-align: right; white-space: nowrap; width: 1%; }
 table.data td.actions-cell form { display: inline-flex; margin: 0; }
 table.data td.actions-cell > * + * { margin-left: .25rem; }
+table.data td.actions-cell details { position: relative; display: inline-block; text-align: left; }
+table.data td.actions-cell details form { display: block; white-space: normal; margin-bottom: .5rem; }
+table.data td.actions-cell details .card-body {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 50;
+  min-width: 280px; background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 10px 25px -5px rgba(0,0,0,.18), 0 8px 10px -6px rgba(0,0,0,.1);
+  white-space: normal;
+}
 table.data td.check-cell, table.data th.check-cell { width: 28px; padding-right: 0; }
 table.data tr.is-selected { background: var(--primary-soft); }
 table.data tr.detail-row td { background: var(--subtle); padding: .7rem .85rem; }
@@ -1277,6 +1285,20 @@ td[data-label="Source"] .chip { white-space: normal; height: auto; padding-block
 .celebrate-row { color: var(--ink); }
 .celebrate-row:hover { background: var(--hover); text-decoration: none; }
 .celebrate-row.is-today { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
+
+.celebrate-pill { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .55rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+.celebrate-pill.birthday { background: #fdf2f8; color: #db2777; border: 1px solid #fbcfe8; }
+.celebrate-pill.work { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+.celebrate-pill.anniversary { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+.badge-when { display: inline-block; padding: .2rem .5rem; border-radius: 6px; font-size: .75rem; font-weight: 600; }
+.badge-when.today { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.badge-when.tomorrow { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+.badge-when.week { background: #f0f9ff; color: #0369a1; }
+.badge-when.future { background: var(--subtle); color: var(--muted); }
+.celebrate-today-row { background: rgba(34, 197, 94, .06) !important; }
+.btn-whatsapp { background: #25d366; color: #fff; border-color: #25d366; }
+.btn-whatsapp:hover { background: #1eb956; color: #fff; }
+.btn-email { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
 
 /* Long forms keep Save in reach, above the bottom tabs. */
 .card:has(> .sticky-save) { overflow: visible; }

@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+{% block title %}Celebrations · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Celebrations</h1>
+    <div class="sub">Upcoming birthdays, wedding anniversaries and company work milestones</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/employees">All employees</a>
+    <a class="btn btn-primary" href="/celebrations?kind=birthday">Default view (Birthdays)</a>
+  </div>
+</div>
+
+{# ---- Summary stats ---- #}
+<div class="grid grid-4 mb-3">
+  <div class="stat {{ 'ok' if stats.today_count > 0 else '' }}">
+    <div class="label">Today</div>
+    <div class="value">{{ stats.today_count }}</div>
+    <div class="foot">celebrating today 🎉</div>
+  </div>
+  <div class="stat">
+    <div class="label">Next 7 days</div>
+    <div class="value">{{ stats.next_7_count }}</div>
+    <div class="foot">upcoming this week</div>
+  </div>
+  <div class="stat">
+    <div class="label">This month</div>
+    <div class="value">{{ stats.this_month_count }}</div>
+    <div class="foot">{{ today.strftime('%B %Y') }}</div>
+  </div>
+  <div class="stat {{ 'warn' if stats.missing_dob > 0 else 'ok' }}">
+    <div class="label">Birthdays on record</div>
+    <div class="value">{{ stats.with_dob }} / {{ stats.total_active }}</div>
+    <div class="foot">
+      {% if stats.missing_dob > 0 %}
+        <a href="/celebrations?tab=missing" class="muted" style="text-decoration:underline">{{ stats.missing_dob }} missing dates</a>
+      {% else %}
+        all employees updated
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ---- Navigation Tabs ---- #}
+<div class="tabs mb-3" style="display:flex;gap:.5rem;border-bottom:1px solid var(--border);padding-bottom:.5rem;overflow-x:auto">
+  <a class="btn btn-sm {{ 'btn-primary' if tab != 'missing' and kind == 'birthday' else '' }}" href="/celebrations?kind=birthday">🎂 Birthdays (Default)</a>
+  <a class="btn btn-sm {{ 'btn-primary' if tab != 'missing' and kind == 'all' else '' }}" href="/celebrations?kind=all">🌟 All Celebrations</a>
+  <a class="btn btn-sm {{ 'btn-primary' if tab != 'missing' and kind == 'work' else '' }}" href="/celebrations?kind=work">🏢 Work Anniversaries</a>
+  <a class="btn btn-sm {{ 'btn-primary' if tab != 'missing' and kind == 'anniversary' else '' }}" href="/celebrations?kind=anniversary">💍 Wedding Anniversaries</a>
+  <a class="btn btn-sm {{ 'btn-primary' if tab == 'missing' else '' }}" href="/celebrations?tab=missing" style="margin-left:auto">
+    ⚠️ Missing dates {% if stats.missing_dob %}<span class="badge-count" style="margin-left:.25rem">{{ stats.missing_dob }}</span>{% endif %}
+  </a>
+</div>
+
+{% if tab == 'missing' %}
+  {# ---- Missing Dates Table ---- #}
+  <div class="card flush">
+    <div class="card-head">
+      <h2>Active employees missing Date of Birth</h2>
+      <span class="spacer"></span>
+      <span class="small muted">{{ missing|length }} employee{{ '' if missing|length == 1 else 's' }}</span>
+    </div>
+    <div class="table-wrap">
+      <table class="data m-table">
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Department</th>
+            <th>Designation</th>
+            <th>Joined</th>
+            <th>Phone</th>
+            <th class="actions-cell">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for emp in missing %}
+            <tr>
+              <td data-label="Employee">
+                <a href="/employees/{{ emp.id }}" style="font-weight:600">{{ emp.name }}</a>
+                <span class="small muted d-block">{{ emp.code }}</span>
+              </td>
+              <td data-label="Department">{{ emp.department or '—' }}</td>
+              <td data-label="Designation">{{ emp.designation or '—' }}</td>
+              <td data-label="Joined">{{ emp.joined_on or '—' }}</td>
+              <td data-label="Phone">{{ emp.phone or '—' }}</td>
+              <td class="actions-cell">
+                <a class="btn btn-sm btn-primary" href="/employees/{{ emp.id }}/edit">Add DOB</a>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="6" class="center muted py-4">Great news! All active employees have their Date of Birth on record.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+{% else %}
+
+  {# ---- Filter Toolbar ---- #}
+  <div class="card mb-3">
+    <div class="card-head" style="flex-wrap:wrap;gap:.75rem">
+      <h2 style="font-size:1.05rem;display:flex;align-items:center;gap:.35rem">
+        {{ icon('filter') if icon('filter') else '🔍' }} Filter date range
+      </h2>
+      <span class="spacer"></span>
+      {# Quick date range presets #}
+      <div style="display:flex;gap:.35rem;flex-wrap:wrap">
+        <a class="btn btn-xs {{ 'btn-primary' if not from_date and not to_date else '' }}"
+           href="/celebrations?kind={{ kind }}&department={{ selected_dept }}&search={{ search }}">
+          Upcoming nearest
+        </a>
+        <a class="btn btn-xs {{ 'btn-primary' if from_date == presets.this_month_from and to_date == presets.this_month_to else '' }}"
+           href="/celebrations?kind={{ kind }}&from_date={{ presets.this_month_from }}&to_date={{ presets.this_month_to }}&department={{ selected_dept }}&search={{ search }}">
+          This month
+        </a>
+        <a class="btn btn-xs {{ 'btn-primary' if from_date == presets.next_7_from and to_date == presets.next_7_to else '' }}"
+           href="/celebrations?kind={{ kind }}&from_date={{ presets.next_7_from }}&to_date={{ presets.next_7_to }}&department={{ selected_dept }}&search={{ search }}">
+          Next 7 days
+        </a>
+        <a class="btn btn-xs {{ 'btn-primary' if from_date == presets.next_30_from and to_date == presets.next_30_to else '' }}"
+           href="/celebrations?kind={{ kind }}&from_date={{ presets.next_30_from }}&to_date={{ presets.next_30_to }}&department={{ selected_dept }}&search={{ search }}">
+          Next 30 days
+        </a>
+      </div>
+    </div>
+    <div class="card-body">
+      <form class="filters" method="get" action="/celebrations" style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end">
+        <input type="hidden" name="kind" value="{{ kind }}">
+
+        <div class="field" style="min-width:140px">
+          <label for="from_date">From date</label>
+          <input id="from_date" type="date" name="from_date" value="{{ from_date }}">
+        </div>
+
+        <div class="field" style="min-width:140px">
+          <label for="to_date">To date</label>
+          <input id="to_date" type="date" name="to_date" value="{{ to_date }}">
+        </div>
+
+        <div class="field" style="min-width:160px">
+          <label for="department">Department</label>
+          <select id="department" name="department">
+            <option value="">All departments</option>
+            {% for dept in departments %}
+              <option value="{{ dept }}" {{ 'selected' if selected_dept == dept }}>{{ dept }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field" style="min-width:180px;flex:1">
+          <label for="search">Search employee</label>
+          <input id="search" type="search" name="search" value="{{ search }}" placeholder="Search name or code…">
+        </div>
+
+        <button class="btn btn-primary" type="submit">Filter</button>
+        <a class="btn" href="/celebrations?kind={{ kind }}">Reset</a>
+      </form>
+    </div>
+  </div>
+
+  {# ---- Celebrations Table / Grid ---- #}
+  <div class="card flush">
+    <div class="card-head">
+      <h2>
+        {% if kind == 'birthday' %}🎂 Birthdays
+        {% elif kind == 'work' %}🏢 Work Anniversaries
+        {% elif kind == 'anniversary' %}💍 Wedding Anniversaries
+        {% else %}🌟 All Celebrations
+        {% endif %}
+      </h2>
+      <span class="spacer"></span>
+      <span class="small muted">
+        {% if from_date or to_date %}
+          Date range: {{ from_date or 'Start' }} → {{ to_date or 'Future' }} · {{ items|length }} found
+        {% else %}
+          Sorted nearest upcoming first · {{ items|length }} on record
+        {% endif %}
+      </span>
+    </div>
+
+    {% if items %}
+      <div class="table-wrap">
+        <table class="data m-table">
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>Celebration</th>
+              <th>Date</th>
+              <th>When</th>
+              <th>Milestone</th>
+              <th class="actions-cell">Wishes &amp; Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+              <tr class="{{ 'celebrate-today-row' if item.in_days == 0 else '' }}">
+                <td data-label="Employee">
+                  <div style="display:flex;align-items:center;gap:.65rem">
+                    <a href="/employees/{{ item.employee.id }}" style="flex:none">
+                      {% if item.employee.photo_filename %}
+                        <img class="avatar" src="/employees/{{ item.employee.id }}/avatar" alt="{{ item.employee.name }}" style="width:38px;height:38px;border-radius:50%;object-fit:cover">
+                      {% else %}
+                        <span class="avatar" style="width:38px;height:38px;border-radius:50%">{{ item.employee.name | initials }}</span>
+                      {% endif %}
+                    </a>
+                    <div>
+                      <a href="/employees/{{ item.employee.id }}" style="font-weight:600;color:inherit;text-decoration:none">
+                        {{ item.employee.name }}
+                      </a>
+                      <div class="small muted">
+                        {{ item.employee.code }} · {{ item.employee.department or 'General' }}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+
+                <td data-label="Celebration">
+                  <span class="celebrate-pill {{ item.kind }}">
+                    <span aria-hidden="true">{{ item.icon }}</span>
+                    <span>{{ item.label }}</span>
+                  </span>
+                </td>
+
+                <td data-label="Date">
+                  <strong>{{ item.date.strftime('%d %b %Y') }}</strong>
+                  <span class="small muted d-block">{{ item.original_label }}</span>
+                </td>
+
+                <td data-label="When">
+                  {% if item.in_days == 0 %}
+                    <span class="badge-when today">🎉 Today!</span>
+                  {% elif item.in_days == 1 %}
+                    <span class="badge-when tomorrow">Tomorrow</span>
+                  {% elif item.in_days > 1 and item.in_days <= 7 %}
+                    <span class="badge-when week">In {{ item.in_days }} days</span>
+                  {% elif item.in_days < 0 %}
+                    <span class="badge-when past">{{ item.when_label }}</span>
+                  {% else %}
+                    <span class="badge-when future">In {{ item.in_days }} days</span>
+                  {% endif %}
+                </td>
+
+                <td data-label="Milestone">
+                  <span style="font-weight:600">{{ item.milestone }}</span>
+                </td>
+
+                <td class="actions-cell" data-label="Action">
+                  <div style="display:inline-flex;gap:.35rem;align-items:center">
+                    {% if item.phone_clean %}
+                      <a class="btn btn-xs btn-whatsapp"
+                         href="https://wa.me/{{ item.phone_clean }}?text={{ item.greeting | urlencode }}"
+                         target="_blank"
+                         rel="noopener noreferrer"
+                         title="Send WhatsApp greeting">
+                        WhatsApp
+                      </a>
+                    {% endif %}
+                    {% if item.employee.email %}
+                      <a class="btn btn-xs btn-email"
+                         href="mailto:{{ item.employee.email }}?subject={{ item.label }}%20Wishes&body={{ item.greeting | urlencode }}"
+                         title="Send Email greeting">
+                        Email
+                      </a>
+                    {% endif %}
+                    <a class="btn btn-xs" href="/employees/{{ item.employee.id }}" title="View Employee Profile">
+                      Profile
+                    </a>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state py-5 center">
+        <div style="font-size:2.5rem;margin-bottom:.5rem">🎂</div>
+        <h3>No celebrations found</h3>
+        <p class="muted small mb-3">
+          {% if from_date or to_date %}
+            No upcoming celebrations match your selected date range ({{ from_date }} to {{ to_date }}).
+          {% else %}
+            No active employees currently have this date on record.
+          {% endif %}
+        </p>
+        <a class="btn btn-primary" href="/celebrations?kind={{ kind }}">Clear date filters</a>
+      </div>
+    {% endif %}
+  </div>
+
+{% endif %}
+
+<script>
+  (function() {
+    // Quick helper to fill "This month" preset dates on the client side
+    var btn = document.getElementById("presetThisMonth");
+    if (btn) {
+      var now = new Date();
+      var y = now.getFullYear();
+      var m = now.getMonth();
+      var first = new Date(y, m, 1).toISOString().split('T')[0];
+      var last = new Date(y, m + 1, 0).toISOString().split('T')[0];
+      btn.href = "/celebrations?kind={{ kind }}&from_date=" + first + "&to_date=" + last + "&department={{ selected_dept }}&search={{ search }}";
+    }
+  })();
+</script>
+{% endblock %}
