@@ -107,13 +107,13 @@
       markUrl: "/api/kiosk/scan",
       challengeUrl: "/api/kiosk/challenge",
       offlineSyncUrl: "/api/kiosk/offline-sync",
-      offlineEnabled: {{ 'true' if offline_enabled else 'false' }},
-      activeChallenge: {{ 'true' if active_challenge else 'false' }},
+      offlineEnabled: "{{ 'true' if offline_enabled else 'false' }}" === "true",
+      activeChallenge: "{{ 'true' if active_challenge else 'false' }}" === "true",
       csrf: "{{ csrf_token }}",
-      showName: {{ 'true' if show_name else 'false' }},
+      showName: "{{ 'true' if show_name else 'false' }}" === "true",
       scanMode: "{{ 'continuous' if scan_mode == 'continuous' else 'tap' }}",
-      faceHealthy: {{ 'true' if health and health.ok else 'false' }},
-      faceRequired: {{ 'true' if settings and settings.face_required_for_kiosk else 'false' }}
+      faceHealthy: "{{ 'true' if health and health.ok else 'false' }}" === "true",
+      faceRequired: "{{ 'true' if settings and settings.face_required_for_kiosk else 'false' }}" === "true"
     };
   </script>
   <script src="/static/js/pwa.js?v={{ asset_version }}" defer></script>
