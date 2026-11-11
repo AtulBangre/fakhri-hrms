@@ -202,3 +202,4 @@ def render_letter_pdf(
             pdf.ln(3)
 
     return bytes(pdf.output())
+

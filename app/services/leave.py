@@ -16,7 +16,8 @@ and reported back so HR can see exactly which dates were charged.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+import zoneinfo
 from typing import Any
 
 from ..config import Settings
@@ -444,6 +445,23 @@ def list_leave(
         row["from_label"] = orgtime.human_date(row["from_date"])
         row["to_label"] = orgtime.human_date(row["to_date"])
         row["is_paid"] = row["leave_type"] in orgtime.PAID_LEAVE_TYPES
+        created = row.get("created_at") or ""
+        if created:
+            try:
+                dt = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+                tz = zoneinfo.ZoneInfo(storage.settings.timezone)
+                local_dt = dt.astimezone(tz)
+                row["applied_label"] = local_dt.strftime("%d %b %Y, %I:%M %p")
+                row["applied_date"] = local_dt.strftime("%d %b %Y")
+                row["applied_time"] = local_dt.strftime("%I:%M %p")
+            except Exception:
+                row["applied_label"] = str(created)[:10]
+                row["applied_date"] = str(created)[:10]
+                row["applied_time"] = ""
+        else:
+            row["applied_label"] = "—"
+            row["applied_date"] = "—"
+            row["applied_time"] = ""
     return rows
 
 
@@ -696,3 +714,122 @@ def summary_for_period(storage: Storage, period: str) -> list[dict[str, Any]]:
 
 def employee_leave_history(storage: Storage, employee_id: int, *, limit: int = 40) -> list[dict[str, Any]]:
     return list_leave(storage, employee_id=employee_id, status="all", limit=limit)
+
+
+def _csv_safe(value: object) -> str:
+    text = "" if value is None else str(value)
+    if any(ch in text for ch in (",", '"', "\n")):
+        return '"' + text.replace('"', '""') + '"'
+    return text
+
+
+def export_balances_csv(storage: Storage, settings: Settings) -> str:
+    """Export leave balances for all active employees as a clean CSV."""
+    people = employees_service.list_employees(storage, status="active", limit=1000)
+    header = (
+        "Employee Code,Employee Name,Department,Joined On,Months of Service,Accrued PL,"
+        "PL Taken,PL Available,SL Quota,SL Taken,SL Available,CL Quota,CL Taken,CL Available,"
+        "Unpaid Taken,Total Available Days"
+    )
+    lines = [header]
+    for p in people:
+        bal = balance(storage, settings, p["id"])
+        fields = [
+            p["code"],
+            p["name"],
+            p.get("department") or "",
+            p.get("joined_on") or "",
+            str(bal["months_of_service"]),
+            f"{bal['accrued']:g}",
+            f"{bal['used_pl']:g}",
+            f"{bal['pl_available']:g}",
+            f"{bal['annual_sl']:g}",
+            f"{bal['used_sl']:g}",
+            f"{bal['sl_available']:g}",
+            f"{bal['annual_cl']:g}",
+            f"{bal['used_cl']:g}",
+            f"{bal['cl_available']:g}",
+            f"{bal['used_unpaid']:g}",
+            f"{bal['total_available']:g}",
+        ]
+        lines.append(",".join(_csv_safe(v) for v in fields))
+    return "\n".join(lines) + "\n"
+
+
+def get_balances_template_csv(storage: Storage) -> str:
+    """Downloadable sample template pre-filled with all employees to update their custom quotas."""
+    people = employees_service.list_employees(storage, status="active", limit=1000)
+    header = "Employee Code,Employee Name,Department,Custom Annual PL,Custom Annual SL,Custom Annual CL"
+    lines = [header]
+    for p in people:
+        fields = [
+            p["code"],
+            p["name"],
+            p.get("department") or "",
+            str(p.get("custom_pl_accrual") or "") if p.get("custom_pl_accrual") is not None else "",
+            str(p.get("custom_sl_quota") or "") if p.get("custom_sl_quota") is not None else "",
+            str(p.get("custom_cl_quota") or "") if p.get("custom_cl_quota") is not None else "",
+        ]
+        lines.append(",".join(_csv_safe(v) for v in fields))
+    return "\n".join(lines) + "\n"
+
+
+def import_balances_csv(storage: Storage, csv_text: str, *, actor: str = "") -> dict[str, Any]:
+    """Bulk import custom leave quotas from CSV text."""
+    import csv
+    import io
+
+    reader = csv.reader(io.StringIO(csv_text.strip()))
+    header = None
+    updated = 0
+    errors: list[str] = []
+
+    for row_idx, row in enumerate(reader, start=1):
+        if not row or not any(row):
+            continue
+        if header is None:
+            header = [c.strip().lower() for c in row]
+            continue
+
+        row_dict = {header[i]: row[i].strip() for i in range(min(len(header), len(row)))}
+        code = row_dict.get("employee code") or row_dict.get("code")
+        if not code:
+            continue
+
+        emp = employees_service.get_employee_by_code(storage, code)
+        if not emp:
+            errors.append(f"Row {row_idx}: Employee code '{code}' not found.")
+            continue
+
+        updates = {}
+        for col_name, field in (
+            ("custom annual pl", "custom_pl_accrual"),
+            ("custom pl", "custom_pl_accrual"),
+            ("custom annual sl", "custom_sl_quota"),
+            ("custom sl", "custom_sl_quota"),
+            ("custom annual cl", "custom_cl_quota"),
+            ("custom cl", "custom_cl_quota"),
+        ):
+            if col_name in row_dict and row_dict[col_name]:
+                try:
+                    val = float(row_dict[col_name])
+                    if val < 0:
+                        raise ValueError()
+                    updates[field] = val
+                except ValueError:
+                    errors.append(f"Row {row_idx} ({code}): Invalid number for {col_name} ('{row_dict[col_name]}').")
+
+        if updates:
+            employees_service.update_employee(storage, emp["id"], updates)
+            updated += 1
+
+    if updated:
+        storage.audit(
+            actor=actor,
+            action="import_leave_balances",
+            entity="leave",
+            entity_id=0,
+            detail=f"Bulk imported leave quotas for {updated} employees",
+        )
+
+    return {"updated": updated, "errors": errors}

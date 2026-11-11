@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
+from fastapi.responses import PlainTextResponse
 
 from ..auth import SessionUser, require_hr, verify_form_csrf
 from .. import notify
@@ -12,6 +13,55 @@ from ..services import leave as leave_service
 from ..services import orgtime
 
 router = APIRouter(prefix="/leave", tags=["leave"])
+
+
+@router.get("/balances/export.csv")
+def export_balances(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    csv_text = leave_service.export_balances_csv(storage, settings)
+    return PlainTextResponse(
+        csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="leave-balances.csv"'},
+    )
+
+
+@router.get("/balances/template.csv")
+def balances_template(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    csv_text = leave_service.get_balances_template_csv(storage)
+    return PlainTextResponse(
+        csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="leave-quotas-template.csv"'},
+    )
+
+
+@router.post("/balances/import")
+async def import_balances(
+    request: Request,
+    file: UploadFile = File(...),
+    csrf: str = Form("", alias="_csrf"),
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    verify_form_csrf(user, csrf)
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1", errors="replace")
+
+    res = leave_service.import_balances_csv(storage, text, actor=user.username)
+    if res["errors"]:
+        msg = f"Updated {res['updated']} employee(s). Note: " + "; ".join(res["errors"][:3])
+        return redirect("/leave", ok=msg if res["updated"] else None, err=msg if not res["updated"] else None)
+    return redirect("/leave", ok=f"Successfully updated leave quotas for {res['updated']} employee(s).")
 
 
 @router.get("")

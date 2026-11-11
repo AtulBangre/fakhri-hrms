@@ -64,7 +64,8 @@
       </form>
 
       {% if run %}
-        <a class="btn" href="/payroll/export.csv?period={{ period }}">{{ icon('download') }} Bank CSV</a>
+        <a class="btn btn-primary" href="/payroll/export-payout.csv?period={{ period }}" title="Bank transfer payout CSV (NEFT/RTGS) with Account No and IFSC">{{ icon('download') }} Bank Payout CSV</a>
+        <a class="btn" href="/payroll/export.csv?period={{ period }}" title="Detailed payroll register CSV for CA and internal audits">{{ icon('download') }} Register CSV</a>
         <a class="btn" href="/payroll/export.zip?period={{ period }}" title="Download all employee payslips as PDF in a ZIP file">{{ icon('download') }} All Payslips (ZIP)</a>
         <a class="btn" href="/payroll/export-ecr.txt?period={{ period }}" title="Download EPFO Electronic Challan cum Return text file">{{ icon('download') }} EPFO ECR</a>
         <a class="btn" href="/payroll/export-esic.csv?period={{ period }}" title="Download ESIC Monthly Contribution Return CSV">{{ icon('download') }} ESIC Return</a>
@@ -157,21 +158,41 @@
       <span class="spacer"></span>
       <span class="chip {{ 'chip-primary' if run.status == 'draft' else 'chip-ok' }}">{{ run.status }}</span>
     </div>
+
+    <div id="batch-bar" style="display:none; background: var(--subtle); border-bottom: 1px solid var(--border); padding: 0.6rem 1.25rem; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+      <div style="font-weight: 600; font-size: 0.88rem;">
+        <span id="selected-count">0</span> payslip(s) selected
+      </div>
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-sm btn-dark" type="button" onclick="submitBulkSlipStatus('finalized')">Finalise Selected</button>
+        <button class="btn btn-sm" type="button" onclick="promptHoldReason()" style="border-color: #d97706; color: #b45309;">Put On Hold</button>
+        <button class="btn btn-sm" type="button" onclick="submitBulkSlipStatus('draft')">Reset to Draft</button>
+      </div>
+    </div>
+
     <div class="table-wrap">
       <table class="data stack">
         <thead>
           <tr>
-            <th>Employee</th><th class="num">Gross</th><th class="num">Present</th><th class="num">PL</th>
+            <th style="width: 32px; text-align: center;"><input type="checkbox" id="check-all-slips" onchange="toggleAllSlips(this)" title="Select all"></th>
+            <th>Employee</th><th>Status</th><th class="num">Gross</th><th class="num">Present</th><th class="num">PL</th>
             <th class="num">LOP</th><th class="num">Earned</th><th class="num">Bonus</th><th class="num">TDS</th><th class="num">Deductions</th>
             <th class="num">Net pay</th><th></th>
           </tr>
         </thead>
         <tbody>
         {% for slip in slips %}
-          <tr>
+          <tr style="{{ 'background: #fffbeb;' if slip.status == 'on_hold' else '' }}">
+            <td style="text-align: center;">
+              <input type="checkbox" class="slip-checkbox" value="{{ slip.id }}" onchange="updateSlipSelection()">
+            </td>
             <td data-label="Employee">
               <a href="/employees/{{ slip.employee_id }}"><strong>{{ slip.name }}</strong></a>
               <span class="sub">{{ slip.code }}{% if slip.department %} · {{ slip.department }}{% endif %}</span>
+            </td>
+            <td data-label="Status">
+              <span class="chip {% if slip.status == 'on_hold' %}chip-warn{% elif slip.status == 'finalized' %}chip-ok{% elif slip.status == 'paid' %}chip-info{% else %}chip-muted{% endif %}" style="font-size:0.75rem; text-transform:capitalize">{{ slip.status or 'draft' }}</span>
+              {% if slip.hold_reason %}<div class="small muted" style="font-size:0.72rem; max-width:130px; overflow:hidden; text-overflow:ellipsis" title="{{ slip.hold_reason }}">{{ slip.hold_reason }}</div>{% endif %}
             </td>
             <td data-label="Gross" class="num">{{ slip.monthly_gross | money }}</td>
             <td data-label="Present" class="num">{{ slip.present_days | number }}</td>
@@ -185,7 +206,16 @@
             <td data-label="Deductions" class="num">{{ slip.total_deductions | money }}</td>
             <td data-label="Net pay" class="num"><strong>{{ slip.net_pay | money }}</strong></td>
             <td class="actions-cell">
-              {% if run.status == 'draft' %}<button class="btn btn-sm" type="button" onclick="document.getElementById('adj-modal-{{ slip.id }}').showModal()">{{ icon('edit') }} Adjust</button>{% endif %}
+              {% if slip.status == 'on_hold' %}
+                <form method="post" action="/payroll/slip/{{ slip.id }}/status" style="display:inline">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="status" value="draft">
+                  <button class="btn btn-sm" type="submit" style="color:#b45309" title="Release from hold">Release</button>
+                </form>
+              {% elif run.status == 'draft' %}
+                <button class="btn btn-sm btn-ghost" type="button" onclick="singleHoldPrompt('{{ slip.id }}', '{{ slip.name }}')" title="Put this employee on hold">Hold</button>
+              {% endif %}
+              {% if run.status == 'draft' and slip.status != 'on_hold' %}<button class="btn btn-sm" type="button" onclick="document.getElementById('adj-modal-{{ slip.id }}').showModal()">{{ icon('edit') }} Adjust</button>{% endif %}
               <a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}">Payslip</a>
               <a class="btn btn-sm btn-ghost" href="/payroll/slip/{{ slip.id }}.pdf" title="Download PDF">{{ icon('download') }}</a>
             </td>
@@ -348,4 +378,78 @@
     </div>
   </div>
 {% endif %}
+
+<form id="bulk-status-form" method="post" action="/payroll/slips/bulk-status" style="display:none">
+  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <input type="hidden" name="period" value="{{ period }}">
+  <input type="hidden" name="status" id="bulk-target-status" value="">
+  <input type="hidden" name="reason" id="bulk-target-reason" value="">
+  <div id="bulk-inputs-container"></div>
+</form>
+
+<script>
+function toggleAllSlips(master) {
+  var boxes = document.querySelectorAll('.slip-checkbox');
+  boxes.forEach(function(b) { b.checked = master.checked; });
+  updateSlipSelection();
+}
+
+function updateSlipSelection() {
+  var selected = document.querySelectorAll('.slip-checkbox:checked');
+  var bar = document.getElementById('batch-bar');
+  var countSpan = document.getElementById('selected-count');
+  if (countSpan) countSpan.textContent = selected.length;
+  if (bar) bar.style.display = selected.length > 0 ? 'flex' : 'none';
+}
+
+function submitBulkSlipStatus(status, reason) {
+  var selected = document.querySelectorAll('.slip-checkbox:checked');
+  if (!selected.length) return;
+  var container = document.getElementById('bulk-inputs-container');
+  container.innerHTML = '';
+  selected.forEach(function(box) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'slip_ids';
+    inp.value = box.value;
+    container.appendChild(inp);
+  });
+  document.getElementById('bulk-target-status').value = status;
+  document.getElementById('bulk-target-reason').value = reason || '';
+  document.getElementById('bulk-status-form').submit();
+}
+
+function promptHoldReason() {
+  var reason = prompt('Reason for putting selected payslips on hold (optional):', 'Under review / dispute');
+  if (reason !== null) {
+    submitBulkSlipStatus('on_hold', reason);
+  }
+}
+
+function singleHoldPrompt(slipId, name) {
+  var reason = prompt('Enter reason for putting ' + name + ' on hold:', 'Under review');
+  if (reason !== null) {
+    var form = document.createElement('form');
+    form.method = 'post';
+    form.action = '/payroll/slip/' + slipId + '/status';
+    var csrf = document.createElement('input');
+    csrf.type = 'hidden';
+    csrf.name = '_csrf';
+    csrf.value = '{{ csrf_token }}';
+    form.appendChild(csrf);
+    var st = document.createElement('input');
+    st.type = 'hidden';
+    st.name = 'status';
+    st.value = 'on_hold';
+    form.appendChild(st);
+    var r = document.createElement('input');
+    r.type = 'hidden';
+    r.name = 'reason';
+    r.value = reason;
+    form.appendChild(r);
+    document.body.appendChild(form);
+    form.submit();
+  }
+}
+</script>
 {% endblock %}

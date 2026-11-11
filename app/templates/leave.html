@@ -23,7 +23,7 @@
   <div class="card-body" style="padding:0">
     <div class="table-wrap">
       <table class="data stack">
-        <thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th class="num">Days</th><th>Reason</th><th></th></tr></thead>
+        <thead><tr><th>Employee</th><th>Type</th><th>Applied On</th><th>Leave Dates</th><th class="num">Days</th><th>Reason</th><th></th></tr></thead>
         <tbody>
         {% for item in pending %}
           <tr>
@@ -32,7 +32,13 @@
               <span class="sub">{{ item.employee_code }}{% if item.department %} · {{ item.department }}{% endif %}</span>
             </td>
             <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
-            <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
+            <td data-label="Applied On">
+              <div style="font-weight:600;font-size:0.85rem">{{ item.applied_date }}</div>
+              {% if item.applied_time %}<div class="small muted" style="font-size:0.75rem">{{ item.applied_time }}</div>{% endif %}
+            </td>
+            <td data-label="Leave Dates">
+              <strong>{{ item.from_label }}</strong>{% if item.to_date != item.from_date %} &rarr; <strong>{{ item.to_label }}</strong>{% endif %}
+            </td>
             <td data-label="Days" class="num">{{ item.days | number }}</td>
             <td data-label="Reason" class="small">{{ item.reason or '—' }}</td>
             <td class="actions-cell">
@@ -130,7 +136,7 @@
       <div class="table-wrap">
         <table class="data stack">
           <thead>
-            <tr><th>Employee</th><th>Type</th><th>Dates</th><th class="num">Days</th><th>Status</th><th>Reason</th><th></th></tr>
+            <tr><th>Employee</th><th>Type</th><th>Applied On</th><th>Leave Dates</th><th class="num">Days</th><th>Status</th><th>Reason</th><th></th></tr>
           </thead>
           <tbody>
           {% for item in leaves %}
@@ -138,7 +144,13 @@
               <td data-label="Employee"><a href="/employees/{{ item.employee_id }}"><strong>{{ item.employee_name }}</strong></a>
                 <span class="sub">{{ item.employee_code }}{% if item.department %} · {{ item.department }}{% endif %}</span></td>
               <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
-              <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
+              <td data-label="Applied On">
+                <div style="font-weight:600;font-size:0.85rem">{{ item.applied_date }}</div>
+                {% if item.applied_time %}<div class="small muted" style="font-size:0.75rem">{{ item.applied_time }}</div>{% endif %}
+              </td>
+              <td data-label="Leave Dates">
+                <strong>{{ item.from_label }}</strong>{% if item.to_date != item.from_date %} &rarr; {{ item.to_label }}{% endif %}
+              </td>
               <td data-label="Days" class="num">{{ item.days | number }}</td>
               <td data-label="Status">
                 <span class="chip {{ 'chip-ok' if item.status == 'approved' else 'chip-muted' }}">{{ item.status }}</span>
@@ -168,8 +180,14 @@
     </div>
 
     <div class="card flush">
-      <div class="card-head"><h2>Leave balance</h2><span class="spacer"></span>
-        <span class="small muted">accrued from joining date, {{ balances[0].accrual_per_month if balances else 1.5 }}/month</span></div>
+      <div class="card-head">
+        <h2>Leave balance</h2>
+        <span class="spacer"></span>
+        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+          <a class="btn btn-sm" href="/leave/balances/export.csv" title="Export all employee leave balances to CSV">{{ icon('download') }} Export CSV</a>
+          <button class="btn btn-sm btn-ghost" type="button" onclick="document.getElementById('import-dialog').showModal()" title="Bulk update employee leave quotas">{{ icon('upload') }} Import Quotas</button>
+        </div>
+      </div>
       <div class="table-wrap">
         <table class="data stack">
           <thead><tr><th>Employee</th><th class="num">Months</th><th class="num">Accrued PL</th><th class="num">Leave taken</th><th class="num">Unpaid</th><th class="num">Total available</th></tr></thead>
@@ -266,4 +284,33 @@
     </div>
   </div>
 </div>
+
+<dialog id="import-dialog" class="modal-dialog" style="max-width:520px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);background:var(--card)">
+  <div class="card" style="margin:0;border:none">
+    <div class="card-head" style="background:var(--subtle);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem">
+      <h2 style="margin:0;font-size:1.1rem;font-weight:700">Bulk Import Leave Quotas</h2>
+      <button type="button" class="icon-btn" onclick="document.getElementById('import-dialog').close()" aria-label="Close">✕</button>
+    </div>
+    <form method="post" action="/leave/balances/import" enctype="multipart/form-data" style="padding:1.25rem">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <p class="small muted mb-3" style="line-height:1.5">
+        Upload a CSV file to update custom annual quotas for Paid Leave (PL), Sick Leave (SL), and Casual Leave (CL).
+      </p>
+      <div class="field mb-3">
+        <label for="quota-file">Select CSV File</label>
+        <input id="quota-file" name="file" type="file" accept=".csv" required>
+      </div>
+      <div style="background:var(--subtle);padding:0.75rem 1rem;border-radius:var(--radius);font-size:0.82rem;margin-bottom:1.25rem">
+        <strong>Need the template?</strong>
+        <a href="/leave/balances/template.csv" style="color:var(--primary);font-weight:bold;text-decoration:none">
+          Download Sample Template (.csv)
+        </a> with all active employees pre-filled.
+      </div>
+      <div style="display:flex;gap:0.75rem;justify-content:flex-end">
+        <button class="btn" type="button" onclick="document.getElementById('import-dialog').close()">Cancel</button>
+        <button class="btn btn-primary" type="submit">Upload &amp; Update</button>
+      </div>
+    </form>
+  </div>
+</dialog>
 {% endblock %}

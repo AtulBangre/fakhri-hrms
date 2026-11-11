@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS payslips (
     professional_tax REAL NOT NULL DEFAULT 0,
     total_deductions REAL NOT NULL DEFAULT 0,
     net_pay          REAL NOT NULL DEFAULT 0,
+    status           TEXT NOT NULL DEFAULT 'draft',
     note             TEXT,
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL,
@@ -565,6 +566,7 @@ class Storage:
             self._rebuild_users_if_needed()
             self._add_missing_columns()
             self._backfill_leave_ids()
+            self._sync_payslip_statuses()
             self._merge_department_variants()
             # Must exist on both paths (fresh database and migrated one).
             self._conn.execute(
@@ -716,6 +718,10 @@ class Storage:
             ("advance_note", "TEXT"),
             ("other_deduction_note", "TEXT"),
             ("tds_note", "TEXT"),
+            ("status", "TEXT NOT NULL DEFAULT 'draft'"),
+            ("finalized_at", "TEXT"),
+            ("finalized_by", "TEXT"),
+            ("hold_reason", "TEXT"),
         ],
         "notifications": [
             ("next_attempt_at", "TEXT"),
@@ -790,6 +796,17 @@ class Storage:
                 self._conn.execute("UPDATE attendance SET leave_id = ? WHERE id = ?", (int(match.group(1)), row["id"]))
         if rows:
             self._conn.commit()
+
+    def _sync_payslip_statuses(self) -> None:
+        """Ensure older finalized or paid runs have their payslips reflect the parent run status."""
+        try:
+            self._conn.execute(
+                "UPDATE payslips SET status = (SELECT r.status FROM payroll_runs r WHERE r.id = payslips.run_id) "
+                "WHERE status = 'draft' AND run_id IN (SELECT id FROM payroll_runs WHERE status IN ('finalized', 'paid'))"
+            )
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     def _add_missing_columns(self) -> None:
         """``ALTER TABLE ... ADD COLUMN`` for anything added since the table was made.

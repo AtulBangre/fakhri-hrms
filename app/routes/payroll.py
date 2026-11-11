@@ -222,8 +222,64 @@ def export(
     return PlainTextResponse(
         payroll.payroll_csv(storage, period),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="payroll-{period}.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="payroll-register-{period}.csv"'},
     )
+
+
+@router.get("/export-payout.csv")
+def export_payout(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    period: str | None = None,
+):
+    period = period or orgtime.period_of(orgtime.today(settings))
+    csv_text = payroll.export_bank_payout_csv(storage, period)
+    return PlainTextResponse(
+        csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="bank-payout-neft-{period}.csv"'},
+    )
+
+
+@router.post("/slip/{slip_id}/status")
+def set_single_slip_status(
+    request: Request,
+    slip_id: int,
+    status: str = Form(...),
+    reason: str = Form(""),
+    csrf: str = Form("", alias="_csrf"),
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    verify_form_csrf(user, csrf)
+    slip = payroll.get_slip(storage, slip_id)
+    if not slip:
+        return redirect("/payroll", err="Payslip not found.")
+    try:
+        payroll.set_slip_status(storage, slip_id, status, actor=user.username, reason=reason)
+    except employees_service.ValidationError as exc:
+        return redirect(f"/payroll?period={slip['period']}", err=str(exc))
+    return redirect(f"/payroll?period={slip['period']}", ok=f"Payslip for {slip['name']} marked {status}.")
+
+
+@router.post("/slips/bulk-status")
+def set_bulk_slips_status(
+    request: Request,
+    period: str = Form(...),
+    status: str = Form(...),
+    slip_ids: list[int] = Form(...),
+    reason: str = Form(""),
+    csrf: str = Form("", alias="_csrf"),
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    verify_form_csrf(user, csrf)
+    try:
+        count = payroll.bulk_set_slip_status(storage, period, slip_ids, status, actor=user.username, reason=reason)
+    except employees_service.ValidationError as exc:
+        return redirect(f"/payroll?period={period}", err=str(exc))
+    return redirect(f"/payroll?period={period}", ok=f"{count} payslip(s) marked {status}.")
 
 
 @router.get("/export.zip")
@@ -301,6 +357,9 @@ def email_payslips(
     months = orgtime.month_label(period)
 
     for slip in slips:
+        if slip.get("status") == "on_hold":
+            skipped += 1
+            continue
         employee = employees_service.get_employee(storage, slip["employee_id"])
         address = (employee or {}).get("email")
         if not address:

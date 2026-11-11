@@ -345,7 +345,7 @@ def generate_run(
                 kept = {
                     row["employee_id"]: row
                     for row in storage.query(
-                        f"SELECT employee_id, {', '.join(ADJUSTMENT_FIELDS)} FROM payslips WHERE run_id = ?",
+                        f"SELECT employee_id, status, hold_reason, {', '.join(ADJUSTMENT_FIELDS)} FROM payslips WHERE run_id = ?",
                         (run["id"],),
                     )
                 }
@@ -370,14 +370,17 @@ def generate_run(
         for employee in staff:
             calc = compute_slip(storage, settings, employee, period)
             _apply_adjustments(calc, kept.get(employee["id"]))
+            emp_kept = kept.get(employee["id"]) or {}
+            emp_status = emp_kept.get("status") or "draft"
+            emp_hold = emp_kept.get("hold_reason")
             storage.execute_tx(
                 """
                 INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, paid_leave_days,
                                       lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
                                       professional_tax, tds, total_deductions, net_pay, created_at, updated_at,
                                       bonus, advance, other_deduction, tds_override, note, reimbursement, rounding,
-                                      late_fine)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                      late_fine, status, hold_reason)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
@@ -386,6 +389,7 @@ def generate_run(
                     calc["tds"], calc["total_deductions"], calc["net_pay"], now, now,
                     calc["bonus"], calc["advance"], calc["other_deduction"], calc["tds_override"], calc["note"],
                     calc["reimbursement"], calc["rounding"], calc["late_fine"],
+                    emp_status, emp_hold,
                 ),
             )
             if calc["claim_ids"]:
@@ -533,9 +537,21 @@ def set_run_status(storage: Storage, period: str, status: str, *, actor: str | N
         _require_closable(storage, storage.settings, period)
 
     column = "finalized_at" if status == "finalized" else "paid_at"
+    now_ts = utcnow_iso()
     storage.execute(
-        f"UPDATE payroll_runs SET status = ?, {column} = ? WHERE id = ?", (status, utcnow_iso(), run["id"])
+        f"UPDATE payroll_runs SET status = ?, {column} = ? WHERE id = ?", (status, now_ts, run["id"])
     )
+    if status == "finalized":
+        storage.execute(
+            "UPDATE payslips SET status = 'finalized', finalized_at = ?, finalized_by = ? "
+            "WHERE run_id = ? AND status != 'on_hold'",
+            (now_ts, actor, run["id"]),
+        )
+    elif status == "paid":
+        storage.execute(
+            "UPDATE payslips SET status = 'paid' WHERE run_id = ? AND status = 'finalized'",
+            (run["id"],),
+        )
     if status in ("finalized", "paid"):
         storage.execute(
             "UPDATE expense_claims SET status = 'paid', note = COALESCE(note, ?) "
@@ -558,6 +574,11 @@ def reopen_run(storage: Storage, period: str, *, actor: str | None = None) -> di
         raise employees_service.ValidationError("A paid run cannot be reopened.")
     storage.execute(
         "UPDATE payroll_runs SET status = 'draft', finalized_at = NULL WHERE id = ?", (run["id"],)
+    )
+    storage.execute(
+        "UPDATE payslips SET status = 'draft', finalized_at = NULL, finalized_by = NULL "
+        "WHERE run_id = ? AND status != 'on_hold'",
+        (run["id"],),
     )
     storage.execute(
         "UPDATE expense_claims SET status = 'approved' WHERE payroll_run_id = ? AND status = 'paid'", (run["id"],)
@@ -584,10 +605,72 @@ def delete_run(storage: Storage, period: str, *, actor: str | None = None) -> No
 
 
 # ------------------------------------------------------------------- read
+SLIP_STATUSES = ("draft", "finalized", "on_hold", "paid")
+
+
+def set_slip_status(
+    storage: Storage, slip_id: int, status: str, *, actor: str | None = None, reason: str = ""
+) -> None:
+    if status not in SLIP_STATUSES:
+        raise employees_service.ValidationError(f"Unknown payslip status '{status}'.")
+    slip = get_slip(storage, slip_id)
+    if not slip:
+        raise employees_service.ValidationError(f"Payslip #{slip_id} not found.")
+    run = get_run(storage, slip["period"])
+    if run and run["status"] == "paid":
+        raise employees_service.ValidationError("Cannot change payslips in a paid payroll run.")
+
+    now = utcnow_iso()
+    finalized_at = now if status == "finalized" else (slip.get("finalized_at") if status == "paid" else None)
+    finalized_by = actor if status == "finalized" else (slip.get("finalized_by") if status == "paid" else None)
+    hold_reason = reason if status == "on_hold" else (slip.get("hold_reason") if status == "on_hold" else None)
+
+    storage.execute(
+        """
+        UPDATE payslips
+        SET status = ?, finalized_at = ?, finalized_by = ?, hold_reason = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (status, finalized_at, finalized_by, hold_reason, now, slip_id),
+    )
+    storage.audit(
+        actor=actor,
+        action="payslip_status",
+        entity="payslip",
+        entity_id=slip_id,
+        detail=f"{slip['code']} status set to {status}" + (f": {reason}" if reason else ""),
+    )
+
+
+def bulk_set_slip_status(
+    storage: Storage,
+    period: str,
+    slip_ids: list[int],
+    status: str,
+    *,
+    actor: str | None = None,
+    reason: str = "",
+) -> int:
+    if status not in SLIP_STATUSES:
+        raise employees_service.ValidationError(f"Unknown payslip status '{status}'.")
+    run = get_run(storage, period)
+    if run and run["status"] == "paid":
+        raise employees_service.ValidationError("Cannot change payslips in a paid payroll run.")
+    if not slip_ids:
+        return 0
+
+    count = 0
+    for sid in slip_ids:
+        set_slip_status(storage, sid, status, actor=actor, reason=reason)
+        count += 1
+    return count
+
+
 def slips_for_run(storage: Storage, run_id: int) -> list[dict[str, Any]]:
     rows = storage.query(
         """
-        SELECT p.*, e.code, e.name, e.department, e.designation, e.joined_on
+        SELECT p.*, e.code, e.name, e.department, e.designation, e.joined_on,
+               e.bank_name, e.account_number, e.ifsc, e.account_holder
         FROM payslips p JOIN employees e ON e.id = p.employee_id
         WHERE p.run_id = ? ORDER BY e.name COLLATE NOCASE
         """,
@@ -604,7 +687,8 @@ def list_slips(storage: Storage, period: str) -> list[dict[str, Any]]:
 def get_slip(storage: Storage, slip_id: int) -> dict[str, Any] | None:
     return storage.query_one(
         """
-        SELECT p.*, e.code, e.name, e.department, e.designation, e.joined_on, e.email, e.phone, e.id AS employee_id
+        SELECT p.*, e.code, e.name, e.department, e.designation, e.joined_on, e.email, e.phone, e.id AS employee_id,
+               e.bank_name, e.account_number, e.ifsc, e.account_holder
         FROM payslips p JOIN employees e ON e.id = p.employee_id WHERE p.id = ?
         """,
         (slip_id,),
@@ -643,17 +727,18 @@ def period_summary(storage: Storage, period: str) -> dict[str, Any]:
 
 
 def payroll_csv(storage: Storage, period: str) -> str:
-    """Bank-transfer style CSV: one row per employee, ready for the accountant."""
+    """Detailed payroll register CSV: one row per employee, ready for internal audit/CA."""
     slips = list_slips(storage, period)
     header = (
-        "Employee Code,Employee Name,Department,Designation,Monthly Gross,Basis Days,Present Days,"
-        "Paid Leave Days,LOP Days,Earned Gross,Bonus,Advance,Other Deduction,PF,ESI,Professional Tax,"
+        "Employee Code,Employee Name,Department,Designation,Status,Bank Name,Account Number,IFSC,"
+        "Monthly Gross,Basis Days,Present Days,Paid Leave Days,LOP Days,Earned Gross,Bonus,Advance,Other Deduction,PF,ESI,Professional Tax,"
         "TDS,Late Fines,Total Deductions,Reimbursement,Rounding,Net Pay,Note"
     )
     lines = [header]
     for slip in slips:
         fields = [
             slip["code"], slip["name"], slip.get("department") or "", slip.get("designation") or "",
+            slip.get("status") or "draft", slip.get("bank_name") or "", slip.get("account_number") or "", slip.get("ifsc") or "",
             f"{slip['monthly_gross']:.2f}", slip["basis_days"], f"{slip['present_days']:g}",
             f"{slip['paid_leave_days']:g}", f"{slip['lop_days']:g}", f"{slip['earned_gross']:.2f}",
             f"{slip['bonus']:.2f}", f"{slip['advance']:.2f}", f"{slip['other_deduction']:.2f}",
@@ -666,6 +751,34 @@ def payroll_csv(storage: Storage, period: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def export_bank_payout_csv(storage: Storage, period: str) -> str:
+    """Corporate NetBanking bulk disbursal CSV (NEFT/RTGS).
+    
+    Columns:
+    Beneficiary Account Number,Beneficiary Name,IFSC Code,Amount,Narration,Employee Code,Bank Name
+    
+    Automatically excludes slips marked 'on_hold'.
+    """
+    slips = list_slips(storage, period)
+    month_name = orgtime.month_label(period)
+    header = "Beneficiary Account Number,Beneficiary Name,IFSC Code,Amount,Narration,Employee Code,Bank Name"
+    lines = [header]
+    for slip in slips:
+        if slip.get("status") == "on_hold":
+            continue
+        account_no = str(slip.get("account_number") or "").strip()
+        beneficiary = str(slip.get("account_holder") or slip.get("name") or "").strip()
+        ifsc = str(slip.get("ifsc") or "").strip()
+        amount = f"{slip['net_pay']:.2f}"
+        narration = f"Salary {month_name}"
+        code = slip["code"]
+        bank = str(slip.get("bank_name") or "").strip()
+
+        fields = [account_no, beneficiary, ifsc, amount, narration, code, bank]
+        lines.append(",".join(_csv_safe(v) for v in fields))
+    return "\n".join(lines) + "\n"
+
+
 def _csv_safe(value: object) -> str:
     text = "" if value is None else str(value)
     if any(ch in text for ch in (",", '"', "\n")):
@@ -674,7 +787,7 @@ def _csv_safe(value: object) -> str:
 
 
 def export_payslips_zip(storage: Storage, settings: Settings, period: str) -> bytes:
-    """Pack all employee payslips for a period into a single ZIP file containing PDFs."""
+    """Pack all employee payslips for a period into a single ZIP file containing PDFs (skipping on-hold)."""
     import io
     import zipfile
     from .. import pdf
@@ -684,6 +797,8 @@ def export_payslips_zip(storage: Storage, settings: Settings, period: str) -> by
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for slip_summary in slips:
+            if slip_summary.get("status") == "on_hold":
+                continue
             full_slip = get_slip(storage, slip_summary["id"])
             if not full_slip:
                 continue
@@ -709,6 +824,8 @@ def export_epfo_ecr(storage: Storage, period: str) -> str:
     slips = list_slips(storage, period)
     lines: list[str] = []
     for slip in slips:
+        if slip.get("status") == "on_hold":
+            continue
         emp = employees_service.require_employee(storage, slip["employee_id"])
         uan = str(emp.get("pf_uan") or emp.get("uan") or emp.get("code") or "").strip()
         name = slip["name"].replace("#", "").replace("~", "")
@@ -759,6 +876,8 @@ def export_esic_return(storage: Storage, period: str) -> str:
     header = "IP Number,IP Name,No of Days Worked,Total Monthly Wages,Reason Code for Zero Working Days,Last Working Day"
     lines = [header]
     for slip in slips:
+        if slip.get("status") == "on_hold":
+            continue
         emp = employees_service.require_employee(storage, slip["employee_id"])
         ip_number = str(emp.get("esic_ip") or "").strip()
         name = slip["name"]
