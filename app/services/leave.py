@@ -17,7 +17,12 @@ and reported back so HR can see exactly which dates were charged.
 from __future__ import annotations
 
 from datetime import date, datetime
+import csv
+import io
 import json
+import xml.etree.ElementTree as ET
+import xml.sax.saxutils
+import zipfile
 import zoneinfo
 from typing import Any
 
@@ -845,21 +850,175 @@ def _csv_safe(value: object) -> str:
     return text
 
 
+def export_balances_xlsx(storage: Storage, settings: Settings) -> bytes:
+    """Generate styled Excel (.xlsx) file with leave quotas and balances for all active employees."""
+    escape = xml.sax.saxutils.escape
+    people = employees_service.list_employees(storage, status="active", limit=1000)
+    default_pl = storage.get_float("pl_annual_quota", 6.0)
+    default_sl = storage.get_float("sl_annual_quota", 6.0)
+    default_cl = storage.get_float("cl_annual_quota", 6.0)
+
+    headers = [
+        "Employee Code",
+        "Employee Name",
+        "Department",
+        "PL Quota",
+        "SL Quota",
+        "CL Quota",
+        "Unpaid LOP",
+        "Total Available",
+    ]
+
+    rows_data: list[list[Any]] = []
+    for p in people:
+        bal = balance(storage, settings, p["id"])
+        pl_val = p.get("custom_pl_quota") or p.get("custom_pl_accrual")
+        sl_val = p.get("custom_sl_quota")
+        cl_val = p.get("custom_cl_quota")
+        pl_num = float(pl_val) if pl_val is not None and str(pl_val).strip() != "" else default_pl
+        sl_num = float(sl_val) if sl_val is not None and str(sl_val).strip() != "" else default_sl
+        cl_num = float(cl_val) if cl_val is not None and str(cl_val).strip() != "" else default_cl
+        unpaid_lop = float(bal.get("used_unpaid") or 0.0)
+        tot_avail = float(bal.get("total_available") or 0.0)
+
+        rows_data.append([
+            p["code"],
+            p["name"],
+            p.get("department") or "",
+            pl_num,
+            sl_num,
+            cl_num,
+            unpaid_lop,
+            tot_avail,
+        ])
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>""",
+        )
+
+        z.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>""",
+        )
+
+        z.writestr(
+            "xl/_rels/workbook.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>""",
+        )
+
+        z.writestr(
+            "xl/workbook.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Leave Balances" sheetId="1" r:id="rId1"/></sheets>
+</workbook>""",
+        )
+
+        z.writestr(
+            "xl/styles.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2">
+    <font><name val="Calibri"/><sz val="11"/><color rgb="FF141414"/></font>
+    <font><b/><color rgb="FFFFFFFF"/><name val="Calibri"/><sz val="11"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF870808"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/></border>
+    <border>
+      <left style="thin"><color rgb="FFE2E8F0"/></left>
+      <right style="thin"><color rgb="FFE2E8F0"/></right>
+      <top style="thin"><color rgb="FFE2E8F0"/></top>
+      <bottom style="thin"><color rgb="FFE2E8F0"/></bottom>
+    </border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="4">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment horizontal="left" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"><alignment horizontal="right" vertical="center"/></xf>
+  </cellXfs>
+</styleSheet>""",
+        )
+
+        sheet_lines = [
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
+            '<cols>',
+            '  <col min="1" max="1" width="18" customWidth="1"/>',
+            '  <col min="2" max="2" width="26" customWidth="1"/>',
+            '  <col min="3" max="3" width="20" customWidth="1"/>',
+            '  <col min="4" max="6" width="16" customWidth="1"/>',
+            '  <col min="7" max="7" width="15" customWidth="1"/>',
+            '  <col min="8" max="8" width="18" customWidth="1"/>',
+            '</cols>',
+            '<sheetData>',
+        ]
+
+        # Header row
+        header_cells = []
+        for c_idx, h in enumerate(headers):
+            col_letter = chr(ord("A") + c_idx)
+            header_cells.append(f'<c r="{col_letter}1" s="1" t="inlineStr"><is><t>{escape(h)}</t></is></c>')
+        sheet_lines.append(f'<row r="1" ht="28" customHeight="1">{" ".join(header_cells)}</row>')
+
+        # Data rows
+        for r_idx, r in enumerate(rows_data, start=2):
+            cells = []
+            for c_idx, val in enumerate(r):
+                col_letter = chr(ord("A") + c_idx)
+                if isinstance(val, (int, float)):
+                    cells.append(f'<c r="{col_letter}{r_idx}" s="3"><v>{val:g}</v></c>')
+                else:
+                    cells.append(f'<c r="{col_letter}{r_idx}" s="2" t="inlineStr"><is><t>{escape(str(val))}</t></is></c>')
+            sheet_lines.append(f'<row r="{r_idx}" ht="20" customHeight="1">{" ".join(cells)}</row>')
+
+        sheet_lines.append("</sheetData></worksheet>")
+        z.writestr("xl/worksheets/sheet1.xml", "\n".join(sheet_lines))
+
+    return out.getvalue()
+
+
 def export_balances_csv(storage: Storage, settings: Settings) -> str:
     """Export leave quotas for all active employees as a clean, editable CSV ready for re-import."""
     people = employees_service.list_employees(storage, status="active", limit=1000)
     default_pl = storage.get_float("pl_annual_quota", 6.0)
     default_sl = storage.get_float("sl_annual_quota", 6.0)
     default_cl = storage.get_float("cl_annual_quota", 6.0)
-    header = "Employee Code,Employee Name,Department,PL Quota,SL Quota,CL Quota"
+    header = "Employee Code,Employee Name,Department,PL Quota,SL Quota,CL Quota,Unpaid LOP,Total Available"
     lines = [header]
     for p in people:
+        bal = balance(storage, settings, p["id"])
         pl_val = p.get("custom_pl_quota") or p.get("custom_pl_accrual")
         sl_val = p.get("custom_sl_quota")
         cl_val = p.get("custom_cl_quota")
         pl_str = f"{float(pl_val):g}" if pl_val is not None and str(pl_val).strip() != "" else f"{default_pl:g}"
         sl_str = f"{float(sl_val):g}" if sl_val is not None and str(sl_val).strip() != "" else f"{default_sl:g}"
         cl_str = f"{float(cl_val):g}" if cl_val is not None and str(cl_val).strip() != "" else f"{default_cl:g}"
+        unpaid_lop = f"{float(bal.get('used_unpaid') or 0.0):g}"
+        tot_avail = f"{float(bal.get('total_available') or 0.0):g}"
         fields = [
             p["code"],
             p["name"],
@@ -867,6 +1026,8 @@ def export_balances_csv(storage: Storage, settings: Settings) -> str:
             pl_str,
             sl_str,
             cl_str,
+            unpaid_lop,
+            tot_avail,
         ]
         lines.append(",".join(_csv_safe(v) for v in fields))
     return "\n".join(lines) + "\n"
@@ -878,7 +1039,7 @@ def get_balances_template_csv(storage: Storage) -> str:
     default_pl = storage.get_float("pl_annual_quota", 6.0)
     default_sl = storage.get_float("sl_annual_quota", 6.0)
     default_cl = storage.get_float("cl_annual_quota", 6.0)
-    header = "Employee Code,Employee Name,Department,PL Quota,SL Quota,CL Quota"
+    header = "Employee Code,Employee Name,Department,PL Quota,SL Quota,CL Quota,Unpaid LOP"
     lines = [header]
     for p in people:
         pl_val = p.get("custom_pl_quota") or p.get("custom_pl_accrual")
@@ -894,35 +1055,137 @@ def get_balances_template_csv(storage: Storage) -> str:
             pl_str,
             sl_str,
             cl_str,
+            "0",
         ]
         lines.append(",".join(_csv_safe(v) for v in fields))
     return "\n".join(lines) + "\n"
 
 
-def import_balances_csv(storage: Storage, csv_text: str, *, actor: str = "") -> dict[str, Any]:
-    """Bulk import leave quotas from CSV text, returning detailed breakdown of updated, unchanged, and errors."""
-    import csv
-    import io
+def parse_spreadsheet_rows(file_bytes: bytes, filename: str = "") -> list[list[str]]:
+    """Parse raw bytes of an Excel (.xlsx) or CSV file into a list of string rows."""
+    if file_bytes.startswith(b"PK\x03\x04") or filename.lower().endswith(".xlsx"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes), "r") as zf:
+                # 1. Parse sharedStrings table if present
+                sst: list[str] = []
+                if "xl/sharedStrings.xml" in zf.namelist():
+                    root_sst = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+                    for si in root_sst.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}si"):
+                        sst.append("".join(si.itertext()))
 
-    reader = csv.reader(io.StringIO(csv_text.strip()))
+                # 2. Parse sheet1.xml
+                sheet_name = "xl/worksheets/sheet1.xml"
+                if sheet_name not in zf.namelist():
+                    # fallback to first worksheet
+                    sheets = [n for n in zf.namelist() if n.startswith("xl/worksheets/sheet") and n.endswith(".xml")]
+                    if sheets:
+                        sheet_name = sheets[0]
+                    else:
+                        raise ValueError("No worksheets found in Excel file.")
+
+                sheet_root = ET.fromstring(zf.read(sheet_name))
+                parsed_rows: list[list[str]] = []
+                for row_el in sheet_root.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}row"):
+                    row_vals: dict[int, str] = {}
+                    for c in row_el.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c"):
+                        r_ref = c.attrib.get("r", "")
+                        col_letters = "".join([ch for ch in r_ref if ch.isalpha()])
+                        col_idx = 0
+                        for ch in col_letters:
+                            col_idx = col_idx * 26 + (ord(ch) - ord("A") + 1)
+                        col_idx -= 1
+
+                        t_attr = c.attrib.get("t", "")
+                        v_el = c.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v")
+                        val = v_el.text.strip() if v_el is not None and v_el.text is not None else ""
+                        if t_attr == "s" and val.isdigit():
+                            idx = int(val)
+                            val = sst[idx] if idx < len(sst) else val
+                        elif t_attr in ("inlineStr", "str") or not val:
+                            is_t = c.find(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t")
+                            if is_t is not None and is_t.text is not None:
+                                val = is_t.text.strip()
+                        row_vals[col_idx] = val
+
+                    if row_vals:
+                        max_c = max(row_vals.keys())
+                        row_list = [row_vals.get(i, "") for i in range(max_c + 1)]
+                        parsed_rows.append(row_list)
+                return parsed_rows
+        except Exception as exc:
+            # Fallback to CSV if reading as zip failed
+            pass
+
+    # CSV parsing fallback
+    try:
+        text = file_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = file_bytes.decode("latin-1", errors="replace")
+
+    reader = csv.reader(io.StringIO(text.strip()))
+    return [row for row in reader if row and any(c.strip() for c in row)]
+
+
+def import_balances_data(storage: Storage, rows: list[list[str]], *, actor: str = "") -> dict[str, Any]:
+    """Import leave quotas from parsed rows (from Excel or CSV).
+
+    Validates every row:
+    - If a row has an invalid quota (e.g. negative number or non-numeric), logs detailed error and continues.
+    - If a row has no changes compared to current employee DB values, increments unchanged (No Change).
+    - If a row has valid changes, updates DB and increments updated.
+    """
     header = None
     updated = 0
     unchanged = 0
     total_rows = 0
     errors: list[str] = []
 
-    for row_idx, row in enumerate(reader, start=1):
-        if not row or not any(c.strip() for c in row):
+    # Column index positions mapped from header
+    col_code: int | None = None
+    col_pl: int | None = None
+    col_sl: int | None = None
+    col_cl: int | None = None
+
+    default_pl = storage.get_float("pl_annual_quota", 6.0)
+    default_sl = storage.get_float("sl_annual_quota", 6.0)
+    default_cl = storage.get_float("cl_annual_quota", 6.0)
+    defaults = {
+        "custom_pl_accrual": default_pl,
+        "custom_sl_quota": default_sl,
+        "custom_cl_quota": default_cl,
+    }
+
+    for row_idx, row in enumerate(rows, start=1):
+        if not row or not any(str(c).strip() for c in row):
             continue
+
+        clean_row = [str(c).strip() for c in row]
+
+        # First non-empty row is header
         if header is None:
-            header = [c.strip().lower() for c in row]
+            header = [c.lower() for c in clean_row]
+            for idx, h in enumerate(header):
+                if h in ("employee code", "code", "emp code", "emp_code") or ("code" in h and "employee" in h):
+                    col_code = idx
+                elif "unpaid" in h or "lop" in h or "loss of pay" in h:
+                    col_lop = idx
+                elif "sick" in h or "sl" in h:
+                    col_sl = idx
+                elif "casual" in h or "cl" in h:
+                    col_cl = idx
+                elif "paid" in h or "pl" in h:
+                    col_pl = idx
             continue
 
         total_rows += 1
-        row_dict = {header[i]: row[i].strip() for i in range(min(len(header), len(row)))}
-        code = row_dict.get("employee code") or row_dict.get("code")
+
+        if col_code is None or col_code >= len(clean_row):
+            errors.append(f"Row {row_idx}: Missing 'Employee Code' column in file.")
+            continue
+
+        code = clean_row[col_code]
         if not code:
-            errors.append(f"Row {row_idx}: Missing employee code.")
+            errors.append(f"Row {row_idx}: Empty employee code.")
             continue
 
         emp = employees_service.get_employee_by_code(storage, code)
@@ -930,44 +1193,41 @@ def import_balances_csv(storage: Storage, csv_text: str, *, actor: str = "") -> 
             errors.append(f"Row {row_idx} ({code}): Employee code not found in database.")
             continue
 
-        updates = {}
+        updates: dict[str, float] = {}
         row_has_error = False
 
-        # Support flexible column headers
-        mappings = [
-            (("pl quota", "custom annual pl", "custom pl", "annual pl", "pl"), "custom_pl_accrual"),
-            (("sl quota", "custom annual sl", "custom sl", "annual sl", "sl"), "custom_sl_quota"),
-            (("cl quota", "custom annual cl", "custom cl", "annual cl", "cl"), "custom_cl_quota"),
+        # Validate PL, SL, CL numbers
+        field_configs = [
+            (col_pl, "custom_pl_accrual", "PL Quota"),
+            (col_sl, "custom_sl_quota", "SL Quota"),
+            (col_cl, "custom_cl_quota", "CL Quota"),
         ]
 
-        for aliases, field in mappings:
-            col_val = None
-            for alias in aliases:
-                if alias in row_dict and row_dict[alias] != "":
-                    col_val = row_dict[alias]
-                    break
-            if col_val is not None:
-                try:
-                    val = float(col_val)
-                    if val < 0:
-                        errors.append(f"Row {row_idx} ({code}): {aliases[0].upper()} cannot be negative ({val}).")
+        for col_idx, db_field, label in field_configs:
+            if col_idx is not None and col_idx < len(clean_row):
+                col_val = clean_row[col_idx]
+                if col_val != "":
+                    try:
+                        val = float(col_val)
+                        if val < 0:
+                            errors.append(f"Row {row_idx} ({code}): {label} cannot be negative ({val:g}).")
+                            row_has_error = True
+                            break
+                        updates[db_field] = val
+                    except ValueError:
+                        errors.append(f"Row {row_idx} ({code}): Invalid numeric value for {label} ('{col_val}').")
                         row_has_error = True
                         break
-                    updates[field] = val
-                except ValueError:
-                    errors.append(f"Row {row_idx} ({code}): Invalid number for {aliases[0].upper()} ('{col_val}').")
-                    row_has_error = True
-                    break
 
         if row_has_error:
             continue
 
-        # Check if new quotas differ from current employee values in DB
+        # Check if new quotas differ from current effective employee values in DB
         has_change = False
         for field, new_val in updates.items():
             curr_val = emp.get(field)
-            curr_float = float(curr_val) if curr_val is not None and str(curr_val).strip() != "" else None
-            if curr_float is None or abs(curr_float - new_val) > 0.001:
+            curr_float = float(curr_val) if curr_val is not None and str(curr_val).strip() != "" else defaults.get(field, 0.0)
+            if abs(curr_float - new_val) > 0.001:
                 has_change = True
                 break
 
@@ -992,3 +1252,9 @@ def import_balances_csv(storage: Storage, csv_text: str, *, actor: str = "") -> 
         "unchanged": unchanged,
         "errors": errors,
     }
+
+
+def import_balances_csv(storage: Storage, csv_text: str, *, actor: str = "") -> dict[str, Any]:
+    """Bulk import leave quotas from CSV text (backwards compatible wrapper)."""
+    rows = parse_spreadsheet_rows(csv_text.encode("utf-8"), "import.csv")
+    return import_balances_data(storage, rows, actor=actor)

@@ -129,3 +129,76 @@ def test_leave_attachment_download(hr_client, storage, settings):
     resp = hr_client.get("/leave/attachment/test_file_sample.txt")
     assert resp.status_code == 200
     assert b"Leave attachment sample content" in resp.content
+
+
+def test_leave_balances_xlsx_export_and_import(hr_client, storage, settings, staff):
+    emp1 = staff[0]
+    emp2 = staff[1]
+
+    # 1. Export Excel
+    resp = hr_client.get("/leave/balances/export.xlsx")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    xlsx_bytes = resp.content
+    assert xlsx_bytes.startswith(b"PK\x03\x04")
+
+    # 2. Parse exported rows
+    rows = leave_service.parse_spreadsheet_rows(xlsx_bytes, "leave_balances.xlsx")
+    assert len(rows) >= 3  # Header + at least 2 staff
+    assert "Employee Code" in rows[0]
+    assert "Unpaid LOP" in rows[0]
+    assert "PL Quota" in rows[0]
+
+    # 3. Import with No Change
+    res1 = leave_service.import_balances_data(storage, rows, actor="hr_test")
+    assert res1["errors"] == []
+    assert res1["updated"] == 0
+    assert res1["unchanged"] == res1["total_rows"]
+
+    # 4. Modify one employee's quota, keep other unchanged, and introduce an error row
+    # Row format: Employee Code, Employee Name, Department, PL Quota, SL Quota, CL Quota, Unpaid LOP, Total Available
+    modified_rows = [
+        rows[0],
+        # Update emp1 PL from 6 to 12
+        [emp1["code"], emp1["name"], emp1.get("department") or "", "12.0", "6.0", "6.0", "0", "24.0"],
+        # Keep emp2 unchanged
+        rows[2],
+        # Invalid employee code
+        ["INVALID_CODE_999", "Fake Person", "Dept", "5.0", "5.0", "5.0", "0", "15.0"],
+        # Invalid negative number
+        [emp1["code"], emp1["name"], "Dept", "-10", "6.0", "6.0", "0", "0"],
+    ]
+
+    res2 = leave_service.import_balances_data(storage, modified_rows, actor="hr_test")
+    assert res2["updated"] == 1
+    assert res2["unchanged"] >= 1
+    assert len(res2["errors"]) == 2  # Missing code and negative number
+    assert any("INVALID_CODE_999" in e for e in res2["errors"])
+    assert any("negative" in e for e in res2["errors"])
+
+    # Verify emp1 got updated in DB
+    refreshed_emp1 = employees_service.get_employee(storage, emp1["id"])
+    assert float(refreshed_emp1["custom_pl_accrual"]) == 12.0
+
+
+def test_employee_leave_history_api(hr_client, storage, settings, staff):
+    emp = staff[0]
+    leave_res = leave_service.apply_leave(
+        storage,
+        settings,
+        employee_id=emp["id"],
+        leave_type="paid",
+        from_date="2026-11-28",
+        to_date="2026-11-29",
+        reason="Family trip",
+        status="approved",
+        allow_negative=True,
+    )
+
+    resp = hr_client.get(f"/leave/employee/{emp['id']}/history")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["employee"]["id"] == emp["id"]
+    assert "balance" in data
+    assert len(data["leaves"]) >= 1
+    assert data["leaves"][0]["reason"] == "Family trip"

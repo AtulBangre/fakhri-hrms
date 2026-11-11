@@ -229,8 +229,8 @@
         </div>
         <span class="spacer"></span>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-          <a class="btn btn-sm" href="/leave/balances/export.csv" title="Export all employee leave balances to CSV">{{ icon('download') }} Export CSV</a>
-          <button class="btn btn-sm btn-ghost" type="button" onclick="document.getElementById('import-dialog').showModal()" title="Bulk update employee leave quotas">{{ icon('upload') }} Import Quotas</button>
+          <a class="btn btn-sm btn-primary" href="/leave/balances/export.xlsx" title="Export all employee leave balances to Excel (.xlsx)">📊 Export Excel (.xlsx)</a>
+          <button class="btn btn-sm" type="button" onclick="document.getElementById('import-dialog').showModal()" title="Bulk update employee leave quotas">{{ icon('upload') }} Import Quotas</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -244,6 +244,7 @@
                 <th class="num" title="Casual Leave: Taken / Total Annual Quota">Casual Leave (CL)</th>
                 <th class="num" title="Loss of Pay / Unpaid days">Unpaid (LOP)</th>
                 <th class="num" title="Total Available / Remaining Paid Days">Total Available</th>
+                <th style="text-align:right">History</th>
               </tr>
             </thead>
             <tbody>
@@ -277,13 +278,32 @@
                     {{ item.total_available | number }} days
                   </span>
                 </td>
+                <td class="actions-cell" style="text-align:right">
+                  <button type="button" class="btn btn-sm btn-ghost view-leaves-btn"
+                          data-emp-id="{{ item.employee.id }}"
+                          data-emp-name="{{ item.employee.name }}"
+                          data-emp-code="{{ item.employee.code }}"
+                          title="View leave history of {{ item.employee.name }}">
+                    👁 History
+                  </button>
+                </td>
               </tr>
             {% else %}
-              <tr><td colspan="6" class="empty-state">No employees yet.</td></tr>
+              <tr><td colspan="7" class="empty-state">No employees yet.</td></tr>
             {% endfor %}
             </tbody>
           {% else %}
-            <thead><tr><th>Employee</th><th class="num">Months</th><th class="num">Accrued PL</th><th class="num">Leave taken</th><th class="num">Unpaid</th><th class="num">Total available</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th class="num">Months</th>
+                <th class="num">Accrued PL</th>
+                <th class="num">Leave taken</th>
+                <th class="num">Unpaid</th>
+                <th class="num">Total available</th>
+                <th style="text-align:right">History</th>
+              </tr>
+            </thead>
             <tbody>
             {% for item in balances %}
               <tr>
@@ -299,9 +319,18 @@
                     <span class="small muted" style="font-size:0.75rem">PL: {{ item.pl_available | number }} · SL: {{ item.sl_available | number }} · CL: {{ item.cl_available | number }}</span>
                   </div>
                 </td>
+                <td class="actions-cell" style="text-align:right">
+                  <button type="button" class="btn btn-sm btn-ghost view-leaves-btn"
+                          data-emp-id="{{ item.employee.id }}"
+                          data-emp-name="{{ item.employee.name }}"
+                          data-emp-code="{{ item.employee.code }}"
+                          title="View leave history of {{ item.employee.name }}">
+                    👁 History
+                  </button>
+                </td>
               </tr>
             {% else %}
-              <tr><td colspan="6" class="empty-state">No employees yet.</td></tr>
+              <tr><td colspan="7" class="empty-state">No employees yet.</td></tr>
             {% endfor %}
             </tbody>
           {% endif %}
@@ -379,38 +408,54 @@
   </div>
 </div>
 
-<dialog id="import-dialog" class="modal-dialog" style="max-width:520px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);background:var(--card)">
+<dialog id="import-dialog" class="modal-dialog" style="max-width:540px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.25);background:var(--card)">
   <div class="card" style="margin:0;border:none">
     <div class="card-head" style="background:var(--subtle);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem">
-      <h2 style="margin:0;font-size:1.1rem;font-weight:700">Bulk Import Leave Quotas</h2>
+      <h2 style="margin:0;font-size:1.15rem;font-weight:700">Bulk Import Leave Quotas</h2>
       <button type="button" class="icon-btn" onclick="document.getElementById('import-dialog').close()" aria-label="Close">✕</button>
     </div>
-    <form method="post" action="/leave/balances/import" enctype="multipart/form-data" style="padding:1.25rem">
+    <form id="import-quotas-form" method="post" action="/leave/balances/import" enctype="multipart/form-data" style="padding:1.25rem">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <p class="small muted mb-3" style="line-height:1.5">
-        Upload a CSV file to update leave quotas for Paid Leave (PL), Sick Leave (SL), and Casual Leave (CL).
+        Upload your updated <strong>Excel (.xlsx)</strong> or CSV file to update leave quotas for Paid Leave (PL), Sick Leave (SL), and Casual Leave (CL).
       </p>
+
       <div class="field mb-3">
-        <label for="quota-file">Select CSV File</label>
-        <input id="quota-file" name="file" type="file" accept=".csv" required>
+        <label for="quota-file" style="font-weight:600">Select Excel (.xlsx) or CSV File</label>
+        <input id="quota-file" name="file" type="file" accept=".xlsx,.xls,.csv" required style="width:100%;padding:0.4rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--subtle)">
       </div>
-      <div style="background:var(--subtle);padding:0.75rem 1rem;border-radius:var(--radius);font-size:0.82rem;margin-bottom:1.25rem">
-        <strong>Direct Workflow:</strong> You can download <strong>Export CSV</strong> above, edit the quota columns, and upload that exact same file here! Or download the <a href="/leave/balances/template.csv" style="color:var(--primary);font-weight:bold;text-decoration:none">Sample Template (.csv)</a>.
+
+      <div style="background:var(--subtle);padding:0.75rem 1rem;border-radius:var(--radius);font-size:0.82rem;margin-bottom:1.25rem;line-height:1.5">
+        <strong>💡 Pro Workflow:</strong> Click <strong>Export Excel (.xlsx)</strong> above, edit the quota numbers, and upload that exact file here!
+        <br><span class="muted">• Only changed rows will update. Unchanged rows are skipped.
+        <br>• Valid rows will update even if a few rows contain calculation/formatting errors.</span>
       </div>
+
+      <!-- Live Progress Bar -->
+      <div id="import-progress-wrap" style="display:none;margin-bottom:1.25rem">
+        <div style="display:flex;justify-content:space-between;font-size:0.82rem;font-weight:600;margin-bottom:0.35rem">
+          <span id="import-status-text" style="color:var(--primary)">Reading spreadsheet rows...</span>
+          <span id="import-pct-text" style="color:var(--muted)">0%</span>
+        </div>
+        <div style="background:var(--subtle);border:1px solid var(--border);border-radius:10px;height:10px;overflow:hidden">
+          <div id="import-progress-bar" style="width:0%;height:100%;background:var(--primary);transition:width 0.2s ease"></div>
+        </div>
+      </div>
+
       <div style="display:flex;gap:0.75rem;justify-content:flex-end">
-        <button class="btn" type="button" onclick="document.getElementById('import-dialog').close()">Cancel</button>
-        <button class="btn btn-primary" type="submit">Upload &amp; Update</button>
+        <button class="btn" type="button" id="import-cancel-btn" onclick="document.getElementById('import-dialog').close()">Cancel</button>
+        <button class="btn btn-primary" type="submit" id="import-submit-btn">Upload &amp; Update Quotas</button>
       </div>
     </form>
   </div>
 </dialog>
 
-{% if import_summary %}
-<dialog id="import-result-dialog" class="modal-dialog" open style="max-width:560px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 25px 35px -5px rgba(0,0,0,0.3);background:var(--card);z-index:9999">
+<!-- Import Result Dialog -->
+<dialog id="import-result-dialog" class="modal-dialog" {% if import_summary %}open{% endif %} style="max-width:580px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 25px 35px -5px rgba(0,0,0,0.3);background:var(--card);z-index:9999">
   <div class="card" style="margin:0;border:none">
     <div class="card-head" style="background:var(--subtle);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem">
       <div style="display:flex;align-items:center;gap:0.5rem">
-        <span style="font-size:1.2rem">{{ icon('check-circle') if not import_summary.errors else icon('alert') }}</span>
+        <span id="res-icon" style="font-size:1.2rem">{{ icon('check-circle') if import_summary and not import_summary.errors else icon('alert') }}</span>
         <h2 style="margin:0;font-size:1.15rem;font-weight:700">Leave Quotas Import Summary</h2>
       </div>
       <button type="button" class="icon-btn" onclick="document.getElementById('import-result-dialog').close()" aria-label="Close">✕</button>
@@ -418,50 +463,306 @@
     <div style="padding:1.25rem">
       <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.75rem;margin-bottom:1.25rem">
         <div style="background:#F0FDF4;border:1px solid #BBF7D0;padding:0.75rem;border-radius:var(--radius);text-align:center">
-          <div style="font-size:1.4rem;font-weight:800;color:#16A34A">{{ import_summary.updated }}</div>
+          <div id="res-updated" style="font-size:1.5rem;font-weight:800;color:#16A34A">{{ import_summary.updated if import_summary else 0 }}</div>
           <div style="font-size:0.78rem;font-weight:600;color:#15803D;text-transform:uppercase">Updated</div>
         </div>
         <div style="background:#F8FAFC;border:1px solid #E2E8F0;padding:0.75rem;border-radius:var(--radius);text-align:center">
-          <div style="font-size:1.4rem;font-weight:800;color:#64748B">{{ import_summary.unchanged }}</div>
+          <div id="res-unchanged" style="font-size:1.5rem;font-weight:800;color:#64748B">{{ import_summary.unchanged if import_summary else 0 }}</div>
           <div style="font-size:0.78rem;font-weight:600;color:#475569;text-transform:uppercase">No Change</div>
         </div>
-        {% if import_summary.errors %}
-          <div style="background:#FEF2F2;border:1px solid #FECACA;padding:0.75rem;border-radius:var(--radius);text-align:center">
-            <div style="font-size:1.4rem;font-weight:800;color:#DC2626">{{ import_summary.errors | length }}</div>
-            <div style="font-size:0.78rem;font-weight:600;color:#B91C1C;text-transform:uppercase">Mistakes / Errors</div>
-          </div>
-        {% else %}
-          <div style="background:#F8FAFC;border:1px solid #E2E8F0;padding:0.75rem;border-radius:var(--radius);text-align:center">
-            <div style="font-size:1.4rem;font-weight:800;color:#94A3B8">0</div>
-            <div style="font-size:0.78rem;font-weight:600;color:#64748B;text-transform:uppercase">Mistakes / Errors</div>
-          </div>
-        {% endif %}
+        <div id="res-errors-box" style="background:#F8FAFC;border:1px solid #E2E8F0;padding:0.75rem;border-radius:var(--radius);text-align:center">
+          <div id="res-errors-count" style="font-size:1.5rem;font-weight:800;color:#94A3B8">{{ (import_summary.errors | length) if import_summary and import_summary.errors else 0 }}</div>
+          <div id="res-errors-label" style="font-size:0.78rem;font-weight:600;color:#64748B;text-transform:uppercase">Mistakes / Errors</div>
+        </div>
       </div>
 
-      {% if import_summary.errors %}
-        <div style="margin-bottom:1.25rem">
-          <div style="font-weight:700;font-size:0.88rem;color:#B91C1C;margin-bottom:0.4rem">
-            Row Calculation &amp; Formatting Mistakes:
-          </div>
-          <div style="max-height:160px;overflow-y:auto;background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius);padding:0.6rem 0.8rem;font-size:0.8rem;color:#991B1B">
-            <ul style="margin:0;padding-left:1.2rem;line-height:1.5">
+      <div id="res-errors-container" style="margin-bottom:1.25rem;display:{% if import_summary and import_summary.errors %}block{% else %}none{% endif %}">
+        <div style="font-weight:700;font-size:0.88rem;color:#B91C1C;margin-bottom:0.4rem">
+          Row Calculation &amp; Formatting Mistakes:
+        </div>
+        <div style="max-height:170px;overflow-y:auto;background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius);padding:0.6rem 0.8rem;font-size:0.8rem;color:#991B1B">
+          <ul id="res-errors-list" style="margin:0;padding-left:1.2rem;line-height:1.5">
+            {% if import_summary and import_summary.errors %}
               {% for err in import_summary.errors %}
                 <li>{{ err }}</li>
               {% endfor %}
-            </ul>
-          </div>
+            {% endif %}
+          </ul>
         </div>
-      {% else %}
-        <div style="background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;padding:0.75rem 1rem;border-radius:var(--radius);font-size:0.85rem;margin-bottom:1.25rem">
-          ✓ All {{ import_summary.total_rows }} row(s) were successfully verified and processed with zero mistakes.
-        </div>
-      {% endif %}
+      </div>
 
-      <div style="display:flex;justify-content:flex-end">
-        <button class="btn btn-primary" type="button" onclick="document.getElementById('import-result-dialog').close()">Done</button>
+      <div id="res-success-message" style="display:{% if import_summary and not import_summary.errors %}block{% else %}none{% endif %};background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;padding:0.75rem 1rem;border-radius:var(--radius);font-size:0.85rem;margin-bottom:1.25rem">
+        ✓ Quota spreadsheet processed successfully with zero mistakes.
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+        <button class="btn btn-primary" type="button" onclick="location.reload()">Done &amp; Refresh Table</button>
       </div>
     </div>
   </div>
 </dialog>
-{% endif %}
+
+<!-- Employee Leave History Viewer Modal -->
+<dialog id="leave-history-dialog" class="modal-dialog" style="max-width:820px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 25px 35px -5px rgba(0,0,0,0.35);background:var(--card);z-index:9998">
+  <div class="card" style="margin:0;border:none">
+    <div class="card-head" style="background:var(--subtle);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem">
+      <div>
+        <div style="display:flex;align-items:center;gap:0.5rem">
+          <span style="font-size:1.2rem">📋</span>
+          <h2 id="lh-emp-name" style="margin:0;font-size:1.15rem;font-weight:700">Leave History</h2>
+        </div>
+        <div id="lh-emp-meta" class="small muted" style="margin-top:2px;font-size:0.8rem"></div>
+      </div>
+      <button type="button" class="icon-btn" onclick="document.getElementById('leave-history-dialog').close()" aria-label="Close">✕</button>
+    </div>
+    <div style="padding:1.25rem">
+      <!-- Balance metrics cards -->
+      <div id="lh-balance-grid" style="display:grid;grid-template-columns:repeat(4, 1fr);gap:0.6rem;margin-bottom:1.25rem">
+        <div style="background:var(--subtle);border:1px solid var(--border);border-radius:var(--radius);padding:0.6rem;text-align:center">
+          <div style="font-size:0.75rem;font-weight:700;color:var(--muted);text-transform:uppercase">Paid Leave (PL)</div>
+          <div id="lh-bal-pl" style="font-size:1.2rem;font-weight:800;color:var(--text);margin-top:2px">0 / 0</div>
+          <div id="lh-left-pl" class="small muted" style="font-size:0.72rem">0 left</div>
+        </div>
+        <div style="background:var(--subtle);border:1px solid var(--border);border-radius:var(--radius);padding:0.6rem;text-align:center">
+          <div style="font-size:0.75rem;font-weight:700;color:var(--muted);text-transform:uppercase">Sick Leave (SL)</div>
+          <div id="lh-bal-sl" style="font-size:1.2rem;font-weight:800;color:var(--text);margin-top:2px">0 / 0</div>
+          <div id="lh-left-sl" class="small muted" style="font-size:0.72rem">0 left</div>
+        </div>
+        <div style="background:var(--subtle);border:1px solid var(--border);border-radius:var(--radius);padding:0.6rem;text-align:center">
+          <div style="font-size:0.75rem;font-weight:700;color:var(--muted);text-transform:uppercase">Casual Leave (CL)</div>
+          <div id="lh-bal-cl" style="font-size:1.2rem;font-weight:800;color:var(--text);margin-top:2px">0 / 0</div>
+          <div id="lh-left-cl" class="small muted" style="font-size:0.72rem">0 left</div>
+        </div>
+        <div style="background:var(--subtle);border:1px solid var(--border);border-radius:var(--radius);padding:0.6rem;text-align:center">
+          <div style="font-size:0.75rem;font-weight:700;color:var(--muted);text-transform:uppercase">Unpaid (LOP)</div>
+          <div id="lh-bal-unpaid" style="font-size:1.2rem;font-weight:800;color:#DC2626;margin-top:2px">0</div>
+          <div class="small muted" style="font-size:0.72rem">salary deducted</div>
+        </div>
+      </div>
+
+      <!-- History Table -->
+      <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;max-height:340px;overflow-y:auto">
+        <table class="data" style="margin:0;font-size:0.85rem">
+          <thead style="position:sticky;top:0;background:var(--subtle);z-index:2">
+            <tr>
+              <th>Dates</th>
+              <th>Type</th>
+              <th class="num">Days</th>
+              <th>Status</th>
+              <th>Reason</th>
+              <th>Attachments</th>
+            </tr>
+          </thead>
+          <tbody id="lh-table-body">
+            <tr><td colspan="6" class="empty-state" style="padding:2rem;text-align:center">Loading leave history...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;margin-top:1.25rem">
+        <button class="btn" type="button" onclick="document.getElementById('leave-history-dialog').close()">Close</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(function() {
+  // 1. AJAX Import with Live Progress Bar
+  var form = document.getElementById('import-quotas-form');
+  var progressWrap = document.getElementById('import-progress-wrap');
+  var progressBar = document.getElementById('import-progress-bar');
+  var progressStatus = document.getElementById('import-status-text');
+  var progressPct = document.getElementById('import-pct-text');
+  var submitBtn = document.getElementById('import-submit-btn');
+  var cancelBtn = document.getElementById('import-cancel-btn');
+
+  if (form) {
+    form.addEventListener('submit', function(e) {
+      if (!window.fetch || !window.FormData) return; // allow standard submit on legacy
+      e.preventDefault();
+
+      var fileInput = document.getElementById('quota-file');
+      if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
+
+      var formData = new FormData(form);
+      submitBtn.disabled = true;
+      cancelBtn.disabled = true;
+      progressWrap.style.display = 'block';
+
+      var progress = 10;
+      progressBar.style.width = progress + '%';
+      progressPct.textContent = progress + '%';
+      progressStatus.textContent = 'Uploading spreadsheet...';
+
+      var timer = setInterval(function() {
+        if (progress < 85) {
+          progress += Math.floor(Math.random() * 15) + 5;
+          if (progress > 85) progress = 85;
+          progressBar.style.width = progress + '%';
+          progressPct.textContent = progress + '%';
+          if (progress > 40) progressStatus.textContent = 'Verifying employee codes and formulas...';
+          if (progress > 70) progressStatus.textContent = 'Validating quotas & applying updates...';
+        }
+      }, 150);
+
+      fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      })
+      .then(function(resp) {
+        clearInterval(timer);
+        progressBar.style.width = '100%';
+        progressPct.textContent = '100%';
+        progressStatus.textContent = 'Processing complete!';
+        return resp.json();
+      })
+      .then(function(data) {
+        setTimeout(function() {
+          document.getElementById('import-dialog').close();
+          submitBtn.disabled = false;
+          cancelBtn.disabled = false;
+          progressWrap.style.display = 'none';
+
+          if (data && data.summary) {
+            renderImportSummary(data.summary);
+          } else {
+            location.reload();
+          }
+        }, 300);
+      })
+      .catch(function(err) {
+        clearInterval(timer);
+        submitBtn.disabled = false;
+        cancelBtn.disabled = false;
+        progressStatus.textContent = 'Upload error: ' + err.message;
+        progressBar.style.background = 'var(--danger)';
+      });
+    });
+  }
+
+  function renderImportSummary(s) {
+    var resDialog = document.getElementById('import-result-dialog');
+    document.getElementById('res-updated').textContent = s.updated || 0;
+    document.getElementById('res-unchanged').textContent = s.unchanged || 0;
+
+    var errorsCount = (s.errors && s.errors.length) || 0;
+    var errBox = document.getElementById('res-errors-box');
+    var errCountEl = document.getElementById('res-errors-count');
+    var errLabelEl = document.getElementById('res-errors-label');
+    var errContainer = document.getElementById('res-errors-container');
+    var errList = document.getElementById('res-errors-list');
+    var succMsg = document.getElementById('res-success-message');
+
+    errCountEl.textContent = errorsCount;
+    if (errorsCount > 0) {
+      errBox.style.background = '#FEF2F2';
+      errBox.style.borderColor = '#FECACA';
+      errCountEl.style.color = '#DC2626';
+      errLabelEl.style.color = '#B91C1C';
+      errContainer.style.display = 'block';
+      succMsg.style.display = 'none';
+
+      errList.innerHTML = '';
+      s.errors.forEach(function(msg) {
+        var li = document.createElement('li');
+        li.textContent = msg;
+        errList.appendChild(li);
+      });
+    } else {
+      errBox.style.background = '#F8FAFC';
+      errBox.style.borderColor = '#E2E8F0';
+      errCountEl.style.color = '#94A3B8';
+      errLabelEl.style.color = '#64748B';
+      errContainer.style.display = 'none';
+      succMsg.style.display = 'block';
+      succMsg.textContent = '✓ All ' + (s.total_rows || 0) + ' row(s) were successfully verified and processed with zero mistakes.';
+    }
+
+    resDialog.showModal();
+  }
+
+  // 2. View Employee Leave History Modal
+  document.querySelectorAll('.view-leaves-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var empId = this.getAttribute('data-emp-id');
+      var empName = this.getAttribute('data-emp-name');
+      var empCode = this.getAttribute('data-emp-code');
+
+      var modal = document.getElementById('leave-history-dialog');
+      document.getElementById('lh-emp-name').textContent = 'Leave History: ' + empName;
+      document.getElementById('lh-emp-meta').textContent = 'Code: ' + empCode;
+      document.getElementById('lh-table-body').innerHTML = '<tr><td colspan="6" class="empty-state" style="padding:2rem;text-align:center">Loading leave records...</td></tr>';
+      modal.showModal();
+
+      fetch('/leave/employee/' + empId + '/history', {
+        headers: { 'Accept': 'application/json' }
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data || !data.balance) return;
+        var b = data.balance;
+        var e = data.employee;
+        document.getElementById('lh-emp-meta').textContent = 'Code: ' + e.code + ' · Department: ' + e.department + ' · Designation: ' + e.designation;
+
+        document.getElementById('lh-bal-pl').textContent = b.used_pl + ' / ' + b.annual_pl;
+        document.getElementById('lh-left-pl').textContent = b.pl_available + ' left';
+
+        document.getElementById('lh-bal-sl').textContent = b.used_sl + ' / ' + b.annual_sl;
+        document.getElementById('lh-left-sl').textContent = b.sl_available + ' left';
+
+        document.getElementById('lh-bal-cl').textContent = b.used_cl + ' / ' + b.annual_cl;
+        document.getElementById('lh-left-cl').textContent = b.cl_available + ' left';
+
+        document.getElementById('lh-bal-unpaid').textContent = b.used_unpaid + ' days';
+
+        var tbody = document.getElementById('lh-table-body');
+        tbody.innerHTML = '';
+
+        if (!data.leaves || data.leaves.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty-state" style="padding:2rem;text-align:center">No leave requests recorded for this employee.</td></tr>';
+          return;
+        }
+
+        data.leaves.forEach(function(l) {
+          var tr = document.createElement('tr');
+
+          var datesHtml = '<strong>' + l.from_label + '</strong>';
+          if (l.to_date !== l.from_date) {
+            datesHtml += ' &rarr; <strong>' + l.to_label + '</strong>';
+          }
+          if (l.days === 0.5) {
+            datesHtml += ' <span class="chip" style="font-size:0.7rem;padding:1px 5px">Half day</span>';
+          }
+
+          var statusChip = '<span class="chip ' + (l.status === 'approved' ? 'chip-ok' : (l.status === 'pending' || l.status === 'pending_manager' ? 'chip-warn' : 'chip-muted')) + '">' + l.status + '</span>';
+          var typeChip = '<span class="chip ' + (l.is_paid ? 'chip-info' : 'chip-warn') + '">' + l.type_label + '</span>';
+
+          var attHtml = '—';
+          if (l.attachment_files && l.attachment_files.length > 0) {
+            attHtml = l.attachment_files.map(function(a) {
+              return '<a href="/leave/attachment/' + a.stored_name + '" target="_blank" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none;margin-right:3px" title="Download ' + a.original_name + '">📎 ' + a.original_name + '</a>';
+            }).join(' ');
+          }
+
+          tr.innerHTML = '<td>' + datesHtml + '<div class="small muted" style="font-size:0.73rem">' + l.applied_label + '</div></td>' +
+                         '<td>' + typeChip + '</td>' +
+                         '<td class="num font-bold">' + l.days + '</td>' +
+                         '<td>' + statusChip + '</td>' +
+                         '<td style="white-space:pre-wrap;font-size:0.82rem;max-width:240px">' + (l.reason || '—') + '</td>' +
+                         '<td>' + attHtml + '</td>';
+          tbody.appendChild(tr);
+        });
+      })
+      .catch(function(err) {
+        document.getElementById('lh-table-body').innerHTML = '<tr><td colspan="6" class="empty-state" style="color:var(--danger)">Failed to load: ' + err.message + '</td></tr>';
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

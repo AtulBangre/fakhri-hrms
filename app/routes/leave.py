@@ -15,6 +15,22 @@ from ..services import orgtime
 router = APIRouter(prefix="/leave", tags=["leave"])
 
 
+@router.get("/balances/export.xlsx")
+def export_balances_xlsx(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    xlsx_bytes = leave_service.export_balances_xlsx(storage, settings)
+    today_str = orgtime.today(settings).isoformat()
+    filename = f"leave_balances_{today_str}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/balances/export.csv")
 def export_balances(
     user: SessionUser = Depends(require_hr),
@@ -22,10 +38,11 @@ def export_balances(
     settings=Depends(get_settings_dep),
 ):
     csv_text = leave_service.export_balances_csv(storage, settings)
+    today_str = orgtime.today(settings).isoformat()
     return PlainTextResponse(
         csv_text,
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="leave-balances.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="leave-balances-{today_str}.csv"'},
     )
 
 
@@ -53,13 +70,72 @@ async def import_balances(
 ):
     verify_form_csrf(user, csrf)
     raw = await file.read()
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw.decode("latin-1", errors="replace")
+    filename = file.filename or "import.xlsx"
+    rows = leave_service.parse_spreadsheet_rows(raw, filename)
+    res = leave_service.import_balances_data(storage, rows, actor=user.username)
 
-    res = leave_service.import_balances_csv(storage, text, actor=user.username)
+    # If called via AJAX fetch, return pure JSON response
+    accept = request.headers.get("accept", "")
+    if "application/json" in accept or request.headers.get("x-requested-with") == "XMLHttpRequest":
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": True, "summary": res})
+
     return list_page(request, user=user, storage=storage, settings=settings, import_summary=res)
+
+
+@router.get("/employee/{employee_id}/history")
+def employee_leave_history(
+    employee_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    """Return JSON history and balance breakdown of an employee for the HR Leave modal."""
+    from fastapi.responses import JSONResponse
+    emp = employees_service.get_employee(storage, employee_id)
+    if not emp:
+        return JSONResponse({"error": "Employee not found"}, status_code=404)
+    bal = leave_service.balance(storage, settings, employee_id)
+    history = leave_service.list_leave(storage, employee_id=employee_id, status="all", limit=200)
+    return JSONResponse({
+        "employee": {
+            "id": emp["id"],
+            "name": emp["name"],
+            "code": emp["code"],
+            "department": emp.get("department") or "—",
+            "designation": emp.get("designation") or "—",
+        },
+        "balance": {
+            "pl_available": bal.get("pl_available", 0),
+            "used_pl": bal.get("used_pl", 0),
+            "annual_pl": bal.get("annual_pl", bal.get("accrued", 0)),
+            "sl_available": bal.get("sl_available", 0),
+            "used_sl": bal.get("used_sl", 0),
+            "annual_sl": bal.get("annual_sl", 0),
+            "cl_available": bal.get("cl_available", 0),
+            "used_cl": bal.get("used_cl", 0),
+            "annual_cl": bal.get("annual_cl", 0),
+            "used_unpaid": bal.get("used_unpaid", 0),
+            "total_available": bal.get("total_available", 0),
+        },
+        "leaves": [
+            {
+                "id": l["id"],
+                "from_date": l["from_date"],
+                "to_date": l["to_date"],
+                "from_label": l["from_label"],
+                "to_label": l["to_label"],
+                "days": l["days"],
+                "type_label": l["type_label"],
+                "is_paid": l["is_paid"],
+                "status": l["status"],
+                "reason": l.get("reason") or "—",
+                "applied_label": l.get("applied_label") or "—",
+                "attachment_files": l.get("attachment_files") or [],
+            }
+            for l in history
+        ],
+    })
 
 
 @router.get("")
