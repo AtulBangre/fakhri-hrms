@@ -163,10 +163,7 @@
       <div style="font-weight: 600; font-size: 0.88rem;">
         <span id="selected-count">0</span> payslip(s) selected
       </div>
-      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-        <button class="btn btn-sm btn-dark" type="button" onclick="submitBulkSlipStatus('finalized')">Finalise Selected</button>
-        <button class="btn btn-sm" type="button" onclick="promptHoldReason()" style="border-color: #d97706; color: #b45309;">Put On Hold</button>
-        <button class="btn btn-sm" type="button" onclick="submitBulkSlipStatus('draft')">Reset to Draft</button>
+      <div id="batch-actions" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
       </div>
     </div>
 
@@ -184,7 +181,7 @@
         {% for slip in slips %}
           <tr style="{{ 'background: #fffbeb;' if slip.status == 'on_hold' else '' }}">
             <td style="text-align: center;">
-              <input type="checkbox" class="slip-checkbox" value="{{ slip.id }}" onchange="updateSlipSelection()">
+              <input type="checkbox" class="slip-checkbox" value="{{ slip.id }}" data-status="{{ slip.status or 'draft' }}" data-name="{{ slip.name }}" onchange="updateSlipSelection()">
             </td>
             <td data-label="Employee">
               <a href="/employees/{{ slip.employee_id }}"><strong>{{ slip.name }}</strong></a>
@@ -212,10 +209,20 @@
                   <input type="hidden" name="status" value="draft">
                   <button class="btn btn-sm" type="submit" style="color:#b45309" title="Release from hold">Release</button>
                 </form>
+              {% elif slip.status == 'finalized' %}
+                <form method="post" action="/payroll/slip/{{ slip.id }}/email" style="display:inline">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <button class="btn btn-sm btn-primary" type="submit" title="Send payslip email to {{ slip.name }}">{{ icon('mail') }} Email</button>
+                </form>
+                <form method="post" action="/payroll/slip/{{ slip.id }}/status" style="display:inline">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="status" value="draft">
+                  <button class="btn btn-sm btn-ghost" type="submit" title="Reopen to draft">Reopen</button>
+                </form>
               {% elif run.status == 'draft' %}
                 <button class="btn btn-sm btn-ghost" type="button" onclick="singleHoldPrompt('{{ slip.id }}', '{{ slip.name }}')" title="Put this employee on hold">Hold</button>
+                <button class="btn btn-sm" type="button" onclick="document.getElementById('adj-modal-{{ slip.id }}').showModal()">{{ icon('edit') }} Adjust</button>
               {% endif %}
-              {% if run.status == 'draft' and slip.status != 'on_hold' %}<button class="btn btn-sm" type="button" onclick="document.getElementById('adj-modal-{{ slip.id }}').showModal()">{{ icon('edit') }} Adjust</button>{% endif %}
               <a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}">Payslip</a>
               <a class="btn btn-sm btn-ghost" href="/payroll/slip/{{ slip.id }}.pdf" title="Download PDF">{{ icon('download') }}</a>
             </td>
@@ -395,11 +402,69 @@ function toggleAllSlips(master) {
 }
 
 function updateSlipSelection() {
-  var selected = document.querySelectorAll('.slip-checkbox:checked');
+  var selected = Array.from(document.querySelectorAll('.slip-checkbox:checked'));
   var bar = document.getElementById('batch-bar');
   var countSpan = document.getElementById('selected-count');
+  var actions = document.getElementById('batch-actions');
   if (countSpan) countSpan.textContent = selected.length;
-  if (bar) bar.style.display = selected.length > 0 ? 'flex' : 'none';
+  if (!bar || !actions) return;
+  if (selected.length === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+
+  var draftCount = 0;
+  var finalizedCount = 0;
+  var onHoldCount = 0;
+
+  selected.forEach(function(box) {
+    var st = box.getAttribute('data-status') || 'draft';
+    if (st === 'draft') draftCount++;
+    else if (st === 'finalized') finalizedCount++;
+    else if (st === 'on_hold') onHoldCount++;
+  });
+
+  var html = '';
+  if (draftCount > 0) {
+    html += '<button class="btn btn-sm btn-dark" type="button" onclick="submitBulkSlipStatus(\'finalized\')">Finalise (' + draftCount + ')</button>';
+  }
+  if (finalizedCount > 0) {
+    html += '<button class="btn btn-sm btn-primary" type="button" onclick="submitBulkEmail()">Email Payslips (' + finalizedCount + ')</button>';
+  }
+  if (onHoldCount > 0) {
+    html += '<button class="btn btn-sm" type="button" onclick="submitBulkSlipStatus(\'draft\')" style="color:#b45309">Release from Hold (' + onHoldCount + ')</button>';
+  }
+  if (draftCount > 0 || finalizedCount > 0) {
+    html += '<button class="btn btn-sm" type="button" onclick="promptHoldReason()" style="border-color: #d97706; color: #b45309;">Put On Hold</button>';
+  }
+  if (finalizedCount > 0 || onHoldCount > 0) {
+    html += '<button class="btn btn-sm" type="button" onclick="submitBulkSlipStatus(\'draft\')">Reset to Draft</button>';
+  }
+
+  actions.innerHTML = html;
+}
+
+function submitBulkEmail() {
+  var selected = Array.from(document.querySelectorAll('.slip-checkbox:checked')).filter(function(b) {
+    return b.getAttribute('data-status') === 'finalized';
+  });
+  if (!selected.length) {
+    alert('Please select finalized payslips to email.');
+    return;
+  }
+  var container = document.getElementById('bulk-inputs-container');
+  container.innerHTML = '';
+  selected.forEach(function(box) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden';
+    inp.name = 'slip_ids';
+    inp.value = box.value;
+    container.appendChild(inp);
+  });
+  var form = document.getElementById('bulk-status-form');
+  form.action = '/payroll/slips/bulk-email';
+  form.submit();
 }
 
 function submitBulkSlipStatus(status, reason) {

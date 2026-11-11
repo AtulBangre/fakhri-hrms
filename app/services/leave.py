@@ -179,15 +179,21 @@ def apply_leave(
     if leave_type in orgtime.PAID_LEAVE_TYPES and not allow_negative:
         _check_balance(storage, settings, employee_id, days, leave_type=leave_type)
 
+    manager_status = "approved"
+    if status == "pending":
+        if employee.get("manager_id"):
+            manager_status = "pending"
+            status = "pending_manager"
+
     now = utcnow_iso()
     cursor = storage.execute(
         """
         INSERT INTO leave_requests (employee_id, leave_type, from_date, to_date, days, reason, status,
-                                    applied_by, created_at, decided_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+                                    applied_by, created_at, decided_at, manager_status)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
         """,
         (employee_id, leave_type, start.isoformat(), end.isoformat(), days, reason, status,
-         requested_by, now, now if status == "approved" else None),
+         requested_by, now, now if status == "approved" else None, manager_status),
     )
     leave_id = int(cursor.lastrowid)
     leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (leave_id,))
@@ -401,6 +407,101 @@ def cancel_leave(storage: Storage, leave_id: int, *, actor: str | None = None, a
     return updated
 
 
+# ----------------------------------------------------------- manager approval
+def manager_decide_leave(
+    storage: Storage,
+    leave_id: int,
+    manager_employee_id: int,
+    *,
+    decision: str,
+    note: str | None = None,
+    actor: str | None = None,
+) -> dict[str, Any]:
+    """Reporting manager recommendation/rejection of subordinate leave request."""
+    row = storage.query_one(
+        """
+        SELECT l.*, e.manager_id, e.name AS employee_name
+        FROM leave_requests l
+        JOIN employees e ON e.id = l.employee_id
+        WHERE l.id = ?
+        """,
+        (leave_id,),
+    )
+    if not row:
+        raise employees_service.ValidationError(f"Leave #{leave_id} not found.")
+    if row["manager_id"] != manager_employee_id:
+        raise employees_service.ValidationError("You are not the designated reporting manager for this employee.")
+    if row["status"] != "pending_manager":
+        raise employees_service.ValidationError(
+            f"This leave is not awaiting manager approval (current status: {row['status']})."
+        )
+
+    now = utcnow_iso()
+    new_status = "pending" if decision == "approved" else "rejected"
+    storage.execute(
+        """
+        UPDATE leave_requests
+        SET manager_status = ?, status = ?, manager_action_at = ?, manager_action_by = ?, manager_note = ?,
+            decided_at = CASE WHEN ? = 'rejected' THEN ? ELSE decided_at END
+        WHERE id = ?
+        """,
+        (decision, new_status, now, manager_employee_id, note or None, decision, now, leave_id),
+    )
+    storage.audit(
+        actor=actor or f"manager:{manager_employee_id}",
+        action=f"manager_{decision}_leave",
+        entity="leave",
+        entity_id=leave_id,
+        detail=f"decision={decision} note={note or ''}",
+    )
+    res = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (leave_id,))
+    assert res is not None
+    return res
+
+
+def list_manager_team_leave(
+    storage: Storage, manager_employee_id: int, *, status: str | None = None
+) -> list[dict[str, Any]]:
+    """List leave requests from direct subordinates for manager review."""
+    clauses = ["e.manager_id = ?"]
+    params: list[Any] = [manager_employee_id]
+    if status and status != "all":
+        clauses.append("l.status = ?")
+        params.append(status)
+
+    rows = storage.query(
+        f"""
+        SELECT l.*, e.name AS employee_name, e.code AS employee_code, e.department
+        FROM leave_requests l
+        JOIN employees e ON e.id = l.employee_id
+        WHERE {' AND '.join(clauses)}
+        ORDER BY CASE l.status WHEN 'pending_manager' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, l.created_at DESC
+        """,
+        params,
+    )
+    results = []
+    for row in rows:
+        d = dict(row)
+        d["type_label"] = orgtime.LEAVE_LABELS.get(d["leave_type"], d["leave_type"])
+        d["from_label"] = orgtime.human_date(d["from_date"])
+        d["to_label"] = orgtime.human_date(d["to_date"])
+        d["is_paid"] = d["leave_type"] in orgtime.PAID_LEAVE_TYPES
+        created = d.get("created_at") or ""
+        if created:
+            try:
+                dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                ist_dt = dt.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
+                d["applied_label"] = ist_dt.strftime("%d %b %Y, %I:%M %p")
+                d["applied_date"] = ist_dt.strftime("%d %b %Y")
+                d["applied_time"] = ist_dt.strftime("%I:%M %p")
+            except Exception:
+                d["applied_label"] = created
+                d["applied_date"] = created
+                d["applied_time"] = ""
+        results.append(d)
+    return results
+
+
 # ---------------------------------------------------------------------- read
 def list_leave(
     storage: Storage,
@@ -430,7 +531,7 @@ def list_leave(
     params.append(limit)
     rows = storage.query(
         f"""
-        SELECT l.*, e.name AS employee_name, e.code AS employee_code, e.department
+        SELECT l.*, e.name AS employee_name, e.code AS employee_code, e.department, e.manager_id
         FROM leave_requests l JOIN employees e ON e.id = l.employee_id
         {where}
         ORDER BY
@@ -466,12 +567,13 @@ def list_leave(
 
 
 def pending_requests(storage: Storage, *, limit: int = 50) -> list[dict[str, Any]]:
-    return list_leave(storage, status="pending", limit=limit)
+    rows = list_leave(storage, limit=limit * 2)
+    return [r for r in rows if r["status"] in ("pending", "pending_manager")][:limit]
 
 
 def count_pending(storage: Storage) -> int:
     return int(
-        storage.scalar("SELECT COUNT(*) AS n FROM leave_requests WHERE status = 'pending'", (), 0)
+        storage.scalar("SELECT COUNT(*) AS n FROM leave_requests WHERE status IN ('pending', 'pending_manager')", (), 0)
     )
 
 

@@ -171,8 +171,8 @@ def test_payroll_zip_and_ecr_exports(client_and_storage):
     from app.services import payroll as payroll_service
     # Seed an employee and payroll run
     emp_id = storage.scalar(
-        "INSERT INTO employees (code, name, department, monthly_gross, joined_on, created_at, updated_at) "
-        "VALUES ('EMP301', 'Pay Tester', 'HR', 50000, '2026-01-01', '2026-01-01', '2026-01-01') RETURNING id"
+        "INSERT INTO employees (code, name, department, uan, monthly_gross, joined_on, created_at, updated_at) "
+        "VALUES ('EMP301', 'Pay Tester', 'HR', '100123456789', 50000, '2026-01-01', '2026-01-01', '2026-01-01') RETURNING id"
     )
     storage.execute(
         "INSERT INTO salary_revisions (employee_id, monthly_gross, basic, effective_from, created_at) "
@@ -184,8 +184,8 @@ def test_payroll_zip_and_ecr_exports(client_and_storage):
         "VALUES ('2026-08', 'draft', 31, 50000, '2026-08-31') RETURNING id"
     )
     storage.execute(
-        "INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, monthly_gross, earned_gross, net_pay, created_at, updated_at) "
-        "VALUES (?, ?, '2026-08', 31, 31, 50000, 50000, 50000, '2026-08-31', '2026-08-31')",
+        "INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, monthly_gross, earned_gross, pf, net_pay, created_at, updated_at) "
+        "VALUES (?, ?, '2026-08', 31, 31, 50000, 50000, 1800, 48200, '2026-08-31', '2026-08-31')",
         (run_id, emp_id),
     )
 

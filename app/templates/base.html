@@ -13,6 +13,10 @@
     {{ navlink('/me/tax', 'me-tax', 'calculator', 'Income tax') }}
     {{ navlink('/me/appraisal', 'me-appraisal', 'star', 'Appraisal') }}
     {{ navlink('/me/profile', 'me-profile', 'user', 'Profile') }}
+    {% if is_manager %}
+      <div class="nav-section">Management</div>
+      {{ navlink('/me/team', 'me-team', 'users', 'My Team') }}
+    {% endif %}
     <div class="nav-section">Work</div>
     {% if remote_work_enabled %}{{ navlink('/kiosk', 'kiosk', 'scan', 'Kiosk punch') }}{% endif %}
     {% if self_punch and self_punch != 'disabled' %}{{ navlink('/me/field', 'me-field', 'pin', 'Field attendance') }}{% endif %}
@@ -37,6 +41,7 @@
     {{ navlink('/profile-requests', 'profile-requests', 'file-edit', 'Profile changes', _pending.get('profile')) }}
     <div class="nav-section">Payroll</div>
     {{ navlink('/payroll', 'payroll', 'wallet', 'Payroll') }}
+    {{ navlink('/loans', 'loans', 'wallet', 'Loans & Advances') }}
     {{ navlink('/tax', 'tax', 'calculator', 'Income tax / TDS') }}
     {{ navlink('/expenses', 'expenses', 'receipt', 'Expense claims', _pending.get('expenses')) }}
     <div class="nav-section">Records</div>

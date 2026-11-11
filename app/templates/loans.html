@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Loans & Advances · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Loans & Salary Advances</h1>
+    <div class="sub">Track employee loans, salary advances, and automated monthly EMI recoveries from payroll.</div>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-primary" type="button" onclick="document.getElementById('loan-modal').showModal()">
+      + Disburse Loan / Advance
+    </button>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat accent">
+    <div class="label">Total Disbursed</div>
+    <div class="value">{{ summary.total_disbursed | money }}</div>
+    <div class="foot">Across all loans</div>
+  </div>
+  <div class="stat ok">
+    <div class="label">Total Repaid</div>
+    <div class="value">{{ summary.total_repaid | money }}</div>
+    <div class="foot">Recovered via payroll</div>
+  </div>
+  <div class="stat warn">
+    <div class="label">Outstanding Balance</div>
+    <div class="value">{{ summary.outstanding | money }}</div>
+    <div class="foot">Pending recovery</div>
+  </div>
+  <div class="stat">
+    <div class="label">Active Loans</div>
+    <div class="value">{{ summary.active_count }}</div>
+    <div class="foot">Active repayment schedules</div>
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="card-head">
+    <h2>All Loans & Advances ({{ loans | length }})</h2>
+    <span class="spacer"></span>
+    <div style="display:flex;gap:0.5rem;align-items:center">
+      <a class="chip {{ 'chip-primary' if status_filter == 'all' else 'chip-muted' }}" href="/loans">All</a>
+      <a class="chip {{ 'chip-primary' if status_filter == 'active' else 'chip-muted' }}" href="/loans?status=active">Active</a>
+      <a class="chip {{ 'chip-primary' if status_filter == 'closed' else 'chip-muted' }}" href="/loans?status=closed">Closed</a>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Type</th>
+          <th class="num">Principal</th>
+          <th class="num">Monthly EMI</th>
+          <th style="min-width: 140px;">Repayment Progress</th>
+          <th class="num">Balance</th>
+          <th>Disbursed On</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for loan in loans %}
+          <tr>
+            <td data-label="Employee">
+              <a href="/employees/{{ loan.employee_id }}"><strong>{{ loan.employee_name }}</strong></a>
+              <span class="sub">{{ loan.employee_code }}{% if loan.department %} · {{ loan.department }}{% endif %}</span>
+            </td>
+            <td data-label="Type">
+              <span class="chip chip-muted" style="font-size:0.75rem">{{ loan.type_label }}</span>
+            </td>
+            <td data-label="Principal" class="num">
+              <strong>{{ loan.principal_amount | money }}</strong>
+            </td>
+            <td data-label="Monthly EMI" class="num">
+              {{ loan.monthly_emi | money }}
+            </td>
+            <td data-label="Progress">
+              <div style="display:flex;flex-direction:column;gap:3px">
+                <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;width:100%">
+                  <div style="height:100%;width:{{ loan.repaid_pct }}%;background:{{ '#10b981' if loan.status == 'closed' else '#870808' }};border-radius:3px"></div>
+                </div>
+                <div class="small muted" style="font-size:0.72rem;display:flex;justify-content:space-between">
+                  <span>{{ loan.total_repaid | money }}</span>
+                  <span>{{ loan.repaid_pct }}%</span>
+                </div>
+              </div>
+            </td>
+            <td data-label="Balance" class="num">
+              <span class="{{ 'warn' if loan.remaining_balance > 0 else 'ok' }}" style="font-weight:700">
+                {{ loan.remaining_balance | money }}
+              </span>
+            </td>
+            <td data-label="Disbursed On">
+              {{ loan.disbursed_on | nice_date }}
+            </td>
+            <td data-label="Status">
+              <span class="chip {{ 'chip-ok' if loan.status == 'active' else 'chip-muted' }}" style="text-transform:capitalize">
+                {{ loan.status }}
+              </span>
+            </td>
+            <td class="actions-cell">
+              {% if loan.status == 'active' %}
+                <form method="post" action="/loans/{{ loan.id }}/close" style="display:inline" data-confirm="Settle or write off the remaining balance for Loan #{{ loan.id }}?">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <input type="hidden" name="reason" value="Manual settlement">
+                  <button class="btn btn-sm" type="submit" title="Mark loan as settled">Settle</button>
+                </form>
+              {% else %}
+                <span class="small muted">Closed</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="9" class="empty-state">No loans or advances recorded yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<dialog id="loan-modal" class="modal-dialog" style="max-width:540px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);background:var(--card)">
+  <div class="card" style="margin:0;border:none">
+    <div class="card-head" style="background:var(--subtle);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem">
+      <h2 style="margin:0;font-size:1.15rem;font-weight:700">Disburse Loan / Salary Advance</h2>
+      <button type="button" class="icon-btn" onclick="document.getElementById('loan-modal').close()" aria-label="Close">✕</button>
+    </div>
+    <form method="post" action="/loans" style="padding:1.25rem">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+
+      <div class="field mb-3">
+        <label for="employee_id">Select Employee *</label>
+        <select id="employee_id" name="employee_id" required>
+          <option value="">-- Choose an employee --</option>
+          {% for emp in employees %}
+            <option value="{{ emp.id }}">{{ emp.name }} ({{ emp.code }}){% if emp.department %} · {{ emp.department }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-row cols-2 mb-3">
+        <div class="field">
+          <label for="loan_type">Loan Type</label>
+          <select id="loan_type" name="loan_type">
+            <option value="salary_advance">Salary Advance</option>
+            <option value="personal_loan">Personal Loan</option>
+            <option value="emergency_loan">Emergency Loan</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="disbursed_on">Disbursal Date *</label>
+          <input id="disbursed_on" name="disbursed_on" type="date" value="{{ today.isoformat() }}" required>
+        </div>
+      </div>
+
+      <div class="form-row cols-2 mb-3">
+        <div class="field">
+          <label for="principal_amount">Principal Amount (₹) *</label>
+          <input id="principal_amount" name="principal_amount" type="number" min="500" step="500" placeholder="e.g. 30000" required>
+        </div>
+        <div class="field">
+          <label for="monthly_emi">Monthly EMI (₹) *</label>
+          <input id="monthly_emi" name="monthly_emi" type="number" min="500" step="100" placeholder="e.g. 5000" required>
+          <div class="hint">Will be auto-deducted in monthly payroll.</div>
+        </div>
+      </div>
+
+      <div class="field mb-3">
+        <label for="reason">Reason / Disbursal Note</label>
+        <input id="reason" name="reason" type="text" placeholder="e.g. Medical emergency, laptop advance, festival advance">
+      </div>
+
+      <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1.5rem">
+        <button class="btn" type="button" onclick="document.getElementById('loan-modal').close()">Cancel</button>
+        <button class="btn btn-primary" type="submit">Confirm &amp; Disburse</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+{% endblock %}
+

@@ -263,6 +263,110 @@ def set_single_slip_status(
     return redirect(f"/payroll?period={slip['period']}", ok=f"Payslip for {slip['name']} marked {status}.")
 
 
+@router.post("/slip/{slip_id}/email")
+def email_single_slip(
+    request: Request,
+    slip_id: int,
+    csrf: str = Form("", alias="_csrf"),
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    verify_form_csrf(user, csrf)
+    slip = payroll.get_slip(storage, slip_id)
+    if not slip:
+        return redirect("/payroll", err="Payslip not found.")
+    emp = employees_service.get_employee(storage, slip["employee_id"])
+    email = (emp or {}).get("email")
+    if not email:
+        return redirect(
+            f"/payroll?period={slip['period']}",
+            err=f"Cannot email: {slip['name']} has no email address on file in their employee profile.",
+        )
+    months = orgtime.month_label(slip["period"])
+    row_id = notify.queue_email(
+        storage, email, "payslip", settings=settings, category="payslip",
+        name=(emp.get("name") or "").split(" ")[0] or "there",
+        period=months,
+        gross=f"Rs {float(slip['monthly_gross']):,.2f}",
+        deductions=f"Rs {float(slip['total_deductions']):,.2f}",
+        net=f"Rs {float(slip['net_pay']):,.2f}",
+    )
+    if row_id:
+        storage.execute(
+            "UPDATE notifications SET meta=? WHERE id=?",
+            (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
+        )
+    smtp_host = storage.get_setting("smtp_host", "")
+    if smtp_host:
+        results = notify.dispatch(storage, settings, limit=1)
+        if results and results[0].get("ok"):
+            msg = f"Payslip email sent successfully to {slip['name']} ({email})."
+            return redirect(f"/payroll?period={slip['period']}", ok=msg)
+        else:
+            err = results[0].get("error") if results else "SMTP error"
+            return redirect(f"/payroll?period={slip['period']}", err=f"SMTP dispatch failed: {err}")
+    else:
+        return redirect(
+            f"/payroll?period={slip['period']}",
+            ok=f"Payslip email queued for {slip['name']} ({email}). (Note: SMTP is not configured in Settings → Email & Notifications, so email was queued locally).",
+        )
+
+
+@router.post("/slips/bulk-email")
+def email_bulk_slips(
+    request: Request,
+    period: str = Form(...),
+    slip_ids: list[int] = Form(...),
+    csrf: str = Form("", alias="_csrf"),
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    verify_form_csrf(user, csrf)
+    months = orgtime.month_label(period)
+    queued_count = 0
+    missing_email = 0
+    smtp_host = storage.get_setting("smtp_host", "")
+
+    for sid in slip_ids:
+        slip = payroll.get_slip(storage, sid)
+        if not slip or slip.get("status") == "on_hold":
+            continue
+        emp = employees_service.get_employee(storage, slip["employee_id"])
+        email = (emp or {}).get("email")
+        if not email:
+            missing_email += 1
+            continue
+        row_id = notify.queue_email(
+            storage, email, "payslip", settings=settings, category="payslip",
+            name=(emp.get("name") or "").split(" ")[0] or "there",
+            period=months,
+            gross=f"Rs {float(slip['monthly_gross']):,.2f}",
+            deductions=f"Rs {float(slip['total_deductions']):,.2f}",
+            net=f"Rs {float(slip['net_pay']):,.2f}",
+        )
+        if row_id:
+            storage.execute(
+                "UPDATE notifications SET meta=? WHERE id=?",
+                (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
+            )
+            queued_count += 1
+
+    if queued_count > 0:
+        if smtp_host:
+            results = notify.dispatch(storage, settings, limit=queued_count)
+            sent = sum(1 for r in results if r.get("ok"))
+            msg = f"Sent {sent} payslip email(s) for {months}."
+        else:
+            msg = f"Queued {queued_count} payslip email(s). (Note: Configure SMTP in Settings → Email & Notifications to send live emails)."
+    else:
+        msg = "No payslips could be queued."
+    if missing_email:
+        msg += f" {missing_email} employee(s) skipped (no email on file)."
+    return redirect(f"/payroll?period={period}", ok=msg)
+
+
 @router.post("/slips/bulk-status")
 def set_bulk_slips_status(
     request: Request,

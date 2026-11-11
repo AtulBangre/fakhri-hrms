@@ -246,6 +246,7 @@ def new_page(request: Request, user: SessionUser = Depends(require_hr), storage=
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
+        managers=storage.query("SELECT id, code, name, designation, department FROM employees WHERE status = 'active' ORDER BY name"),
         form={},
         pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
         pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
@@ -266,6 +267,7 @@ def _form_error(request, user, storage, data, message):
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
+        managers=storage.query("SELECT id, code, name, designation, department FROM employees WHERE status = 'active' ORDER BY name"),
         pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
         pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
         pl_accrual_default=storage.get_float("pl_accrual_per_month", 0.5),
@@ -300,6 +302,7 @@ async def create(
         "professional_tax": _as_float(text("professional_tax")), "notes": text("notes"),
         "statutory_mode": text("statutory_mode", "auto"), "_actor": user.username,
         "shift_id": text("shift_id") or None,
+        "manager_id": text("manager_id") or None,
         "custom_pl_accrual": text("custom_pl_accrual") or None,
         "custom_sl_quota": text("custom_sl_quota") or None,
         "custom_cl_quota": text("custom_cl_quota") or None,
@@ -417,6 +420,7 @@ def edit_page(
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
+        managers=storage.query("SELECT id, code, name, designation, department FROM employees WHERE status = 'active' AND id != ? ORDER BY name", (employee_id,)),
         form={},
         masked_aadhaar=employees_service.masked_aadhaar(employee.get("aadhaar_last4")),
         self_punch_labels=employees_service.SELF_PUNCH_LABELS,
@@ -462,12 +466,14 @@ def detail(
     )
     shift_start = emp_shift["start_time"] if emp_shift else storage.get_setting("shift_start", "09:30")
     shift_end = emp_shift["end_time"] if emp_shift else storage.get_setting("shift_end", "18:30")
+    manager = storage.query_one("SELECT id, code, name, designation FROM employees WHERE id = ?", (employee.get("manager_id"),)) if employee.get("manager_id") else None
     return render(
         request,
         "employee_detail.html",
         active="employees",
         user=user,
         employee=employee,
+        manager=manager,
         period=period,
         period_label=orgtime.month_label(period),
         summary=summary,
@@ -523,6 +529,7 @@ def update(
     enable_portal: str = Form(""),
     self_punch_mode: str = Form(""),
     shift_id: str = Form(""),
+    manager_id: str = Form(""),
     custom_pl_accrual: str = Form(""),
     custom_sl_quota: str = Form(""),
     custom_cl_quota: str = Form(""),
@@ -545,6 +552,7 @@ def update(
         "date_of_birth": date_of_birth.strip() or None,
         "anniversary": anniversary.strip() or None,
         "shift_id": int(shift_id) if shift_id.strip() else None,
+        "manager_id": int(manager_id) if manager_id.strip() else None,
         "custom_pl_accrual": float(custom_pl_accrual) if custom_pl_accrual.strip() else None,
         "custom_sl_quota": float(custom_sl_quota) if custom_sl_quota.strip() else None,
         "custom_cl_quota": float(custom_cl_quota) if custom_cl_quota.strip() else None,

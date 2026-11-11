@@ -93,17 +93,34 @@
             {% endif %}
           </div>
 
-          <div class="field">
-            <label for="shift_id">Work Shift</label>
-            <select id="shift_id" name="shift_id">
-              <option value="">Company Default Shift</option>
-              {% for s in shifts %}
-                <option value="{{ s.id }}" {{ 'selected' if (f.get('shift_id') or (employee.shift_id if employee else None)) == s.id }}>
-                  {{ s.name }} ({{ s.start_time }} – {{ s.end_time }}){% if s.is_default %} [Default]{% endif %}
-                </option>
-              {% endfor %}
-            </select>
-            <div class="hint">Attendance and late rules will follow this shift.</div>
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="shift_id">Work Shift</label>
+              <select id="shift_id" name="shift_id">
+                <option value="">Company Default Shift</option>
+                {% for s in shifts %}
+                  <option value="{{ s.id }}" {{ 'selected' if (f.get('shift_id') or (employee.shift_id if employee else None)) == s.id }}>
+                    {{ s.name }} ({{ s.start_time }} – {{ s.end_time }}){% if s.is_default %} [Default]{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+              <div class="hint">Attendance and late rules will follow this shift.</div>
+            </div>
+
+            <div class="field">
+              <label for="manager_id">Reporting Manager</label>
+              <select id="manager_id" name="manager_id">
+                <option value="">None (Reports directly to HR/Director)</option>
+                {% for m in managers %}
+                  {% if not employee or m.id != employee.id %}
+                    <option value="{{ m.id }}" {{ 'selected' if (f.get('manager_id') | string or (employee.manager_id | string if employee else '')) == (m.id | string) }}>
+                      {{ m.name }} ({{ m.code }}){% if m.designation %} · {{ m.designation }}{% endif %}
+                    </option>
+                  {% endif %}
+                {% endfor %}
+              </select>
+              <div class="hint">Leave, regularization, and expense claims flow to this manager first.</div>
+            </div>
           </div>
 
           {% if employee %}

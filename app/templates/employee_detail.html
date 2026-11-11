@@ -461,6 +461,14 @@
           <div><span class="k">Type</span><span class="v">{{ employee.employment_type.replace('_', ' ') }}</span></div>
           <div><span class="k">Joined</span><span class="v">{{ employee.joined_on | nice_date }}</span></div>
           <div><span class="k">Service</span><span class="v">{{ balance.months_of_service }} months</span></div>
+          <div><span class="k">Manager</span><span class="v">
+            {% if manager %}
+              <a href="/employees/{{ manager.id }}"><strong>{{ manager.name }}</strong></a>
+              <span class="muted small">({{ manager.code }})</span>
+            {% else %}
+              <span class="muted">None (Direct)</span>
+            {% endif %}
+          </span></div>
           <div><span class="k">Work mode</span><span class="v">
             {% if employee.remote_work_enabled %}
               <span class="chip chip-ok" style="font-size:0.75rem">Remote (WFH enabled)</span>

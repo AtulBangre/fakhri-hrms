@@ -519,6 +519,34 @@ CREATE TABLE IF NOT EXISTS generated_letters (
     created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_gen_letters_emp ON generated_letters(employee_id);
+
+CREATE TABLE IF NOT EXISTS employee_loans (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id       INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    loan_type         TEXT NOT NULL DEFAULT 'salary_advance',
+    principal_amount  REAL NOT NULL,
+    monthly_emi       REAL NOT NULL,
+    total_repaid      REAL NOT NULL DEFAULT 0,
+    remaining_balance REAL NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'active',
+    disbursed_on      TEXT NOT NULL,
+    reason            TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_loan_emp ON employee_loans(employee_id, status);
+
+CREATE TABLE IF NOT EXISTS loan_repayments (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    loan_id        INTEGER NOT NULL REFERENCES employee_loans(id) ON DELETE CASCADE,
+    payroll_run_id INTEGER REFERENCES payroll_runs(id),
+    payslip_id     INTEGER REFERENCES payslips(id),
+    amount         REAL NOT NULL,
+    period         TEXT NOT NULL,
+    repaid_at      TEXT NOT NULL,
+    note           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_loan_repayments ON loan_repayments(loan_id);
 """
 
 
@@ -722,6 +750,20 @@ class Storage:
             ("finalized_at", "TEXT"),
             ("finalized_by", "TEXT"),
             ("hold_reason", "TEXT"),
+            ("loan_id", "INTEGER"),
+            ("loan_emi", "REAL NOT NULL DEFAULT 0"),
+        ],
+        "leave_requests": [
+            ("manager_status", "TEXT NOT NULL DEFAULT 'approved'"),
+            ("manager_action_at", "TEXT"),
+            ("manager_action_by", "INTEGER"),
+            ("manager_note", "TEXT"),
+        ],
+        "attendance_regularizations": [
+            ("manager_status", "TEXT NOT NULL DEFAULT 'approved'"),
+            ("manager_action_at", "TEXT"),
+            ("manager_action_by", "INTEGER"),
+            ("manager_note", "TEXT"),
         ],
         "notifications": [
             ("next_attempt_at", "TEXT"),
@@ -732,6 +774,10 @@ class Storage:
         ],
         "expense_claims": [
             ("payroll_run_id", "INTEGER"),
+            ("manager_status", "TEXT NOT NULL DEFAULT 'approved'"),
+            ("manager_action_at", "TEXT"),
+            ("manager_action_by", "INTEGER"),
+            ("manager_note", "TEXT"),
         ],
         "attendance": [
             ("leave_id", "INTEGER"),

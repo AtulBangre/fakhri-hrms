@@ -28,6 +28,7 @@ confirmed in October is still fully recovered by March.
 from __future__ import annotations
 
 from datetime import timedelta
+import re
 from typing import Any
 
 from ..config import Settings
@@ -373,14 +374,29 @@ def generate_run(
             emp_kept = kept.get(employee["id"]) or {}
             emp_status = emp_kept.get("status") or "draft"
             emp_hold = emp_kept.get("hold_reason")
+
+            # Check for active loan EMI deduction
+            from . import loans as loans_service
+            active_loan = loans_service.get_active_loan_for_employee(storage, employee["id"])
+            loan_id = None
+            loan_emi = 0.0
+            if active_loan:
+                loan_id = active_loan["id"]
+                loan_emi = min(float(active_loan["monthly_emi"]), float(active_loan["remaining_balance"]))
+                if not emp_kept or "advance" not in emp_kept or emp_kept.get("advance") is None:
+                    calc["advance"] = loan_emi
+                    calc["advance_note"] = f"Loan #{active_loan['id']} ({active_loan['loan_type'].replace('_', ' ').title()}) EMI: ₹{loan_emi:,.0f}"
+                    calc["total_deductions"] = round(calc["pf"] + calc["esi"] + calc["professional_tax"] + calc["tds"] + calc["late_fine"] + calc["advance"] + calc["other_deduction"], 2)
+                    calc.update(_settle(calc["earned_gross"], calc["bonus"], calc["reimbursement"], calc["total_deductions"]))
+
             storage.execute_tx(
                 """
                 INSERT INTO payslips (run_id, employee_id, period, basis_days, present_days, paid_leave_days,
                                       lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
                                       professional_tax, tds, total_deductions, net_pay, created_at, updated_at,
                                       bonus, advance, other_deduction, tds_override, note, reimbursement, rounding,
-                                      late_fine, status, hold_reason)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                      late_fine, status, hold_reason, loan_id, loan_emi, advance_note)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
@@ -389,7 +405,7 @@ def generate_run(
                     calc["tds"], calc["total_deductions"], calc["net_pay"], now, now,
                     calc["bonus"], calc["advance"], calc["other_deduction"], calc["tds_override"], calc["note"],
                     calc["reimbursement"], calc["rounding"], calc["late_fine"],
-                    emp_status, emp_hold,
+                    emp_status, emp_hold, loan_id, loan_emi, calc.get("advance_note"),
                 ),
             )
             if calc["claim_ids"]:
@@ -552,6 +568,28 @@ def set_run_status(storage: Storage, period: str, status: str, *, actor: str | N
             "UPDATE payslips SET status = 'paid' WHERE run_id = ? AND status = 'finalized'",
             (run["id"],),
         )
+    if status == "finalized":
+        loan_slips = storage.query(
+            "SELECT id, run_id, loan_id, loan_emi, period FROM payslips WHERE run_id = ? AND loan_id IS NOT NULL AND loan_emi > 0 AND status = 'finalized'",
+            (run["id"],),
+        )
+        for ls in loan_slips:
+            from . import loans as loans_service
+            already = storage.query_one(
+                "SELECT id FROM loan_repayments WHERE loan_id = ? AND payroll_run_id = ?",
+                (ls["loan_id"], run["id"]),
+            )
+            if not already:
+                loans_service.record_repayment(
+                    storage,
+                    loan_id=ls["loan_id"],
+                    amount=ls["loan_emi"],
+                    payroll_run_id=run["id"],
+                    payslip_id=ls["id"],
+                    period=period,
+                    note=f"Payroll deduction for {period}",
+                    actor=actor,
+                )
     if status in ("finalized", "paid"):
         storage.execute(
             "UPDATE expense_claims SET status = 'paid', note = COALESCE(note, ?) "
@@ -818,7 +856,7 @@ def export_epfo_ecr(storage: Storage, period: str) -> str:
     """Generate standard EPFO Electronic Challan cum Return (ECR) text format.
     
     Fields separated by '#~#':
-    UAN, Member Name, Gross Wages, EPF Wages, EPS Wages, EDLI Wages,
+    UAN (12 digits), Member Name, Gross Wages, EPF Wages, EPS Wages, EDLI Wages,
     EE Share (12%), EPS Share (8.33%), ER Share (3.67%), NCP Days (LOP), Refund
     """
     slips = list_slips(storage, period)
@@ -827,27 +865,30 @@ def export_epfo_ecr(storage: Storage, period: str) -> str:
         if slip.get("status") == "on_hold":
             continue
         emp = employees_service.require_employee(storage, slip["employee_id"])
-        uan = str(emp.get("pf_uan") or emp.get("uan") or emp.get("code") or "").strip()
+        # Must be 12-digit UAN. Do not put alphabetic employee codes (e.g. FSPL...) as UAN!
+        raw_uan = str(emp.get("pf_uan") or emp.get("uan") or "").strip()
+        uan = re.sub(r"\D", "", raw_uan) if raw_uan else ""
+
+        pf = float(slip.get("pf") or 0)
+        # EPFO ECR is strictly for employees with PF deductions or valid UAN registered
+        if pf <= 0 and not uan:
+            continue
+
         name = slip["name"].replace("#", "").replace("~", "")
         gross = int(round(float(slip.get("earned_gross") or 0)))
-        pf = float(slip.get("pf") or 0)
-        
-        # EPF wages capped at 15000 standard ceiling if PF is active
-        if pf > 0:
-            epf_wages = int(round(min(gross, 15000)))
-            eps_wages = epf_wages
-            edli_wages = epf_wages
-            ee_share = int(round(pf))
-            eps_share = int(round(min(epf_wages * 0.0833, 1250)))
-            er_share = max(ee_share - eps_share, 0)
-        else:
-            epf_wages = 0
-            eps_wages = 0
-            edli_wages = 0
-            ee_share = 0
-            eps_share = 0
-            er_share = 0
-            
+
+        # EPF & EPS wages capped at 15000 standard ceiling
+        epf_wages = int(round(min(gross, 15000)))
+        eps_wages = epf_wages
+        edli_wages = epf_wages
+        ee_share = int(round(pf)) if pf > 0 else int(round(epf_wages * 0.12))
+
+        # Standard EPFO formula: EPS 8.33% (max 1250), ER difference 3.67%
+        eps_share = int(round(min(eps_wages * 0.0833, 1250)))
+        if eps_share > ee_share:
+            eps_share = int(round(ee_share * (8.33 / 12.0)))
+        er_share = max(ee_share - eps_share, 0)
+
         ncp_days = int(round(float(slip.get("lop_days") or 0)))
         fields = [
             uan,
@@ -878,8 +919,13 @@ def export_esic_return(storage: Storage, period: str) -> str:
     for slip in slips:
         if slip.get("status") == "on_hold":
             continue
+        esi = float(slip.get("esi") or 0)
         emp = employees_service.require_employee(storage, slip["employee_id"])
         ip_number = str(emp.get("esic_ip") or "").strip()
+        # Only include employees covered under ESIC
+        if esi <= 0 and not ip_number:
+            continue
+
         name = slip["name"]
         present = float(slip.get("present_days") or 0)
         paid_leave = float(slip.get("paid_leave_days") or 0)

@@ -48,6 +48,11 @@ def _me(storage, user: SessionUser) -> dict:
     return employee
 
 
+def _is_manager(storage, employee_id: int) -> bool:
+    count = storage.scalar("SELECT COUNT(*) FROM employees WHERE manager_id = ? AND status = 'active'", (employee_id,))
+    return bool(count and int(count) > 0)
+
+
 @router.get("")
 def dashboard(
     request: Request,
@@ -98,6 +103,7 @@ def dashboard(
         shift_end=orgtime.shift_for(storage, employee)["end_time"],
         announcements=announcement_service.visible_for(storage, "employees"),
         company_notice_footer=storage.get_setting("company_notice_footer", ""),
+        is_manager=_is_manager(storage, employee["id"]),
     )
 
 
@@ -387,5 +393,75 @@ def cancel_my_request(
 
     leave_service.cancel_leave(storage, leave_id, actor=user.username)
     return redirect("/me/leave", ok="Request withdrawn.")
+
+
+@router.get("/team")
+def team_page(
+    request: Request,
+    user: SessionUser = Depends(require_employee),
+    storage=Depends(get_storage),
+):
+    employee = _me(storage, user)
+    team = storage.query(
+        "SELECT id, code, name, designation, department, email, phone FROM employees WHERE manager_id = ? AND status = 'active' ORDER BY name",
+        (employee["id"],),
+    )
+    if not team:
+        return redirect("/me", err="You have no direct reportees assigned to you.")
+
+    pending_leaves = leave_service.list_manager_team_leave(storage, employee["id"], status="pending_manager")
+    return render(
+        request,
+        "me_team.html",
+        active="me-team",
+        user=user,
+        employee=employee,
+        team=team,
+        pending_leaves=pending_leaves,
+        is_manager=True,
+    )
+
+
+@router.post("/team/leave/{leave_id}/approve")
+def approve_team_leave(
+    leave_id: int,
+    request: Request,
+    user: SessionUser = Depends(require_employee),
+    storage=Depends(get_storage),
+    note: str = Form(""),
+    csrf: str = Form("", alias="_csrf"),
+):
+    from ..auth import verify_form_csrf
+    verify_form_csrf(user, csrf)
+    employee = _me(storage, user)
+    try:
+        leave_service.manager_decide_leave(
+            storage, leave_id, employee["id"], decision="approved", note=note, actor=user.username
+        )
+    except Exception as exc:
+        return redirect("/me/team", err=str(exc))
+    return redirect("/me/team", ok="Leave recommended and forwarded to HR for final sign-off.")
+
+
+@router.post("/team/leave/{leave_id}/reject")
+def reject_team_leave(
+    leave_id: int,
+    request: Request,
+    user: SessionUser = Depends(require_employee),
+    storage=Depends(get_storage),
+    note: str = Form(""),
+    csrf: str = Form("", alias="_csrf"),
+):
+    from ..auth import verify_form_csrf
+    verify_form_csrf(user, csrf)
+    employee = _me(storage, user)
+    try:
+        leave_service.manager_decide_leave(
+            storage, leave_id, employee["id"], decision="rejected", note=note, actor=user.username
+        )
+    except Exception as exc:
+        return redirect("/me/team", err=str(exc))
+    return redirect("/me/team", ok="Leave request rejected.")
+
 
 

@@ -310,7 +310,7 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
 
     extra = {field: data[field] for field in PROFILE_FIELDS
              if field not in ("email", "phone") and data.get(field)}
-    for field in ("shift_id", "custom_pl_accrual", "custom_sl_quota", "custom_cl_quota", "self_punch_mode", "remote_work_enabled"):
+    for field in ("shift_id", "manager_id", "custom_pl_accrual", "custom_sl_quota", "custom_cl_quota", "self_punch_mode", "remote_work_enabled"):
         if field in data and data[field] is not None and str(data[field]).strip() != "":
             extra[field] = data[field]
     if extra:
@@ -385,6 +385,16 @@ def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) ->
     if "shift_id" in data:
         sid = data["shift_id"]
         updates["shift_id"] = int(sid) if sid is not None and str(sid).strip() != "" else None
+
+    if "manager_id" in data:
+        mid = data["manager_id"]
+        if mid is not None and str(mid).strip() != "":
+            mid_val = int(mid)
+            if mid_val == employee_id:
+                raise ValidationError("An employee cannot be their own reporting manager.")
+            updates["manager_id"] = mid_val
+        else:
+            updates["manager_id"] = None
 
     for qfield in ("custom_pl_accrual", "custom_sl_quota", "custom_cl_quota"):
         if qfield in data:
