@@ -45,7 +45,7 @@ def disburse_loan(
     employee_id: int = Form(...),
     loan_type: str = Form("salary_advance"),
     principal_amount: float = Form(...),
-    monthly_emi: float = Form(...),
+    monthly_emi: float = Form(0.0),
     disbursed_on: str = Form(...),
     reason: str = Form(""),
     user: SessionUser = Depends(require_hr),

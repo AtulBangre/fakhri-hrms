@@ -203,14 +203,14 @@
       <div class="card-body">
         {% if active_loan %}
           <div class="small muted mb-1">{{ active_loan.type_label or 'Salary Advance' }} · Disbursed {{ active_loan.disbursed_on | nice_date }}</div>
-          <div class="me-big" style="color:var(--text)">₹{{ active_loan.remaining_balance | money }}</div>
-          <div class="small muted mb-2">pending balance · ₹{{ active_loan.principal_amount | money }} principal</div>
+          <div class="me-big" style="color:var(--text)">{{ active_loan.remaining_balance | money }}</div>
+          <div class="small muted mb-2">pending balance · {{ active_loan.principal_amount | money }} principal</div>
           <div class="progress mb-2" style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
             <div style="width:{{ active_loan.repaid_pct }}%;height:100%;background:var(--primary);border-radius:3px"></div>
           </div>
           <div class="kv small">
-            <div><span class="k">Monthly EMI</span><span class="v" style="font-weight:700">₹{{ active_loan.monthly_emi | money }} / mo</span></div>
-            <div><span class="k">Repaid so far</span><span class="v">₹{{ active_loan.total_repaid | money }} ({{ active_loan.repaid_pct }}%)</span></div>
+            <div><span class="k">Monthly EMI</span><span class="v" style="font-weight:700">{{ active_loan.monthly_emi | money }} / mo</span></div>
+            <div><span class="k">Repaid so far</span><span class="v">{{ active_loan.total_repaid | money }} ({{ active_loan.repaid_pct }}%)</span></div>
           </div>
           <div class="me-card-actions mt-2">
             <a class="btn btn-sm btn-block" href="/me/loans">View ledger &amp; apply</a>

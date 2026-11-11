@@ -17,10 +17,10 @@
 <div class="stats cols-3 mb-3">
   <div class="stat-card">
     <div class="stat-label">Active Loan Balance</div>
-    <div class="stat-value" style="color:var(--primary)">₹{{ (active_loan.remaining_balance if active_loan else 0) | money }}</div>
+    <div class="stat-value" style="color:var(--primary)">{{ (active_loan.remaining_balance if active_loan else 0) | money }}</div>
     <div class="stat-foot">
       {% if active_loan %}
-        ₹{{ active_loan.principal_amount | money }} principal disbursed
+        {{ active_loan.principal_amount | money }} principal disbursed
       {% else %}
         No active loans
       {% endif %}
@@ -28,7 +28,7 @@
   </div>
   <div class="stat-card">
     <div class="stat-label">Monthly EMI Recovery</div>
-    <div class="stat-value">₹{{ (active_loan.monthly_emi if active_loan else 0) | money }}</div>
+    <div class="stat-value">{{ (active_loan.monthly_emi if active_loan else 0) | money }}</div>
     <div class="stat-foot">
       {% if active_loan %}
         Auto-deducted from monthly payroll
@@ -39,7 +39,7 @@
   </div>
   <div class="stat-card">
     <div class="stat-label">Total Repaid So Far</div>
-    <div class="stat-value" style="color:#16A34A">₹{{ (active_loan.total_repaid if active_loan else 0) | money }}</div>
+    <div class="stat-value" style="color:#16A34A">{{ (active_loan.total_repaid if active_loan else 0) | money }}</div>
     <div class="stat-foot">
       {% if active_loan %}
         {{ active_loan.repaid_pct }}% of loan cleared
@@ -89,7 +89,7 @@
                 <td data-label="Date">{{ rep.repaid_at | nice_date }}</td>
                 <td data-label="Period"><strong>{{ rep.period or 'Payroll' }}</strong></td>
                 <td data-label="Note" class="muted">{{ rep.note or 'Monthly payroll EMI recovery' }}</td>
-                <td data-label="EMI Amount" class="num" style="font-weight:700;color:#16A34A">₹{{ rep.amount | money }}</td>
+                <td data-label="EMI Amount" class="num" style="font-weight:700;color:#16A34A">{{ rep.amount | money }}</td>
               </tr>
             {% endfor %}
           </tbody>
@@ -128,9 +128,9 @@
             <td data-label="Loan ID"><strong>#{{ l.id }}</strong></td>
             <td data-label="Type">{{ l.type_label }}</td>
             <td data-label="Date">{{ l.disbursed_on | nice_date }}</td>
-            <td data-label="Principal" class="num" style="font-weight:600">₹{{ l.principal_amount | money }}</td>
-            <td data-label="Monthly EMI" class="num">₹{{ l.monthly_emi | money }}</td>
-            <td data-label="Balance" class="num" style="font-weight:700">₹{{ l.remaining_balance | money }}</td>
+            <td data-label="Principal" class="num" style="font-weight:600">{{ l.principal_amount | money }}</td>
+            <td data-label="Monthly EMI" class="num">{{ l.monthly_emi | money }}</td>
+            <td data-label="Balance" class="num" style="font-weight:700">{{ l.remaining_balance | money }}</td>
             <td data-label="Status">
               {% if l.status == 'active' %}
                 <span class="chip chip-ok">Active</span>
@@ -164,21 +164,24 @@
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <div class="field mb-3">
         <label for="l-type">Assistance Type</label>
-        <select id="l-type" name="loan_type">
+        <select id="l-type" name="loan_type" onchange="updateLoanTypeFields()">
           {% for val, lbl in loan_types.items() %}
             <option value="{{ val }}">{{ lbl }}</option>
           {% endfor %}
         </select>
       </div>
+      <div id="advance-recovery-note" class="alert alert-info mb-3" style="font-size:0.83rem;padding:0.6rem 0.85rem">
+        💡 <strong>Salary Advance</strong> is deducted in full from your next monthly salary (no monthly EMI instalments needed).
+      </div>
       <div class="form-row cols-2 mb-3">
         <div class="field">
-          <label for="l-principal">Requested Amount (₹)</label>
-          <input id="l-principal" name="principal_amount" type="number" step="500" min="500" required placeholder="e.g. 20000">
+          <label for="l-principal">Requested Amount (₹) *</label>
+          <input id="l-principal" name="principal_amount" type="number" step="500" min="500" required placeholder="e.g. 10000" oninput="syncSalaryAdvanceEmi()">
         </div>
-        <div class="field">
-          <label for="l-emi">Preferred Monthly EMI (₹)</label>
-          <input id="l-emi" name="monthly_emi" type="number" step="500" min="500" required placeholder="e.g. 5000">
-          <div class="hint">Will be deducted from payroll</div>
+        <div class="field" id="wrap-l-emi" style="display:none">
+          <label for="l-emi">Preferred Monthly EMI (₹) *</label>
+          <input id="l-emi" name="monthly_emi" type="number" step="500" min="500" placeholder="e.g. 5000">
+          <div class="hint">Will be deducted monthly from payroll</div>
         </div>
       </div>
       <div class="field mb-3">
@@ -194,7 +197,39 @@
 </dialog>
 
 <script>
+  function updateLoanTypeFields() {
+    var typeSelect = document.getElementById('l-type');
+    var emiWrap = document.getElementById('wrap-l-emi');
+    var emiInput = document.getElementById('l-emi');
+    var note = document.getElementById('advance-recovery-note');
+    var principalInput = document.getElementById('l-principal');
+    if (!typeSelect || !emiWrap || !note || !emiInput) return;
+
+    if (typeSelect.value === 'salary_advance') {
+      emiWrap.style.display = 'none';
+      note.style.display = '';
+      emiInput.required = false;
+      if (principalInput && principalInput.value) {
+        emiInput.value = principalInput.value;
+      }
+    } else {
+      emiWrap.style.display = '';
+      note.style.display = 'none';
+      emiInput.required = true;
+    }
+  }
+
+  function syncSalaryAdvanceEmi() {
+    var typeSelect = document.getElementById('l-type');
+    var emiInput = document.getElementById('l-emi');
+    var principalInput = document.getElementById('l-principal');
+    if (typeSelect && typeSelect.value === 'salary_advance' && emiInput && principalInput) {
+      emiInput.value = principalInput.value;
+    }
+  }
+
   (function() {
+    updateLoanTypeFields();
     document.querySelectorAll('.progress-fill[data-pct]').forEach(function(el) {
       var pct = parseFloat(el.getAttribute('data-pct')) || 0;
       el.style.width = Math.min(Math.max(pct, 0), 100) + '%';

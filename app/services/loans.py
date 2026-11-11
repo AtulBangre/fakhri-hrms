@@ -33,7 +33,9 @@ def create_loan(
     emp = employees_service.require_employee(storage, employee_id)
     if principal_amount <= 0:
         raise employees_service.ValidationError("Principal amount must be greater than zero.")
-    if monthly_emi <= 0:
+    if loan_type == "salary_advance":
+        monthly_emi = principal_amount
+    elif monthly_emi <= 0:
         raise employees_service.ValidationError("Monthly EMI must be greater than zero.")
     if monthly_emi > principal_amount:
         monthly_emi = principal_amount
@@ -76,7 +78,9 @@ def apply_loan(
     emp = employees_service.require_employee(storage, employee_id)
     if principal_amount <= 0:
         raise employees_service.ValidationError("Requested amount must be greater than zero.")
-    if monthly_emi <= 0:
+    if loan_type == "salary_advance":
+        monthly_emi = principal_amount
+    elif monthly_emi <= 0:
         raise employees_service.ValidationError("Preferred monthly EMI must be greater than zero.")
     if monthly_emi > principal_amount:
         monthly_emi = principal_amount

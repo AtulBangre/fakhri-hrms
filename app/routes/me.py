@@ -528,7 +528,7 @@ def my_loans(
 def apply_loan_route(
     request: Request,
     principal_amount: float = Form(...),
-    monthly_emi: float = Form(...),
+    monthly_emi: float = Form(0.0),
     loan_type: str = Form("salary_advance"),
     reason: str = Form(""),
     csrf: str = Form("", alias="_csrf"),

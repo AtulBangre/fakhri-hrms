@@ -168,7 +168,7 @@
       <div class="form-row cols-2 mb-3">
         <div class="field">
           <label for="loan_type">Loan Type</label>
-          <select id="loan_type" name="loan_type">
+          <select id="loan_type" name="loan_type" onchange="updateHrLoanTypeFields()">
             <option value="salary_advance">Salary Advance</option>
             <option value="personal_loan">Personal Loan</option>
             <option value="emergency_loan">Emergency Loan</option>
@@ -180,15 +180,19 @@
         </div>
       </div>
 
+      <div id="hr-advance-note" class="alert alert-info mb-3" style="font-size:0.83rem;padding:0.6rem 0.85rem">
+        💡 <strong>Salary Advance</strong> is recovered in full from the upcoming payroll run (no multi-month EMI).
+      </div>
+
       <div class="form-row cols-2 mb-3">
         <div class="field">
           <label for="principal_amount">Principal Amount (₹) *</label>
-          <input id="principal_amount" name="principal_amount" type="number" min="500" step="500" placeholder="e.g. 30000" required>
+          <input id="principal_amount" name="principal_amount" type="number" min="500" step="500" placeholder="e.g. 10000" required oninput="syncHrAdvanceEmi()">
         </div>
-        <div class="field">
+        <div class="field" id="wrap-hr-emi" style="display:none">
           <label for="monthly_emi">Monthly EMI (₹) *</label>
-          <input id="monthly_emi" name="monthly_emi" type="number" min="500" step="100" placeholder="e.g. 5000" required>
-          <div class="hint">Will be auto-deducted in monthly payroll.</div>
+          <input id="monthly_emi" name="monthly_emi" type="number" min="500" step="100" placeholder="e.g. 5000">
+          <div class="hint">Will be auto-deducted monthly in payroll.</div>
         </div>
       </div>
 
@@ -206,7 +210,39 @@
 </dialog>
 
 <script>
+  function updateHrLoanTypeFields() {
+    var typeSelect = document.getElementById('loan_type');
+    var emiWrap = document.getElementById('wrap-hr-emi');
+    var emiInput = document.getElementById('monthly_emi');
+    var note = document.getElementById('hr-advance-note');
+    var principalInput = document.getElementById('principal_amount');
+    if (!typeSelect || !emiWrap || !note || !emiInput) return;
+
+    if (typeSelect.value === 'salary_advance') {
+      emiWrap.style.display = 'none';
+      note.style.display = '';
+      emiInput.required = false;
+      if (principalInput && principalInput.value) {
+        emiInput.value = principalInput.value;
+      }
+    } else {
+      emiWrap.style.display = '';
+      note.style.display = 'none';
+      emiInput.required = true;
+    }
+  }
+
+  function syncHrAdvanceEmi() {
+    var typeSelect = document.getElementById('loan_type');
+    var emiInput = document.getElementById('monthly_emi');
+    var principalInput = document.getElementById('principal_amount');
+    if (typeSelect && typeSelect.value === 'salary_advance' && emiInput && principalInput) {
+      emiInput.value = principalInput.value;
+    }
+  }
+
   (function() {
+    updateHrLoanTypeFields();
     document.querySelectorAll('.progress-fill[data-pct]').forEach(function(el) {
       var pct = parseFloat(el.getAttribute('data-pct')) || 0;
       el.style.width = Math.min(Math.max(pct, 0), 100) + '%';
