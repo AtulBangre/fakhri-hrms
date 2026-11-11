@@ -85,6 +85,16 @@ def list_page(
         for person in people
     ]
     balances.sort(key=lambda item: item["balance"])
+
+    pl_policy_mode = storage.get_setting("pl_policy_mode", "accrual")
+    cycle_type = storage.get_setting("leave_carry_forward_cycle", "calendar_year")
+    today = orgtime.today(settings)
+    cycle_start, cycle_end = orgtime.leave_cycle_bounds(today, cycle_type)
+    if cycle_type == "calendar_year":
+        cycle_label = f"Calendar Year {cycle_start.year} ({cycle_start.strftime('%d %b %Y')} – {cycle_end.strftime('%d %b %Y')})"
+    else:
+        cycle_label = f"Financial Year {cycle_start.year}-{str(cycle_end.year)[-2:]} ({cycle_start.strftime('%d %b %Y')} – {cycle_end.strftime('%d %b %Y')})"
+
     return render(
         request,
         "leave.html",
@@ -102,6 +112,9 @@ def list_page(
         by_type=leave_service.summary_for_period(storage, period),
         pending=leave_service.pending_requests(storage),
         pending_count=leave_service.count_pending(storage),
+        pl_policy_mode=pl_policy_mode,
+        cycle_label=cycle_label,
+        accrual_per_month=storage.get_float("pl_accrual_per_month", 1.5),
     )
 
 

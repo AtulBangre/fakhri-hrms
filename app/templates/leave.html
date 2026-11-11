@@ -195,7 +195,16 @@
 
     <div class="card flush">
       <div class="card-head">
-        <h2>Leave balance</h2>
+        <div>
+          <h2>Leave balance</h2>
+          <div class="small muted" style="margin-top:2px">
+            {% if pl_policy_mode == 'fixed' %}
+              {{ cycle_label }} · Fixed Annual Quotas (Granted Upfront)
+            {% else %}
+              Monthly Accrual · Accrued from joining date ({{ accrual_per_month }}/mo)
+            {% endif %}
+          </div>
+        </div>
         <span class="spacer"></span>
         <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
           <a class="btn btn-sm" href="/leave/balances/export.csv" title="Export all employee leave balances to CSV">{{ icon('download') }} Export CSV</a>
@@ -204,27 +213,76 @@
       </div>
       <div class="table-wrap">
         <table class="data stack">
-          <thead><tr><th>Employee</th><th class="num">Months</th><th class="num">Accrued PL</th><th class="num">Leave taken</th><th class="num">Unpaid</th><th class="num">Total available</th></tr></thead>
-          <tbody>
-          {% for item in balances %}
-            <tr>
-              <td data-label="Employee"><a href="/employees/{{ item.employee.id }}">{{ item.employee.name }}</a>
-                <span class="sub">{{ item.employee.code }}</span></td>
-              <td data-label="Months" class="num">{{ item.months_of_service }}</td>
-              <td data-label="Accrued PL" class="num">{{ item.accrued | number }}</td>
-              <td data-label="Leave taken" class="num">{{ item.total_used | number }}</td>
-              <td data-label="Unpaid" class="num">{{ item.used_unpaid | number }}</td>
-              <td data-label="Total available" class="num">
-                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
-                  <span class="chip {{ 'chip-ok' if item.total_available >= 0 else 'chip-danger' }}" style="font-weight:700" title="PL: {{ item.pl_available | number }} | SL: {{ item.sl_available | number }} | CL: {{ item.cl_available | number }}">{{ item.total_available | number }} days</span>
-                  <span class="small muted" style="font-size:0.75rem">PL: {{ item.pl_available | number }} · SL: {{ item.sl_available | number }} · CL: {{ item.cl_available | number }}</span>
-                </div>
-              </td>
-            </tr>
+          {% if pl_policy_mode == 'fixed' %}
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th class="num" title="Paid Leave: Taken / Total Annual Quota">Paid Leave (PL)</th>
+                <th class="num" title="Sick Leave: Taken / Total Annual Quota">Sick Leave (SL)</th>
+                <th class="num" title="Casual Leave: Taken / Total Annual Quota">Casual Leave (CL)</th>
+                <th class="num" title="Loss of Pay / Unpaid days">Unpaid (LOP)</th>
+                <th class="num" title="Total Available / Remaining Paid Days">Total Available</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for item in balances %}
+              <tr>
+                <td data-label="Employee">
+                  <a href="/employees/{{ item.employee.id }}" style="font-weight:600">{{ item.employee.name }}</a>
+                  <span class="sub">{{ item.employee.code }}{% if item.employee.department %} · {{ item.employee.department }}{% endif %}</span>
+                </td>
+                <td data-label="Paid Leave (PL)" class="num">
+                  <span style="font-weight:700;font-variant-numeric:tabular-nums">{{ item.used_pl | number }} / {{ item.accrued | number }}</span>
+                  <div class="small muted" style="font-size:0.75rem">{{ item.pl_available | number }} left</div>
+                </td>
+                <td data-label="Sick Leave (SL)" class="num">
+                  <span style="font-weight:700;font-variant-numeric:tabular-nums">{{ item.used_sl | number }} / {{ item.annual_sl | number }}</span>
+                  <div class="small muted" style="font-size:0.75rem">{{ item.sl_available | number }} left</div>
+                </td>
+                <td data-label="Casual Leave (CL)" class="num">
+                  <span style="font-weight:700;font-variant-numeric:tabular-nums">{{ item.used_cl | number }} / {{ item.annual_cl | number }}</span>
+                  <div class="small muted" style="font-size:0.75rem">{{ item.cl_available | number }} left</div>
+                </td>
+                <td data-label="Unpaid (LOP)" class="num">
+                  {% if item.used_unpaid > 0 %}
+                    <span class="chip chip-warn" style="font-size:0.8rem;font-weight:600">{{ item.used_unpaid | number }}</span>
+                  {% else %}
+                    <span class="muted">0</span>
+                  {% endif %}
+                </td>
+                <td data-label="Total Available" class="num">
+                  <span class="chip {{ 'chip-ok' if item.total_available > 0 else 'chip-danger' }}" style="font-weight:700;font-size:0.85rem">
+                    {{ item.total_available | number }} days
+                  </span>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="empty-state">No employees yet.</td></tr>
+            {% endfor %}
+            </tbody>
           {% else %}
-            <tr><td colspan="6" class="empty-state">No employees yet.</td></tr>
-          {% endfor %}
-          </tbody>
+            <thead><tr><th>Employee</th><th class="num">Months</th><th class="num">Accrued PL</th><th class="num">Leave taken</th><th class="num">Unpaid</th><th class="num">Total available</th></tr></thead>
+            <tbody>
+            {% for item in balances %}
+              <tr>
+                <td data-label="Employee"><a href="/employees/{{ item.employee.id }}">{{ item.employee.name }}</a>
+                  <span class="sub">{{ item.employee.code }}</span></td>
+                <td data-label="Months" class="num">{{ item.months_of_service }}</td>
+                <td data-label="Accrued PL" class="num">{{ item.accrued | number }}</td>
+                <td data-label="Leave taken" class="num">{{ item.total_used | number }}</td>
+                <td data-label="Unpaid" class="num">{{ item.used_unpaid | number }}</td>
+                <td data-label="Total available" class="num">
+                  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+                    <span class="chip {{ 'chip-ok' if item.total_available >= 0 else 'chip-danger' }}" style="font-weight:700" title="PL: {{ item.pl_available | number }} | SL: {{ item.sl_available | number }} | CL: {{ item.cl_available | number }}">{{ item.total_available | number }} days</span>
+                    <span class="small muted" style="font-size:0.75rem">PL: {{ item.pl_available | number }} · SL: {{ item.sl_available | number }} · CL: {{ item.cl_available | number }}</span>
+                  </div>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="6" class="empty-state">No employees yet.</td></tr>
+            {% endfor %}
+            </tbody>
+          {% endif %}
         </table>
       </div>
     </div>
