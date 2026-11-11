@@ -225,10 +225,14 @@ def page_context(request: Request, *, active: str, user: SessionUser | None, **e
     storage = get_storage(request)
     org_name = storage.get_setting("org_name", settings.org_name)
     remote_work_enabled = False
+    needs_face_enrolment = False
     if user and user.is_employee and user.employee_id:
-        emp = storage.query_one("SELECT remote_work_enabled FROM employees WHERE id = ?", (user.employee_id,))
-        if emp and emp.get("remote_work_enabled"):
-            remote_work_enabled = True
+        emp = storage.query_one("SELECT remote_work_enabled, face_id FROM employees WHERE id = ?", (user.employee_id,))
+        if emp:
+            if emp.get("remote_work_enabled"):
+                remote_work_enabled = True
+            if not emp.get("face_id"):
+                needs_face_enrolment = True
 
     context: dict[str, Any] = {
         "request": request,
@@ -244,6 +248,7 @@ def page_context(request: Request, *, active: str, user: SessionUser | None, **e
         "nav_pending": _pending_counts(storage) if user and user.is_hr else {},
         "self_punch": _self_punch(storage, user),
         "remote_work_enabled": remote_work_enabled,
+        "needs_face_enrolment": needs_face_enrolment,
     }
     context.update(extra)
     return context

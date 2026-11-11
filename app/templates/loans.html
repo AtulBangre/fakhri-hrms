@@ -99,19 +99,36 @@
               {{ loan.disbursed_on | nice_date }}
             </td>
             <td data-label="Status">
-              <span class="chip {{ 'chip-ok' if loan.status == 'active' else 'chip-muted' }}" style="text-transform:capitalize">
-                {{ loan.status }}
-              </span>
+              {% if loan.status == 'active' %}
+                <span class="chip chip-ok">Active</span>
+              {% elif loan.status == 'requested' %}
+                <span class="chip chip-warn">Requested</span>
+              {% elif loan.status == 'rejected' %}
+                <span class="chip chip-danger">Rejected</span>
+              {% else %}
+                <span class="chip chip-muted">{{ loan.status | capitalize }}</span>
+              {% endif %}
             </td>
             <td class="actions-cell">
-              {% if loan.status == 'active' %}
+              {% if loan.status == 'requested' %}
+                <div style="display:flex;gap:4px">
+                  <form method="post" action="/loans/{{ loan.id }}/approve" style="display:inline">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm btn-primary" type="submit" title="Approve & Disburse">Approve</button>
+                  </form>
+                  <form method="post" action="/loans/{{ loan.id }}/reject" style="display:inline" data-confirm="Reject this loan request?">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm" type="submit" title="Reject Request">Reject</button>
+                  </form>
+                </div>
+              {% elif loan.status == 'active' %}
                 <form method="post" action="/loans/{{ loan.id }}/close" style="display:inline" data-confirm="Settle or write off the remaining balance for Loan #{{ loan.id }}?">
                   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                   <input type="hidden" name="reason" value="Manual settlement">
                   <button class="btn btn-sm" type="submit" title="Mark loan as settled">Settle</button>
                 </form>
               {% else %}
-                <span class="small muted">Closed</span>
+                <span class="small muted">{{ loan.status | capitalize }}</span>
               {% endif %}
             </td>
           </tr>

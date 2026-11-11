@@ -144,3 +144,38 @@ def test_loan_summary_metrics(storage, staff):
     assert "total_repaid" in summary
     assert "outstanding" in summary
     assert "active_count" in summary
+
+
+def test_manager_edit_selection_and_contact_email_display(client, storage, staff):
+    # Log in as HR
+    login_res = client.post("/login", data={"username": "hr", "password": "changeme123"}, follow_redirects=False)
+    assert login_res.status_code == 303
+
+    emp = staff[0]
+    manager = staff[1]
+
+    # Assign manager with an email
+    employees_service.update_employee(
+        storage, manager["id"], {"email": "manager.lead@company.com"}
+    )
+    employees_service.update_employee(
+        storage, emp["id"], {"manager_id": manager["id"]}
+    )
+
+    # 1. Verify GET /employees/{emp_id}/edit has the manager option selected
+    resp = client.get(f"/employees/{emp['id']}/edit")
+    assert resp.status_code == 200
+    html = resp.text
+    # Should have option with manager.id and selected
+    expected_option = f'<option value="{manager["id"]}" selected>'
+    assert expected_option in html, f"Expected {expected_option} in edit form HTML"
+
+    # 2. Verify GET /employees/{emp_id} shows manager's name, code and email under Contact
+    detail_resp = client.get(f"/employees/{emp['id']}")
+    assert detail_resp.status_code == 200
+    detail_html = detail_resp.text
+    assert manager["name"] in detail_html
+    assert manager["code"] in detail_html
+    assert "manager.lead@company.com" in detail_html
+    assert "mailto:manager.lead@company.com" in detail_html
+

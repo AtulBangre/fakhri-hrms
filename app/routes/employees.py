@@ -246,7 +246,7 @@ def new_page(request: Request, user: SessionUser = Depends(require_hr), storage=
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
-        managers=storage.query("SELECT id, code, name, designation, department FROM employees WHERE status = 'active' ORDER BY name"),
+        managers=storage.query("SELECT id, code, name, designation, department, email FROM employees WHERE status = 'active' ORDER BY name"),
         form={},
         pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
         pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
@@ -267,7 +267,7 @@ def _form_error(request, user, storage, data, message):
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
-        managers=storage.query("SELECT id, code, name, designation, department FROM employees WHERE status = 'active' ORDER BY name"),
+        managers=storage.query("SELECT id, code, name, designation, department, email FROM employees WHERE status = 'active' ORDER BY name"),
         pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
         pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
         pl_accrual_default=storage.get_float("pl_accrual_per_month", 0.5),
@@ -420,7 +420,7 @@ def edit_page(
         employment_types=employees_service.EMPLOYMENT_TYPES,
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
-        managers=storage.query("SELECT id, code, name, designation, department FROM employees WHERE status = 'active' AND id != ? ORDER BY name", (employee_id,)),
+        managers=storage.query("SELECT id, code, name, designation, department, email FROM employees WHERE status = 'active' AND id != ? ORDER BY name", (employee_id,)),
         form={},
         masked_aadhaar=employees_service.masked_aadhaar(employee.get("aadhaar_last4")),
         self_punch_labels=employees_service.SELF_PUNCH_LABELS,
@@ -466,7 +466,7 @@ def detail(
     )
     shift_start = emp_shift["start_time"] if emp_shift else storage.get_setting("shift_start", "09:30")
     shift_end = emp_shift["end_time"] if emp_shift else storage.get_setting("shift_end", "18:30")
-    manager = storage.query_one("SELECT id, code, name, designation FROM employees WHERE id = ?", (employee.get("manager_id"),)) if employee.get("manager_id") else None
+    manager = storage.query_one("SELECT id, code, name, designation, email FROM employees WHERE id = ?", (employee.get("manager_id"),)) if employee.get("manager_id") else None
     return render(
         request,
         "employee_detail.html",

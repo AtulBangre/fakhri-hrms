@@ -63,6 +63,120 @@ def create_loan(
     return loan_id
 
 
+def apply_loan(
+    storage: Storage,
+    *,
+    employee_id: int,
+    principal_amount: float,
+    monthly_emi: float,
+    loan_type: str = "salary_advance",
+    reason: str | None = None,
+) -> int:
+    """Employee submits a request for loan or salary advance."""
+    emp = employees_service.require_employee(storage, employee_id)
+    if principal_amount <= 0:
+        raise employees_service.ValidationError("Requested amount must be greater than zero.")
+    if monthly_emi <= 0:
+        raise employees_service.ValidationError("Preferred monthly EMI must be greater than zero.")
+    if monthly_emi > principal_amount:
+        monthly_emi = principal_amount
+
+    existing = get_active_loan_for_employee(storage, employee_id)
+    if existing:
+        raise employees_service.ValidationError(
+            f"You already have an active loan (#{existing['id']}) with pending balance ₹{existing['remaining_balance']:,.2f}."
+        )
+
+    now = utcnow_iso()
+    cursor = storage.execute(
+        """
+        INSERT INTO employee_loans (
+            employee_id, loan_type, principal_amount, monthly_emi,
+            total_repaid, remaining_balance, status, disbursed_on,
+            reason, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 0, ?, 'requested', ?, ?, ?, ?)
+        """,
+        (
+            employee_id, loan_type, principal_amount, monthly_emi,
+            principal_amount, now[:10], reason or None, now, now
+        ),
+    )
+    loan_id = int(cursor.lastrowid)
+    storage.audit(
+        actor=emp["code"],
+        action="apply_loan",
+        entity="employee_loan",
+        entity_id=loan_id,
+        detail=f"emp={emp['code']} requested {loan_type} amount={principal_amount:,.2f}",
+    )
+    return loan_id
+
+
+def approve_loan(
+    storage: Storage,
+    loan_id: int,
+    *,
+    actor: str | None = None,
+    disbursed_on: str | None = None,
+) -> None:
+    """HR approves and activates a requested loan."""
+    loan = get_loan(storage, loan_id)
+    if not loan:
+        raise employees_service.ValidationError("Loan not found.")
+    if loan["status"] != "requested":
+        raise employees_service.ValidationError(f"Loan is already {loan['status']}.")
+
+    now = utcnow_iso()
+    disbursed_date = disbursed_on or now[:10]
+    storage.execute(
+        """
+        UPDATE employee_loans
+        SET status = 'active', disbursed_on = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (disbursed_date, now, loan_id),
+    )
+    storage.audit(
+        actor=actor,
+        action="approve_loan",
+        entity="employee_loan",
+        entity_id=loan_id,
+        detail=f"Approved loan #{loan_id} for {loan['employee_code']} on {disbursed_date}",
+    )
+
+
+def reject_loan(
+    storage: Storage,
+    loan_id: int,
+    *,
+    actor: str | None = None,
+    reason: str | None = None,
+) -> None:
+    """HR rejects a requested loan."""
+    loan = get_loan(storage, loan_id)
+    if not loan:
+        raise employees_service.ValidationError("Loan not found.")
+    if loan["status"] != "requested":
+        raise employees_service.ValidationError(f"Loan is already {loan['status']}.")
+
+    now = utcnow_iso()
+    storage.execute(
+        """
+        UPDATE employee_loans
+        SET status = 'rejected', updated_at = ?
+        WHERE id = ?
+        """,
+        (now, loan_id),
+    )
+    storage.audit(
+        actor=actor,
+        action="reject_loan",
+        entity="employee_loan",
+        entity_id=loan_id,
+        detail=f"Rejected loan #{loan_id} for {loan['employee_code']}: {reason or 'No reason provided'}",
+    )
+
+
 def get_loan(storage: Storage, loan_id: int) -> dict[str, Any] | None:
     """Fetch loan details along with borrower and repayment history."""
     row = storage.query_one(

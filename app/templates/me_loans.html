@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}My Loans &amp; Advances · {{ org_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Loans &amp; Advances</h1>
+    <div class="sub">Track your company loan ledgers, payroll EMI recoveries, or apply for financial assistance.</div>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-primary" type="button" onclick="document.getElementById('loan-apply-dialog').showModal()">
+      + Apply for Loan / Advance
+    </button>
+  </div>
+</div>
+
+<div class="stats cols-3 mb-3">
+  <div class="stat-card">
+    <div class="stat-label">Active Loan Balance</div>
+    <div class="stat-value" style="color:var(--primary)">₹{{ (active_loan.remaining_balance if active_loan else 0) | money }}</div>
+    <div class="stat-foot">
+      {% if active_loan %}
+        ₹{{ active_loan.principal_amount | money }} principal disbursed
+      {% else %}
+        No active loans
+      {% endif %}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Monthly EMI Recovery</div>
+    <div class="stat-value">₹{{ (active_loan.monthly_emi if active_loan else 0) | money }}</div>
+    <div class="stat-foot">
+      {% if active_loan %}
+        Auto-deducted from monthly payroll
+      {% else %}
+        —
+      {% endif %}
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Repaid So Far</div>
+    <div class="stat-value" style="color:#16A34A">₹{{ (active_loan.total_repaid if active_loan else 0) | money }}</div>
+    <div class="stat-foot">
+      {% if active_loan %}
+        {{ active_loan.repaid_pct }}% of loan cleared
+      {% else %}
+        —
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if active_loan %}
+<div class="card mb-3">
+  <div class="card-head">
+    <div>
+      <h2>Active Loan (#{{ active_loan.id }})</h2>
+      <div class="small muted">{{ active_loan.type_label or 'Salary Advance' }} · Disbursed on {{ active_loan.disbursed_on | nice_date }}</div>
+    </div>
+    <span class="spacer"></span>
+    <span class="chip chip-ok">Active</span>
+  </div>
+  <div class="card-body">
+    {% if active_loan.reason %}
+      <div class="mb-3" style="background:var(--subtle);padding:0.75rem 1rem;border-radius:var(--radius);font-size:0.88rem">
+        <strong>Reason / Note:</strong> {{ active_loan.reason }}
+      </div>
+    {% endif %}
+
+    <div class="progress mb-3" style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
+      <div style="width:{{ active_loan.repaid_pct }}%;height:100%;background:var(--primary);border-radius:4px"></div>
+    </div>
+
+    <div class="section-title mb-2" style="font-size:0.95rem;font-weight:700">Monthly EMI Repayment History</div>
+    {% if active_loan.repayments %}
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Period</th>
+              <th>Reference / Note</th>
+              <th class="num">EMI Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rep in active_loan.repayments %}
+              <tr>
+                <td data-label="Date">{{ rep.repaid_at | nice_date }}</td>
+                <td data-label="Period"><strong>{{ rep.period or 'Payroll' }}</strong></td>
+                <td data-label="Note" class="muted">{{ rep.note or 'Monthly payroll EMI recovery' }}</td>
+                <td data-label="EMI Amount" class="num" style="font-weight:700;color:#16A34A">₹{{ rep.amount | money }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state" style="padding:1.5rem">
+        No repayments recorded yet. The first EMI will be automatically recovered in the upcoming payroll run.
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card flush">
+  <div class="card-head">
+    <h2>All Applications &amp; Loans History</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="data stack">
+      <thead>
+        <tr>
+          <th>Loan ID</th>
+          <th>Type</th>
+          <th>Requested / Disbursed</th>
+          <th class="num">Principal</th>
+          <th class="num">Monthly EMI</th>
+          <th class="num">Balance</th>
+          <th>Status</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in loans %}
+          <tr>
+            <td data-label="Loan ID"><strong>#{{ l.id }}</strong></td>
+            <td data-label="Type">{{ l.type_label }}</td>
+            <td data-label="Date">{{ l.disbursed_on | nice_date }}</td>
+            <td data-label="Principal" class="num" style="font-weight:600">₹{{ l.principal_amount | money }}</td>
+            <td data-label="Monthly EMI" class="num">₹{{ l.monthly_emi | money }}</td>
+            <td data-label="Balance" class="num" style="font-weight:700">₹{{ l.remaining_balance | money }}</td>
+            <td data-label="Status">
+              {% if l.status == 'active' %}
+                <span class="chip chip-ok">Active</span>
+              {% elif l.status == 'closed' %}
+                <span class="chip chip-info">Cleared</span>
+              {% elif l.status == 'requested' %}
+                <span class="chip chip-warn">Pending HR</span>
+              {% elif l.status == 'rejected' %}
+                <span class="chip chip-danger">Rejected</span>
+              {% else %}
+                <span class="chip">{{ l.status }}</span>
+              {% endif %}
+            </td>
+            <td data-label="Reason" class="muted small">{{ l.reason or '—' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8" class="empty-state">You have not applied for any loans or advances yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<dialog id="loan-apply-dialog" class="modal-dialog" style="max-width:500px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 25px 35px -5px rgba(0,0,0,0.3);background:var(--card)">
+  <div class="card" style="margin:0;border:none">
+    <div class="card-head" style="background:var(--subtle);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem">
+      <h2 style="margin:0;font-size:1.1rem;font-weight:700">Apply for Loan / Advance</h2>
+      <button type="button" class="icon-btn" onclick="document.getElementById('loan-apply-dialog').close()" aria-label="Close">✕</button>
+    </div>
+    <form method="post" action="/me/loans/apply" style="padding:1.25rem">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="field mb-3">
+        <label for="l-type">Assistance Type</label>
+        <select id="l-type" name="loan_type">
+          {% for val, lbl in loan_types.items() %}
+            <option value="{{ val }}">{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row cols-2 mb-3">
+        <div class="field">
+          <label for="l-principal">Requested Amount (₹)</label>
+          <input id="l-principal" name="principal_amount" type="number" step="500" min="500" required placeholder="e.g. 20000">
+        </div>
+        <div class="field">
+          <label for="l-emi">Preferred Monthly EMI (₹)</label>
+          <input id="l-emi" name="monthly_emi" type="number" step="500" min="500" required placeholder="e.g. 5000">
+          <div class="hint">Will be deducted from payroll</div>
+        </div>
+      </div>
+      <div class="field mb-3">
+        <label for="l-reason">Purpose / Reason</label>
+        <textarea id="l-reason" name="reason" rows="3" placeholder="Medical expenses, urgent travel, education fee..."></textarea>
+      </div>
+      <div style="display:flex;gap:0.75rem;justify-content:flex-end">
+        <button class="btn" type="button" onclick="document.getElementById('loan-apply-dialog').close()">Cancel</button>
+        <button class="btn btn-primary" type="submit">Submit Application</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+{% endblock %}

@@ -20,7 +20,8 @@
     <div class="nav-section">Work</div>
     {% if remote_work_enabled %}{{ navlink('/kiosk', 'kiosk', 'scan', 'Kiosk punch') }}{% endif %}
     {% if self_punch and self_punch != 'disabled' %}{{ navlink('/me/field', 'me-field', 'pin', 'Field attendance') }}{% endif %}
-    {{ navlink('/me/face', 'me-face', 'scan', 'Register face') }}
+    {% if needs_face_enrolment %}{{ navlink('/me/face', 'me-face', 'scan', 'Register face') }}{% endif %}
+    {{ navlink('/me/loans', 'me-loans', 'wallet', 'Loans & Advances') }}
     {{ navlink('/me/assets', 'me-assets', 'laptop', 'Assets') }}
     {{ navlink('/me/expenses', 'me-expenses', 'receipt', 'Expenses') }}
     {{ navlink('/me/exit', 'me-exit', 'user-x', 'Resignation') }}

@@ -463,8 +463,15 @@
           <div><span class="k">Service</span><span class="v">{{ balance.months_of_service }} months</span></div>
           <div><span class="k">Manager</span><span class="v">
             {% if manager %}
-              <a href="/employees/{{ manager.id }}"><strong>{{ manager.name }}</strong></a>
-              <span class="muted small">({{ manager.code }})</span>
+              <div>
+                <a href="/employees/{{ manager.id }}"><strong>{{ manager.name }}</strong></a>
+                <span class="muted small">({{ manager.code }})</span>
+              </div>
+              {% if manager.email %}
+                <div class="small muted" style="margin-top:2px">
+                  <a href="mailto:{{ manager.email }}" style="color:var(--brand);text-decoration:none">{{ manager.email }}</a>
+                </div>
+              {% endif %}
             {% else %}
               <span class="muted">None (Direct)</span>
             {% endif %}

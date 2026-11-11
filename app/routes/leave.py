@@ -49,6 +49,7 @@ async def import_balances(
     csrf: str = Form("", alias="_csrf"),
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
 ):
     verify_form_csrf(user, csrf)
     raw = await file.read()
@@ -58,10 +59,7 @@ async def import_balances(
         text = raw.decode("latin-1", errors="replace")
 
     res = leave_service.import_balances_csv(storage, text, actor=user.username)
-    if res["errors"]:
-        msg = f"Updated {res['updated']} employee(s). Note: " + "; ".join(res["errors"][:3])
-        return redirect("/leave", ok=msg if res["updated"] else None, err=msg if not res["updated"] else None)
-    return redirect("/leave", ok=f"Successfully updated leave quotas for {res['updated']} employee(s).")
+    return list_page(request, user=user, storage=storage, settings=settings, import_summary=res)
 
 
 @router.get("")
@@ -74,6 +72,7 @@ def list_page(
     employee_id: int | None = None,
     leave_type: str = "all",
     status: str = "all",
+    import_summary: dict | None = None,
 ):
     period = period or orgtime.period_of(orgtime.today(settings))
     rows = leave_service.list_leave(
@@ -115,6 +114,7 @@ def list_page(
         pl_policy_mode=pl_policy_mode,
         cycle_label=cycle_label,
         accrual_per_month=storage.get_float("pl_accrual_per_month", 1.5),
+        import_summary=import_summary,
     )
 
 

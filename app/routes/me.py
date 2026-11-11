@@ -28,6 +28,7 @@ from ..services import announcements as announcement_service
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
 from ..services import leave as leave_service
+from ..services import loans as loans_service
 from ..services import orgtime, payroll, regularization
 
 router = APIRouter(prefix="/me", tags=["self-service"])
@@ -37,6 +38,15 @@ def _is_final(storage, period: str) -> bool:
     """Employees only ever see finalised or paid payslips — drafts can still change."""
     run = payroll.get_run(storage, period)
     return bool(run and run["status"] in ("finalized", "paid"))
+
+
+def _is_final_slip(storage, slip: dict | None) -> bool:
+    """Check if a specific payslip is finalized/paid and visible to the employee."""
+    if not slip or slip.get("status") == "on_hold":
+        return False
+    if slip.get("status") in ("finalized", "paid"):
+        return True
+    return _is_final(storage, slip["period"])
 
 
 def _me(storage, user: SessionUser) -> dict:
@@ -68,11 +78,23 @@ def dashboard(
     balance = leave_service.balance(storage, settings, employee["id"])
 
     slips = storage.query(
-        "SELECT p.* FROM payslips p JOIN payroll_runs r ON r.id = p.run_id "
-        "WHERE p.employee_id = ? AND r.status IN ('finalized','paid') ORDER BY p.period DESC LIMIT 3",
+        """
+        SELECT p.* FROM payslips p JOIN payroll_runs r ON r.id = p.run_id 
+        WHERE p.employee_id = ? 
+          AND (p.status IN ('finalized', 'paid') OR (r.status IN ('finalized', 'paid') AND p.status != 'on_hold'))
+        ORDER BY p.period DESC LIMIT 3
+        """,
         (employee["id"],)
     )
     latest_slip = slips[0] if slips else None
+
+    active_loan = loans_service.get_active_loan_for_employee(storage, employee["id"])
+    if active_loan:
+        active_loan["repaid_pct"] = (
+            round((active_loan["total_repaid"] / active_loan["principal_amount"]) * 100, 1)
+            if active_loan["principal_amount"] > 0
+            else 100.0
+        )
     checkout_after = None
     if row and row.get("check_in") and not row.get("check_out"):
         checkout_after = attendance_service.checkout_opens_at(
@@ -97,6 +119,7 @@ def dashboard(
         period_label=orgtime.month_label(period),
         slips=slips,
         latest_slip=latest_slip,
+        active_loan=active_loan,
         pending=leave_service.list_leave(storage, employee_id=employee["id"], status="pending", limit=5),
         recent_leave=leave_service.employee_leave_history(storage, employee["id"], limit=4),
         shift_start=orgtime.shift_for(storage, employee)["start_time"],
@@ -234,7 +257,9 @@ def my_payslips(
         """
         SELECT p.*, r.status AS run_status FROM payslips p
         JOIN payroll_runs r ON r.id = p.run_id
-        WHERE p.employee_id = ? AND r.status IN ('finalized','paid') ORDER BY p.period DESC
+        WHERE p.employee_id = ? 
+          AND (p.status IN ('finalized', 'paid') OR (r.status IN ('finalized', 'paid') AND p.status != 'on_hold'))
+        ORDER BY p.period DESC
         """,
         (employee["id"],),
     )
@@ -254,7 +279,7 @@ def my_payslip_pdf(
     """Download my own payslip as a PDF."""
     slip = payroll.get_slip(storage, slip_id)
     if (slip is None or slip["employee_id"] != int(user.employee_id or 0)
-            or not _is_final(storage, slip["period"])):
+            or not _is_final_slip(storage, slip)):
         return redirect("/me/payslips", err="That payslip was not found in your account.")
     data = render_payslip(
         slip, settings=settings,
@@ -278,7 +303,7 @@ def my_payslip(
     slip = payroll.get_slip(storage, slip_id)
     # A payslip is a private document: someone else's id must look like it does not exist.
     if (slip is None or slip["employee_id"] != int(user.employee_id or 0)
-            or not _is_final(storage, slip["period"])):
+            or not _is_final_slip(storage, slip)):
         return redirect("/me/payslips", err="That payslip was not found in your account.")
     run = payroll.get_run(storage, slip["period"])
     return render(
@@ -462,6 +487,71 @@ def reject_team_leave(
     except Exception as exc:
         return redirect("/me/team", err=str(exc))
     return redirect("/me/team", ok="Leave request rejected.")
+
+
+@router.get("/loans")
+def my_loans(
+    request: Request,
+    user: SessionUser = Depends(require_employee),
+    storage=Depends(get_storage),
+):
+    employee = _me(storage, user)
+    all_loans = loans_service.list_loans(storage, employee_id=employee["id"])
+    active_loan = loans_service.get_active_loan_for_employee(storage, employee["id"])
+    if active_loan:
+        active_loan["repaid_pct"] = (
+            round((active_loan["total_repaid"] / active_loan["principal_amount"]) * 100, 1)
+            if active_loan["principal_amount"] > 0
+            else 100.0
+        )
+
+    for l in all_loans:
+        repayments = storage.query(
+            "SELECT * FROM loan_repayments WHERE loan_id = ? ORDER BY repaid_at DESC",
+            (l["id"],),
+        )
+        l["repayments"] = [dict(r) for r in repayments]
+
+    return render(
+        request,
+        "me_loans.html",
+        active="me-loans",
+        user=user,
+        employee=employee,
+        loans=all_loans,
+        active_loan=active_loan,
+        loan_types=loans_service.LOAN_TYPES,
+    )
+
+
+@router.post("/loans/apply")
+def apply_loan_route(
+    request: Request,
+    principal_amount: float = Form(...),
+    monthly_emi: float = Form(...),
+    loan_type: str = Form("salary_advance"),
+    reason: str = Form(""),
+    csrf: str = Form("", alias="_csrf"),
+    user: SessionUser = Depends(require_employee),
+    storage=Depends(get_storage),
+):
+    verify_form_csrf(user, csrf)
+    employee = _me(storage, user)
+    try:
+        loan_id = loans_service.apply_loan(
+            storage,
+            employee_id=employee["id"],
+            principal_amount=principal_amount,
+            monthly_emi=monthly_emi,
+            loan_type=loan_type,
+            reason=reason,
+        )
+    except employees_service.ValidationError as exc:
+        return redirect("/me/loans", err=str(exc))
+    except Exception as exc:
+        return redirect("/me/loans", err=f"Failed to submit loan request: {exc}")
+
+    return redirect("/me/loans", ok=f"Loan request #{loan_id} for ₹{principal_amount:,.2f} submitted. Awaiting HR approval.")
 
 
 

@@ -91,3 +91,40 @@ def close_loan_route(
         return redirect("/loans", err=f"Failed to close loan: {exc}")
 
     return redirect("/loans", ok=f"Loan #{loan_id} has been marked as closed.")
+
+
+@router.post("/{loan_id}/approve")
+def approve_loan_route(
+    loan_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+):
+    from ..auth import verify_form_csrf
+
+    verify_form_csrf(user, csrf)
+    try:
+        loans_service.approve_loan(storage, loan_id, actor=user.username)
+    except Exception as exc:
+        return redirect("/loans", err=f"Failed to approve loan: {exc}")
+
+    return redirect("/loans", ok=f"Loan #{loan_id} has been approved and activated.")
+
+
+@router.post("/{loan_id}/reject")
+def reject_loan_route(
+    loan_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+    reason: str = Form(""),
+):
+    from ..auth import verify_form_csrf
+
+    verify_form_csrf(user, csrf)
+    try:
+        loans_service.reject_loan(storage, loan_id, actor=user.username, reason=reason)
+    except Exception as exc:
+        return redirect("/loans", err=f"Failed to reject loan: {exc}")
+
+    return redirect("/loans", ok=f"Loan #{loan_id} has been rejected.")

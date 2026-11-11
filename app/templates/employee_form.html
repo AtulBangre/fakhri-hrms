@@ -96,10 +96,11 @@
           <div class="form-row cols-2">
             <div class="field">
               <label for="shift_id">Work Shift</label>
+              {% set cur_shift = f.get('shift_id') if ('shift_id' in f and f.get('shift_id') is not none) else (employee.shift_id if employee and employee.shift_id is not none else '') %}
               <select id="shift_id" name="shift_id">
                 <option value="">Company Default Shift</option>
                 {% for s in shifts %}
-                  <option value="{{ s.id }}" {{ 'selected' if (f.get('shift_id') or (employee.shift_id if employee else None)) == s.id }}>
+                  <option value="{{ s.id }}" {{ 'selected' if cur_shift != '' and (cur_shift | string) == (s.id | string) }}>
                     {{ s.name }} ({{ s.start_time }} – {{ s.end_time }}){% if s.is_default %} [Default]{% endif %}
                   </option>
                 {% endfor %}
@@ -109,12 +110,13 @@
 
             <div class="field">
               <label for="manager_id">Reporting Manager</label>
+              {% set cur_manager = f.get('manager_id') if ('manager_id' in f and f.get('manager_id') is not none) else (employee.manager_id if employee and employee.manager_id is not none else '') %}
               <select id="manager_id" name="manager_id">
-                <option value="">None (Reports directly to HR/Director)</option>
+                <option value="" {{ 'selected' if not cur_manager }}>None (Reports directly to HR/Director)</option>
                 {% for m in managers %}
                   {% if not employee or m.id != employee.id %}
-                    <option value="{{ m.id }}" {{ 'selected' if (f.get('manager_id') | string or (employee.manager_id | string if employee else '')) == (m.id | string) }}>
-                      {{ m.name }} ({{ m.code }}){% if m.designation %} · {{ m.designation }}{% endif %}
+                    <option value="{{ m.id }}" {{ 'selected' if cur_manager != '' and (cur_manager | string) == (m.id | string) }}>
+                      {{ m.name }} ({{ m.code }}){% if m.designation %} · {{ m.designation }}{% endif %}{% if m.email %} · {{ m.email }}{% endif %}
                     </option>
                   {% endif %}
                 {% endfor %}

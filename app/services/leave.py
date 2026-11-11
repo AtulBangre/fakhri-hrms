@@ -826,104 +826,136 @@ def _csv_safe(value: object) -> str:
 
 
 def export_balances_csv(storage: Storage, settings: Settings) -> str:
-    """Export leave balances for all active employees as a clean CSV."""
+    """Export leave quotas for all active employees as a clean, editable CSV ready for re-import."""
     people = employees_service.list_employees(storage, status="active", limit=1000)
-    header = (
-        "Employee Code,Employee Name,Department,Joined On,Months of Service,Accrued PL,"
-        "PL Taken,PL Available,SL Quota,SL Taken,SL Available,CL Quota,CL Taken,CL Available,"
-        "Unpaid Taken,Total Available Days"
-    )
+    default_pl = storage.get_float("pl_annual_quota", 6.0)
+    default_sl = storage.get_float("sl_annual_quota", 6.0)
+    default_cl = storage.get_float("cl_annual_quota", 6.0)
+    header = "Employee Code,Employee Name,Department,PL Quota,SL Quota,CL Quota"
     lines = [header]
     for p in people:
-        bal = balance(storage, settings, p["id"])
+        pl_val = p.get("custom_pl_quota") or p.get("custom_pl_accrual")
+        sl_val = p.get("custom_sl_quota")
+        cl_val = p.get("custom_cl_quota")
+        pl_str = f"{float(pl_val):g}" if pl_val is not None and str(pl_val).strip() != "" else f"{default_pl:g}"
+        sl_str = f"{float(sl_val):g}" if sl_val is not None and str(sl_val).strip() != "" else f"{default_sl:g}"
+        cl_str = f"{float(cl_val):g}" if cl_val is not None and str(cl_val).strip() != "" else f"{default_cl:g}"
         fields = [
             p["code"],
             p["name"],
             p.get("department") or "",
-            p.get("joined_on") or "",
-            str(bal["months_of_service"]),
-            f"{bal['accrued']:g}",
-            f"{bal['used_pl']:g}",
-            f"{bal['pl_available']:g}",
-            f"{bal['annual_sl']:g}",
-            f"{bal['used_sl']:g}",
-            f"{bal['sl_available']:g}",
-            f"{bal['annual_cl']:g}",
-            f"{bal['used_cl']:g}",
-            f"{bal['cl_available']:g}",
-            f"{bal['used_unpaid']:g}",
-            f"{bal['total_available']:g}",
+            pl_str,
+            sl_str,
+            cl_str,
         ]
         lines.append(",".join(_csv_safe(v) for v in fields))
     return "\n".join(lines) + "\n"
 
 
 def get_balances_template_csv(storage: Storage) -> str:
-    """Downloadable sample template pre-filled with all employees to update their custom quotas."""
+    """Downloadable sample template pre-filled with all active employees to update their quotas."""
     people = employees_service.list_employees(storage, status="active", limit=1000)
-    header = "Employee Code,Employee Name,Department,Custom Annual PL,Custom Annual SL,Custom Annual CL"
+    default_pl = storage.get_float("pl_annual_quota", 6.0)
+    default_sl = storage.get_float("sl_annual_quota", 6.0)
+    default_cl = storage.get_float("cl_annual_quota", 6.0)
+    header = "Employee Code,Employee Name,Department,PL Quota,SL Quota,CL Quota"
     lines = [header]
     for p in people:
+        pl_val = p.get("custom_pl_quota") or p.get("custom_pl_accrual")
+        sl_val = p.get("custom_sl_quota")
+        cl_val = p.get("custom_cl_quota")
+        pl_str = f"{float(pl_val):g}" if pl_val is not None and str(pl_val).strip() != "" else f"{default_pl:g}"
+        sl_str = f"{float(sl_val):g}" if sl_val is not None and str(sl_val).strip() != "" else f"{default_sl:g}"
+        cl_str = f"{float(cl_val):g}" if cl_val is not None and str(cl_val).strip() != "" else f"{default_cl:g}"
         fields = [
             p["code"],
             p["name"],
             p.get("department") or "",
-            str(p.get("custom_pl_accrual") or "") if p.get("custom_pl_accrual") is not None else "",
-            str(p.get("custom_sl_quota") or "") if p.get("custom_sl_quota") is not None else "",
-            str(p.get("custom_cl_quota") or "") if p.get("custom_cl_quota") is not None else "",
+            pl_str,
+            sl_str,
+            cl_str,
         ]
         lines.append(",".join(_csv_safe(v) for v in fields))
     return "\n".join(lines) + "\n"
 
 
 def import_balances_csv(storage: Storage, csv_text: str, *, actor: str = "") -> dict[str, Any]:
-    """Bulk import custom leave quotas from CSV text."""
+    """Bulk import leave quotas from CSV text, returning detailed breakdown of updated, unchanged, and errors."""
     import csv
     import io
 
     reader = csv.reader(io.StringIO(csv_text.strip()))
     header = None
     updated = 0
+    unchanged = 0
+    total_rows = 0
     errors: list[str] = []
 
     for row_idx, row in enumerate(reader, start=1):
-        if not row or not any(row):
+        if not row or not any(c.strip() for c in row):
             continue
         if header is None:
             header = [c.strip().lower() for c in row]
             continue
 
+        total_rows += 1
         row_dict = {header[i]: row[i].strip() for i in range(min(len(header), len(row)))}
         code = row_dict.get("employee code") or row_dict.get("code")
         if not code:
+            errors.append(f"Row {row_idx}: Missing employee code.")
             continue
 
         emp = employees_service.get_employee_by_code(storage, code)
         if not emp:
-            errors.append(f"Row {row_idx}: Employee code '{code}' not found.")
+            errors.append(f"Row {row_idx} ({code}): Employee code not found in database.")
             continue
 
         updates = {}
-        for col_name, field in (
-            ("custom annual pl", "custom_pl_accrual"),
-            ("custom pl", "custom_pl_accrual"),
-            ("custom annual sl", "custom_sl_quota"),
-            ("custom sl", "custom_sl_quota"),
-            ("custom annual cl", "custom_cl_quota"),
-            ("custom cl", "custom_cl_quota"),
-        ):
-            if col_name in row_dict and row_dict[col_name]:
+        row_has_error = False
+
+        # Support flexible column headers
+        mappings = [
+            (("pl quota", "custom annual pl", "custom pl", "annual pl", "pl"), "custom_pl_accrual"),
+            (("sl quota", "custom annual sl", "custom sl", "annual sl", "sl"), "custom_sl_quota"),
+            (("cl quota", "custom annual cl", "custom cl", "annual cl", "cl"), "custom_cl_quota"),
+        ]
+
+        for aliases, field in mappings:
+            col_val = None
+            for alias in aliases:
+                if alias in row_dict and row_dict[alias] != "":
+                    col_val = row_dict[alias]
+                    break
+            if col_val is not None:
                 try:
-                    val = float(row_dict[col_name])
+                    val = float(col_val)
                     if val < 0:
-                        raise ValueError()
+                        errors.append(f"Row {row_idx} ({code}): {aliases[0].upper()} cannot be negative ({val}).")
+                        row_has_error = True
+                        break
                     updates[field] = val
                 except ValueError:
-                    errors.append(f"Row {row_idx} ({code}): Invalid number for {col_name} ('{row_dict[col_name]}').")
+                    errors.append(f"Row {row_idx} ({code}): Invalid number for {aliases[0].upper()} ('{col_val}').")
+                    row_has_error = True
+                    break
 
-        if updates:
+        if row_has_error:
+            continue
+
+        # Check if new quotas differ from current employee values in DB
+        has_change = False
+        for field, new_val in updates.items():
+            curr_val = emp.get(field)
+            curr_float = float(curr_val) if curr_val is not None and str(curr_val).strip() != "" else None
+            if curr_float is None or abs(curr_float - new_val) > 0.001:
+                has_change = True
+                break
+
+        if has_change and updates:
             employees_service.update_employee(storage, emp["id"], updates)
             updated += 1
+        else:
+            unchanged += 1
 
     if updated:
         storage.audit(
@@ -931,7 +963,12 @@ def import_balances_csv(storage: Storage, csv_text: str, *, actor: str = "") -> 
             action="import_leave_balances",
             entity="leave",
             entity_id=0,
-            detail=f"Bulk imported leave quotas for {updated} employees",
+            detail=f"Bulk imported leave quotas: {updated} updated, {unchanged} unchanged",
         )
 
-    return {"updated": updated, "errors": errors}
+    return {
+        "total_rows": total_rows,
+        "updated": updated,
+        "unchanged": unchanged,
+        "errors": errors,
+    }

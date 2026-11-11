@@ -194,6 +194,36 @@
       </div>
     </div>
 
+    <div class="card mb-3 me-order-4">
+      <div class="card-head">
+        <h3>Loan &amp; Advances</h3>
+        <span class="spacer"></span>
+        <a class="small" href="/me/loans">Details →</a>
+      </div>
+      <div class="card-body">
+        {% if active_loan %}
+          <div class="small muted mb-1">{{ active_loan.type_label or 'Salary Advance' }} · Disbursed {{ active_loan.disbursed_on | nice_date }}</div>
+          <div class="me-big" style="color:var(--text)">₹{{ active_loan.remaining_balance | money }}</div>
+          <div class="small muted mb-2">pending balance · ₹{{ active_loan.principal_amount | money }} principal</div>
+          <div class="progress mb-2" style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="width:{{ active_loan.repaid_pct }}%;height:100%;background:var(--primary);border-radius:3px"></div>
+          </div>
+          <div class="kv small">
+            <div><span class="k">Monthly EMI</span><span class="v" style="font-weight:700">₹{{ active_loan.monthly_emi | money }} / mo</span></div>
+            <div><span class="k">Repaid so far</span><span class="v">₹{{ active_loan.total_repaid | money }} ({{ active_loan.repaid_pct }}%)</span></div>
+          </div>
+          <div class="me-card-actions mt-2">
+            <a class="btn btn-sm btn-block" href="/me/loans">View ledger &amp; apply</a>
+          </div>
+        {% else %}
+          <div class="empty-state" style="padding:0.75rem 0.5rem;text-align:center">
+            <div class="small muted mb-2">No active loan or advance.</div>
+            <a class="btn btn-sm btn-block" href="/me/loans">Apply for loan / advance</a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
     <div class="card me-order-5">
       <div class="card-head"><h3>My details</h3></div>
       <div class="card-body">

@@ -366,17 +366,14 @@
     <form method="post" action="/leave/balances/import" enctype="multipart/form-data" style="padding:1.25rem">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <p class="small muted mb-3" style="line-height:1.5">
-        Upload a CSV file to update custom annual quotas for Paid Leave (PL), Sick Leave (SL), and Casual Leave (CL).
+        Upload a CSV file to update leave quotas for Paid Leave (PL), Sick Leave (SL), and Casual Leave (CL).
       </p>
       <div class="field mb-3">
         <label for="quota-file">Select CSV File</label>
         <input id="quota-file" name="file" type="file" accept=".csv" required>
       </div>
       <div style="background:var(--subtle);padding:0.75rem 1rem;border-radius:var(--radius);font-size:0.82rem;margin-bottom:1.25rem">
-        <strong>Need the template?</strong>
-        <a href="/leave/balances/template.csv" style="color:var(--primary);font-weight:bold;text-decoration:none">
-          Download Sample Template (.csv)
-        </a> with all active employees pre-filled.
+        <strong>Direct Workflow:</strong> You can download <strong>Export CSV</strong> above, edit the quota columns, and upload that exact same file here! Or download the <a href="/leave/balances/template.csv" style="color:var(--primary);font-weight:bold;text-decoration:none">Sample Template (.csv)</a>.
       </div>
       <div style="display:flex;gap:0.75rem;justify-content:flex-end">
         <button class="btn" type="button" onclick="document.getElementById('import-dialog').close()">Cancel</button>
@@ -385,4 +382,57 @@
     </form>
   </div>
 </dialog>
+
+{% if import_summary %}
+<dialog id="import-result-dialog" class="modal-dialog" open style="max-width:560px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 25px 35px -5px rgba(0,0,0,0.3);background:var(--card);z-index:9999">
+  <div class="card" style="margin:0;border:none">
+    <div class="card-head" style="background:var(--subtle);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem">
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <span style="font-size:1.2rem">{{ icon('check-circle') if not import_summary.errors else icon('alert') }}</span>
+        <h2 style="margin:0;font-size:1.15rem;font-weight:700">Leave Quotas Import Summary</h2>
+      </div>
+      <button type="button" class="icon-btn" onclick="document.getElementById('import-result-dialog').close()" aria-label="Close">✕</button>
+    </div>
+    <div style="padding:1.25rem">
+      <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:0.75rem;margin-bottom:1.25rem">
+        <div style="background:#F0FDF4;border:1px solid #BBF7D0;padding:0.75rem;border-radius:var(--radius);text-align:center">
+          <div style="font-size:1.4rem;font-weight:800;color:#16A34A">{{ import_summary.updated }}</div>
+          <div style="font-size:0.78rem;font-weight:600;color:#15803D;text-transform:uppercase">Updated</div>
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;padding:0.75rem;border-radius:var(--radius);text-align:center">
+          <div style="font-size:1.4rem;font-weight:800;color:#64748B">{{ import_summary.unchanged }}</div>
+          <div style="font-size:0.78rem;font-weight:600;color:#475569;text-transform:uppercase">No Change</div>
+        </div>
+        <div style="background:{{ '#FEF2F2' if import_summary.errors else '#F8FAFC' }};border:1px solid {{ '#FECACA' if import_summary.errors else '#E2E8F0' }};padding:0.75rem;border-radius:var(--radius);text-align:center">
+          <div style="font-size:1.4rem;font-weight:800;color:{{ '#DC2626' if import_summary.errors else '#94A3B8' }}">{{ import_summary.errors | length }}</div>
+          <div style="font-size:0.78rem;font-weight:600;color:{{ '#B91C1C' if import_summary.errors else '#64748B' }};text-transform:uppercase">Mistakes / Errors</div>
+        </div>
+      </div>
+
+      {% if import_summary.errors %}
+        <div style="margin-bottom:1.25rem">
+          <div style="font-weight:700;font-size:0.88rem;color:#B91C1C;margin-bottom:0.4rem">
+            Row Calculation &amp; Formatting Mistakes:
+          </div>
+          <div style="max-height:160px;overflow-y:auto;background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius);padding:0.6rem 0.8rem;font-size:0.8rem;color:#991B1B">
+            <ul style="margin:0;padding-left:1.2rem;line-height:1.5">
+              {% for err in import_summary.errors %}
+                <li>{{ err }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      {% else %}
+        <div style="background:#F0FDF4;border:1px solid #BBF7D0;color:#15803D;padding:0.75rem 1rem;border-radius:var(--radius);font-size:0.85rem;margin-bottom:1.25rem">
+          ✓ All {{ import_summary.total_rows }} row(s) were successfully verified and processed with zero mistakes.
+        </div>
+      {% endif %}
+
+      <div style="display:flex;justify-content:flex-end">
+        <button class="btn btn-primary" type="button" onclick="document.getElementById('import-result-dialog').close()">Done</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+{% endif %}
 {% endblock %}

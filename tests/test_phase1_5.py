@@ -127,12 +127,12 @@ def test_leave_balances_export_and_bulk_import(storage, settings, staff):
     # Export CSV
     csv_text = leave_service.export_balances_csv(storage, settings)
     assert "Employee Code,Employee Name,Department" in csv_text
-    assert "Accrued PL,PL Taken,PL Available" in csv_text
+    assert "PL Quota,SL Quota,CL Quota" in csv_text
     assert staff[0]["code"] in csv_text
 
     # Template CSV
     template_csv = leave_service.get_balances_template_csv(storage)
-    assert "Employee Code,Employee Name,Department,Custom Annual PL,Custom Annual SL,Custom Annual CL" in template_csv
+    assert "Employee Code,Employee Name,Department,PL Quota,SL Quota,CL Quota" in template_csv
     assert staff[0]["code"] in template_csv
 
     # Bulk Import CSV
@@ -185,4 +185,23 @@ def test_payroll_and_leave_web_routes(hr_client: TestClient, staff, settings, st
     # Test leave balances template route
     resp_ltmpl = hr_client.get("/leave/balances/template.csv")
     assert resp_ltmpl.status_code == 200
-    assert "Custom Annual PL" in resp_ltmpl.text
+    assert "PL Quota" in resp_ltmpl.text
+
+    # Test individual slip finalize makes it visible to employee even in draft run
+    slip2 = slips[1]
+    payroll_service.set_slip_status(storage, slip2["id"], "finalized", actor="hr_test")
+    finalized_slip = payroll_service.get_slip(storage, slip2["id"])
+    assert finalized_slip["status"] == "finalized"
+
+    # Query as ESS user would
+    emp_slips = storage.query(
+        """
+        SELECT p.*, r.status AS run_status FROM payslips p
+        JOIN payroll_runs r ON r.id = p.run_id
+        WHERE p.employee_id = ? 
+          AND (p.status IN ('finalized', 'paid') OR (r.status IN ('finalized', 'paid') AND p.status != 'on_hold'))
+        """,
+        (slip2["employee_id"],),
+    )
+    assert len(emp_slips) == 1
+    assert emp_slips[0]["id"] == slip2["id"]
