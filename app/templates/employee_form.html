@@ -159,6 +159,16 @@
                      placeholder="{{ masked_aadhaar or '12-digit number' }}">
               <div class="hint">Only the last 4 digits are stored{% if masked_aadhaar %} (on file: {{ masked_aadhaar }}){% endif %}.</div></div>
           </div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="uan">EPFO UAN (Universal Account Number)</label>
+              <input id="uan" name="uan" type="text" inputmode="numeric" maxlength="12" placeholder="12-digit UAN"
+                     value="{{ f.get('uan') or (employee.uan if employee else '') or '' }}">
+              <div class="hint">Used for 1-click EPFO ECR filing</div></div>
+            <div class="field"><label for="esic_ip">ESIC Insurance Number (IP)</label>
+              <input id="esic_ip" name="esic_ip" type="text" inputmode="numeric" maxlength="17" placeholder="10–17 digit IP"
+                     value="{{ f.get('esic_ip') or (employee.esic_ip if employee else '') or '' }}">
+              <div class="hint">Used for 1-click ESIC return export</div></div>
+          </div>
           <div class="form-row cols-4">
             <div class="field"><label for="bank_name">Bank</label>
               <input id="bank_name" name="bank_name" type="text" value="{{ f.get('bank_name') or (employee.bank_name if employee else '') or '' }}"></div>

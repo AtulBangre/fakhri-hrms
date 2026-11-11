@@ -258,6 +258,22 @@ def export_ecr(
     )
 
 
+@router.get("/export-esic.csv")
+def export_esic(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    period: str | None = None,
+):
+    period = period or orgtime.period_of(orgtime.today(settings))
+    csv_text = payroll.export_esic_return(storage, period)
+    return PlainTextResponse(
+        csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="esic-return-{period}.csv"'},
+    )
+
+
 @router.post("/email")
 def email_payslips(
     request: Request,

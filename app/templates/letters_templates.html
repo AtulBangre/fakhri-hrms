@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Letter Templates · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>HR Letter Templates</h1>
+    <div class="sub">Customize standard letter formats, subjects, and text for your organization</div>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/letters">&larr; Back to Letters</a>
+  </div>
+</div>
+
+<div class="grid cols-1">
+  {% for t in templates %}
+    <div class="card mb-3">
+      <div class="card-head">
+        <h2>{{ t.title }}</h2>
+        <span class="spacer"></span>
+        <span class="chip chip-primary">{{ t.slug }}</span>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/letters/templates/{{ t.slug }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="title_{{ t.slug }}">Template Title</label>
+              <input id="title_{{ t.slug }}" name="title" type="text" value="{{ t.title }}" required>
+            </div>
+            <div class="field">
+              <label for="subject_{{ t.slug }}">Subject Line Template</label>
+              <input id="subject_{{ t.slug }}" name="subject" type="text" value="{{ t.subject or '' }}" required>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="body_{{ t.slug }}">Template Body (Tokens like {% raw %}{{employee_name}}{% endraw %}, {% raw %}{{designation}}{% endraw %} are supported)</label>
+            <textarea id="body_{{ t.slug }}" name="body_text" rows="12" style="font-family: inherit; font-size: 0.9rem; line-height: 1.5;" required>{{ t.body_text }}</textarea>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <button class="btn btn-primary" type="submit">
+              Save Changes
+            </button>
+            <a class="btn btn-sm" href="/letters/generate?slug={{ t.slug }}">
+              {{ icon('file-edit') }} Test Generate
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

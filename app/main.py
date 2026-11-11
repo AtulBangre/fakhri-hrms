@@ -30,7 +30,7 @@ from .notify import NotificationWorker
 from .services.sync_supabase import SupabaseSyncWorker
 from .routes import (
     account, admin, ai_hr, attendance, auth_routes, dashboard, employees, inbox, passkeys,
-    appraisals, celebrations, engagement, exits, field, kiosk, leave, me, meta, payroll, records, regularizations, tax,
+    appraisals, celebrations, engagement, exits, field, kiosk, leave, letters, me, meta, payroll, records, regularizations, tax,
 )
 
 logger = logging.getLogger("hrms")
@@ -214,6 +214,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(kiosk.router)
     app.include_router(ai_hr.router)
     app.include_router(inbox.router)
+    app.include_router(letters.router)
     app.include_router(passkeys.router)
 
     return app

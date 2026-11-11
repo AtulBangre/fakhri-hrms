@@ -747,3 +747,38 @@ def export_epfo_ecr(storage: Storage, period: str) -> str:
         ]
         lines.append("#~#".join(fields))
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def export_esic_return(storage: Storage, period: str) -> str:
+    """Generate standard ESIC Monthly Contribution Return CSV format.
+    
+    Columns:
+    IP Number, IP Name, No of Days Worked, Total Monthly Wages, Reason Code for Zero Working Days, Last Working Day
+    """
+    slips = list_slips(storage, period)
+    header = "IP Number,IP Name,No of Days Worked,Total Monthly Wages,Reason Code for Zero Working Days,Last Working Day"
+    lines = [header]
+    for slip in slips:
+        emp = employees_service.require_employee(storage, slip["employee_id"])
+        ip_number = str(emp.get("esic_ip") or "").strip()
+        name = slip["name"]
+        present = float(slip.get("present_days") or 0)
+        paid_leave = float(slip.get("paid_leave_days") or 0)
+        worked_days = int(round(present + paid_leave))
+        gross = f"{float(slip.get('earned_gross') or 0):.2f}"
+        
+        reason_code = ""
+        lwd = ""
+        if worked_days == 0:
+            if emp.get("status") != "active":
+                reason_code = "2"  # Left service
+                exit_row = storage.query_one("SELECT last_working_day FROM employee_exits WHERE employee_id = ?", (emp["id"],))
+                if exit_row and exit_row.get("last_working_day"):
+                    lwd = exit_row["last_working_day"]
+            else:
+                reason_code = "1"  # On Leave Without Pay
+                
+        fields = [ip_number, name, str(worked_days), gross, reason_code, lwd]
+        lines.append(",".join(_csv_safe(v) for v in fields))
+    return "\n".join(lines) + "\n"
+

@@ -30,7 +30,7 @@ EDITABLE_FIELDS = (
 PROFILE_FIELDS = (
     "email", "phone", "address", "bank_name", "account_holder",
     "account_number", "ifsc", "pan", "aadhaar_last4", "emergency_contact",
-    "date_of_birth", "anniversary",
+    "date_of_birth", "anniversary", "uan", "esic_ip",
 )
 
 
@@ -243,6 +243,16 @@ def clean_identity(data: dict[str, Any]) -> dict[str, Any]:
         if not aadhaar.isdigit() or len(aadhaar) != 12 or aadhaar[0] in "01" or not verhoeff_ok(aadhaar):
             raise ValidationError("That Aadhaar number is not valid — check the 12 digits.")
         data["aadhaar_last4"] = aadhaar[-4:]
+    if data.get("uan"):
+        uan = str(data["uan"]).strip().replace(" ", "").replace("-", "")
+        if uan and (not uan.isdigit() or len(uan) != 12):
+            raise ValidationError("UAN must be a 12-digit number.")
+        data["uan"] = uan or None
+    if data.get("esic_ip"):
+        esic = str(data["esic_ip"]).strip().replace(" ", "").replace("-", "")
+        if esic and (not esic.isdigit() or not 10 <= len(esic) <= 17):
+            raise ValidationError("ESIC Insurance Number must be 10–17 digits.")
+        data["esic_ip"] = esic or None
     if data.get("date_of_birth"):
         data["date_of_birth"] = _clean_date(str(data["date_of_birth"]))
     if data.get("anniversary"):

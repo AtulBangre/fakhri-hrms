@@ -67,6 +67,7 @@
         <a class="btn" href="/payroll/export.csv?period={{ period }}">{{ icon('download') }} Bank CSV</a>
         <a class="btn" href="/payroll/export.zip?period={{ period }}" title="Download all employee payslips as PDF in a ZIP file">{{ icon('download') }} All Payslips (ZIP)</a>
         <a class="btn" href="/payroll/export-ecr.txt?period={{ period }}" title="Download EPFO Electronic Challan cum Return text file">{{ icon('download') }} EPFO ECR</a>
+        <a class="btn" href="/payroll/export-esic.csv?period={{ period }}" title="Download ESIC Monthly Contribution Return CSV">{{ icon('download') }} ESIC Return</a>
         {% if run.status == 'draft' %}
           <form method="post" action="/payroll/status" data-confirm="Finalise {{ period_label }}? Payslips become read-only.">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">

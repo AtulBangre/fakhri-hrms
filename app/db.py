@@ -498,6 +498,26 @@ CREATE TABLE IF NOT EXISTS shifts (
     created_at           TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_shifts_default ON shifts(is_default);
+
+CREATE TABLE IF NOT EXISTS letter_templates (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug        TEXT NOT NULL UNIQUE,
+    title       TEXT NOT NULL,
+    subject     TEXT,
+    body_text   TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS generated_letters (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id   INTEGER NOT NULL REFERENCES employees(id),
+    template_slug TEXT NOT NULL,
+    title         TEXT NOT NULL,
+    pdf_filename  TEXT NOT NULL,
+    created_by    TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_gen_letters_emp ON generated_letters(employee_id);
 """
 
 
@@ -733,6 +753,8 @@ class Storage:
             ("date_of_birth", "TEXT"),
             ("anniversary", "TEXT"),
             ("remote_work_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("uan", "TEXT"),
+            ("esic_ip", "TEXT"),
         ],
     }
 
@@ -882,7 +904,82 @@ class Storage:
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     ("General Shift", s_start, s_end, s_grace, s_half, 60, 1, utcnow_iso()),
                 )
+            self._seed_letter_templates()
             self._conn.commit()
+
+    def _seed_letter_templates(self) -> None:
+        count = self._conn.execute("SELECT COUNT(*) FROM letter_templates").fetchone()[0]
+        if count > 0:
+            return
+        now = utcnow_iso()
+        templates = [
+            (
+                "offer",
+                "Offer of Employment",
+                "Offer of Employment - {{designation}}",
+                "Dear {{employee_name}},\n\n"
+                "We are pleased to offer you the position of {{designation}} at {{company_name}}. We were thoroughly impressed by your credentials and enthusiasm during the interview process.\n\n"
+                "The key terms of your offer are summarized below:\n"
+                "- Designation: {{designation}}\n"
+                "- Department: {{department}}\n"
+                "- Proposed Date of Joining: {{joined_on}}\n"
+                "- Offered Monthly Gross Salary: Rs {{monthly_gross}} (Annual CTC: Rs {{annual_ctc}})\n"
+                "- Work Location: Head Office / Authorized Company Location\n\n"
+                "You will be on probation for a period of {{probation_months}} months from your date of joining. Upon successful completion of your probation, your employment will be confirmed in writing.\n\n"
+                "Please sign and return the duplicate copy of this letter within 3 days as acceptance of this offer. We look forward to welcoming you to the {{company_name}} family!\n\n"
+                "Sincerely,\nFor {{company_name}}\n\nAuthorized Signatory\nHR Department",
+                now,
+            ),
+            (
+                "appointment",
+                "Letter of Appointment",
+                "Letter of Appointment - {{employee_code}}",
+                "Dear {{employee_name}},\n\n"
+                "With reference to your application and subsequent discussions, we are pleased to appoint you as {{designation}} at {{company_name}}, effective from {{joined_on}}.\n\n"
+                "Terms & Conditions of Employment:\n"
+                "1. Employee Identification: Your official Employee Code is {{employee_code}}.\n"
+                "2. Remuneration: You will receive a monthly gross salary of Rs {{monthly_gross}} (Annual CTC: Rs {{annual_ctc}}), subject to statutory and tax deductions as per applicable laws.\n"
+                "3. Probation: You shall serve an initial probation period of {{probation_months}} months. During probation, either party may terminate employment with 15 days written notice.\n"
+                "4. Working Hours & Attendance: You will adhere to the official shift timings and mark attendance daily through company attendance systems.\n"
+                "5. Notice Period: Following confirmation, a notice period of {{notice_period}} days or salary in lieu thereof will be required for resignation.\n"
+                "6. Confidentiality: You will safeguard all confidential information, client records, and intellectual property of {{company_name}}.\n\n"
+                "We congratulate you on your appointment and wish you a rewarding career with us.\n\n"
+                "Sincerely,\nFor {{company_name}}\n\nAuthorized Signatory\nHR Department",
+                now,
+            ),
+            (
+                "increment",
+                "Salary Increment & Appraisal Letter",
+                "Annual Compensation Revision - {{employee_name}}",
+                "Dear {{employee_name}} ({{employee_code}}),\n\n"
+                "In recognition of your performance, dedication, and valuable contributions to {{company_name}}, the management is pleased to revise your compensation package effective from {{effective_date}}.\n\n"
+                "Revised Compensation Details:\n"
+                "- Designation: {{designation}}\n"
+                "- Department: {{department}}\n"
+                "- Revised Monthly Gross Salary: Rs {{monthly_gross}}\n"
+                "- Revised Annual CTC: Rs {{annual_ctc}}\n\n"
+                "All other terms and conditions of your employment contract remain unchanged. We appreciate your consistent hard work and look forward to your continued leadership and excellence in achieving organizational goals.\n\n"
+                "Congratulations and best wishes!\n\n"
+                "Sincerely,\nFor {{company_name}}\n\nAuthorized Signatory\nHR Department",
+                now,
+            ),
+            (
+                "relieving",
+                "Relieving & Experience Certificate",
+                "Relieving Letter & Certificate of Experience - {{employee_code}}",
+                "TO WHOMSOEVER IT MAY CONCERN\n\n"
+                "This is to certify that {{employee_name}} (Employee Code: {{employee_code}}) was employed with {{company_name}} from {{joined_on}} to {{relieving_date}}.\n\n"
+                "At the time of leaving the organization, {{employee_name}} held the position of {{designation}} in the {{department}} Department.\n\n"
+                "During their tenure with us, {{employee_name}} was found to be hardworking, sincere, and diligent. All company assets and clearances have been completed, and their Full & Final settlement has been processed. They have been relieved of their duties with effect from the close of business hours on {{relieving_date}}.\n\n"
+                "We thank them for their services and wish them all the best in their future endeavors.\n\n"
+                "Sincerely,\nFor {{company_name}}\n\nAuthorized Signatory\nHR Department",
+                now,
+            ),
+        ]
+        self._conn.executemany(
+            "INSERT INTO letter_templates (slug, title, subject, body_text, updated_at) VALUES (?, ?, ?, ?, ?)",
+            templates,
+        )
 
     def get_setting(self, key: str, default: str = "") -> str:
         with self._lock:

@@ -254,7 +254,7 @@ def new_page(request: Request, user: SessionUser = Depends(require_hr), storage=
 
 
 IDENTITY_FIELDS = ("address", "emergency_contact", "pan", "aadhaar", "bank_name", "account_holder",
-                   "account_number", "ifsc", "date_of_birth", "anniversary")
+                   "account_number", "ifsc", "date_of_birth", "anniversary", "uan", "esic_ip")
 KYC_UPLOADS = (("doc_aadhaar", "aadhaar"), ("doc_pan", "pan"), ("doc_resume", "resume"))
 
 
@@ -527,6 +527,8 @@ def update(
     custom_sl_quota: str = Form(""),
     custom_cl_quota: str = Form(""),
     remote_work_enabled: str = Form("0"),
+    uan: str = Form(""),
+    esic_ip: str = Form(""),
 ):
     from ..auth import verify_form_csrf
 
@@ -547,6 +549,8 @@ def update(
         "custom_sl_quota": float(custom_sl_quota) if custom_sl_quota.strip() else None,
         "custom_cl_quota": float(custom_cl_quota) if custom_cl_quota.strip() else None,
         "remote_work_enabled": 1 if remote_work_enabled in ("1", "on", "true") else 0,
+        "uan": uan.strip() or None,
+        "esic_ip": esic_ip.strip() or None,
     }
     if aadhaar.strip():  # empty means "keep what is on file"
         data["aadhaar"] = aadhaar

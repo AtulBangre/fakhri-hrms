@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Generate {{ letter_template.title }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Generate {{ letter_template.title }}</h1>
+    <div class="sub">Select an employee to auto-fill placeholders. You can edit the final text before generating the PDF.</div>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/letters">&larr; Back to Letters</a>
+  </div>
+</div>
+
+<div class="grid grid-sidebar">
+  <div>
+    <div class="card mb-3">
+      <div class="card-head">
+        <h2>Letter Configuration</h2>
+      </div>
+      <div class="card-body">
+        <form method="get" action="/letters/generate" id="select-form" class="mb-3">
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="slug">Letter Template</label>
+              <select id="slug" name="slug" onchange="this.form.submit()">
+                {% for t in templates %}
+                  <option value="{{ t.slug }}" {{ 'selected' if t.slug == letter_template.slug }}>
+                    {{ t.title }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="employee_id">Select Employee</label>
+              <select id="employee_id" name="employee_id" onchange="this.form.submit()" required>
+                <option value="">-- Choose Employee --</option>
+                {% for emp in employees %}
+                  <option value="{{ emp.id }}" {{ 'selected' if employee_id == emp.id }}>
+                    {{ emp.name }} ({{ emp.code }}) - {{ emp.designation or 'Associate' }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </form>
+
+        {% if not employee_id %}
+          <div class="alert alert-info">
+            <strong>Select an employee above</strong> to automatically populate their name, code, designation, CTC, joining date, and company details into the letter below.
+          </div>
+        {% else %}
+          <form method="post" action="/letters/download">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="slug" value="{{ letter_template.slug }}">
+            <input type="hidden" name="employee_id" value="{{ employee_id }}">
+
+            <div class="field">
+              <label for="subject">Subject Line</label>
+              <input id="subject" name="subject" type="text" value="{{ rendered_subject }}" required>
+            </div>
+
+            <div class="field">
+              <label for="body_text">Letter Content (Editable)</label>
+              <textarea id="body_text" name="body_text" rows="18" style="font-family: inherit; font-size: 0.95rem; line-height: 1.6;" required>{{ rendered_body }}</textarea>
+              <div class="hint">Paragraphs are formatted automatically in the official PDF letterhead.</div>
+            </div>
+
+            <div style="display: flex; gap: 1rem; align-items: center; margin-top: 1rem;">
+              <button class="btn btn-primary" type="submit" style="padding: 0.6rem 1.4rem; font-size: 1rem;">
+                {{ icon('download') }} Download Branded PDF Letter
+              </button>
+              <span class="small muted">Generates A4 PDF with official {{ org_name }} Maroon Header Bar &amp; Signatory</span>
+            </div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <h3>Available Placeholders</h3>
+      </div>
+      <div class="card-body small">
+        <p class="muted">These variables are automatically resolved from the employee record:</p>
+        <ul style="padding-left: 1.2rem; line-height: 1.8;">
+          <li><span class="mono">{% raw %}{{employee_name}}{% endraw %}</span> &mdash; Full Name</li>
+          <li><span class="mono">{% raw %}{{employee_code}}{% endraw %}</span> &mdash; Employee Code</li>
+          <li><span class="mono">{% raw %}{{designation}}{% endraw %}</span> &mdash; Designation</li>
+          <li><span class="mono">{% raw %}{{department}}{% endraw %}</span> &mdash; Department</li>
+          <li><span class="mono">{% raw %}{{joined_on}}{% endraw %}</span> &mdash; Date of Joining</li>
+          <li><span class="mono">{% raw %}{{monthly_gross}}{% endraw %}</span> &mdash; Monthly Gross (CTC)</li>
+          <li><span class="mono">{% raw %}{{annual_ctc}}{% endraw %}</span> &mdash; Annual CTC</li>
+          <li><span class="mono">{% raw %}{{company_name}}{% endraw %}</span> &mdash; Organization Name</li>
+          <li><span class="mono">{% raw %}{{probation_months}}{% endraw %}</span> &mdash; Probation Duration</li>
+          <li><span class="mono">{% raw %}{{notice_period}}{% endraw %}</span> &mdash; Notice Period Days</li>
+          <li><span class="mono">{% raw %}{{relieving_date}}{% endraw %}</span> &mdash; Relieving Date</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

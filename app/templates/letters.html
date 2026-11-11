@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}HR Letters &amp; Certificates · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>HR Letters &amp; Certificates</h1>
+    <div class="sub">1-Click branded official letters (Offer, Appointment, Increment, Relieving) with PDF letterhead</div>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/letters/templates">{{ icon('settings') }} Manage Templates</a>
+    <a class="btn btn-primary" href="/letters/generate">{{ icon('file-edit') }} Generate Letter</a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-head">
+    <h2>Generate Official Letter</h2>
+    <span class="spacer"></span>
+    <span class="small muted">Select letter type to auto-fill employee details</span>
+  </div>
+  <div class="card-body">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+      {% for t in templates %}
+        <div style="border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; background: var(--bg-card); display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div style="font-weight: 600; font-size: 1rem; color: var(--brand-maroon); margin-bottom: 0.25rem;">
+              {{ t.title }}
+            </div>
+            <div class="small muted" style="margin-bottom: 0.75rem;">
+              {{ t.subject or 'Official letterhead document' }}
+            </div>
+          </div>
+          <a class="btn btn-sm btn-primary" href="/letters/generate?slug={{ t.slug }}" style="align-self: flex-start;">
+            {{ icon('file-edit') }} Generate
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="card-head">
+    <h2>Generated Letters History</h2>
+    <span class="spacer"></span>
+    <form method="get" action="/letters" style="display: flex; gap: 0.5rem; align-items: center;">
+      <select name="employee_id" onchange="this.form.submit()" style="font-size: 0.85rem; padding: 0.25rem 0.5rem;">
+        <option value="">All Employees</option>
+        {% for emp in employees %}
+          <option value="{{ emp.id }}" {{ 'selected' if selected_employee_id == emp.id }}>
+            {{ emp.name }} ({{ emp.code }})
+          </option>
+        {% endfor %}
+      </select>
+      {% if selected_employee_id %}
+        <a class="btn btn-sm" href="/letters">Reset</a>
+      {% endif %}
+    </form>
+  </div>
+
+  {% if not history %}
+    <div class="empty-state">
+      <div class="empty-icon">{{ icon('file') }}</div>
+      <h3>No letters generated yet</h3>
+      <p class="muted">Generate your first offer, appointment, increment, or relieving letter above.</p>
+    </div>
+  {% else %}
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Document Type</th>
+            <th>Generated On</th>
+            <th>Created By</th>
+            <th style="text-align: right;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in history %}
+            <tr>
+              <td>
+                <strong>{{ row.employee_name }}</strong>
+                <span class="mono muted small" style="margin-left: 0.25rem;">{{ row.employee_code }}</span>
+              </td>
+              <td>
+                <span class="chip chip-primary">{{ row.title }}</span>
+              </td>
+              <td class="small muted">{{ row.created_at[:10] }}</td>
+              <td class="small">{{ row.created_by }}</td>
+              <td style="text-align: right;">
+                <a class="btn btn-sm" href="/letters/generate?slug={{ row.template_slug }}&employee_id={{ row.employee_id }}">
+                  {{ icon('file-edit') }} Re-generate
+                </a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
