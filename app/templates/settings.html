@@ -19,7 +19,7 @@
       <div class="card-body">
         <div class="form-row cols-2">
           {% for key, default, label, kind, help_text in defs %}
-            <div class="field">
+            <div class="field" id="field-{{ key }}">
               <label for="s-{{ key }}">{{ label }}</label>
               {% if kind.startswith('select:') %}
                 {% set options = kind.split(':', 1)[1].split('|') %}
@@ -351,4 +351,45 @@
     </div>
   </div>
 </div>
+
+<script>
+  (function() {
+    function updateLeavePolicyFields() {
+      const policySelect = document.getElementById('s-pl_policy_mode');
+      const accrualField = document.getElementById('field-pl_accrual_per_month');
+      const annualField = document.getElementById('field-pl_annual_quota');
+
+      if (policySelect && accrualField && annualField) {
+        if (policySelect.value === 'fixed') {
+          accrualField.style.display = 'none';
+          annualField.style.display = '';
+        } else {
+          accrualField.style.display = '';
+          annualField.style.display = 'none';
+        }
+      }
+
+      const carrySelect = document.getElementById('s-leave_carry_forward');
+      const maxCarryField = document.getElementById('field-leave_max_carry_forward');
+      const carryCycleField = document.getElementById('field-leave_carry_forward_cycle');
+      if (carrySelect && maxCarryField && carryCycleField) {
+        if (carrySelect.value === 'no') {
+          maxCarryField.style.opacity = '0.5';
+        } else {
+          maxCarryField.style.opacity = '1';
+        }
+      }
+    }
+
+    const policySelect = document.getElementById('s-pl_policy_mode');
+    if (policySelect) {
+      policySelect.addEventListener('change', updateLeavePolicyFields);
+    }
+    const carrySelect = document.getElementById('s-leave_carry_forward');
+    if (carrySelect) {
+      carrySelect.addEventListener('change', updateLeavePolicyFields);
+    }
+    updateLeavePolicyFields();
+  })();
+</script>
 {% endblock %}
