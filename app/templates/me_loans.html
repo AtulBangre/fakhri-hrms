@@ -68,7 +68,7 @@
     {% endif %}
 
     <div class="progress mb-3" style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
-      <div style="width:{{ active_loan.repaid_pct }}%;height:100%;background:var(--primary);border-radius:4px"></div>
+      <div class="progress-fill" style="height:100%;background:var(--primary);border-radius:4px" data-pct="{{ active_loan.repaid_pct }}"></div>
     </div>
 
     <div class="section-title mb-2" style="font-size:0.95rem;font-weight:700">Monthly EMI Repayment History</div>
@@ -192,4 +192,14 @@
     </form>
   </div>
 </dialog>
+
+<script>
+  (function() {
+    document.querySelectorAll('.progress-fill[data-pct]').forEach(function(el) {
+      var pct = parseFloat(el.getAttribute('data-pct')) || 0;
+      el.style.width = Math.min(Math.max(pct, 0), 100) + '%';
+    });
+  })();
+</script>
 {% endblock %}
+

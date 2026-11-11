@@ -403,10 +403,17 @@
           <div style="font-size:1.4rem;font-weight:800;color:#64748B">{{ import_summary.unchanged }}</div>
           <div style="font-size:0.78rem;font-weight:600;color:#475569;text-transform:uppercase">No Change</div>
         </div>
-        <div style="background:{{ '#FEF2F2' if import_summary.errors else '#F8FAFC' }};border:1px solid {{ '#FECACA' if import_summary.errors else '#E2E8F0' }};padding:0.75rem;border-radius:var(--radius);text-align:center">
-          <div style="font-size:1.4rem;font-weight:800;color:{{ '#DC2626' if import_summary.errors else '#94A3B8' }}">{{ import_summary.errors | length }}</div>
-          <div style="font-size:0.78rem;font-weight:600;color:{{ '#B91C1C' if import_summary.errors else '#64748B' }};text-transform:uppercase">Mistakes / Errors</div>
-        </div>
+        {% if import_summary.errors %}
+          <div style="background:#FEF2F2;border:1px solid #FECACA;padding:0.75rem;border-radius:var(--radius);text-align:center">
+            <div style="font-size:1.4rem;font-weight:800;color:#DC2626">{{ import_summary.errors | length }}</div>
+            <div style="font-size:0.78rem;font-weight:600;color:#B91C1C;text-transform:uppercase">Mistakes / Errors</div>
+          </div>
+        {% else %}
+          <div style="background:#F8FAFC;border:1px solid #E2E8F0;padding:0.75rem;border-radius:var(--radius);text-align:center">
+            <div style="font-size:1.4rem;font-weight:800;color:#94A3B8">0</div>
+            <div style="font-size:0.78rem;font-weight:600;color:#64748B;text-transform:uppercase">Mistakes / Errors</div>
+          </div>
+        {% endif %}
       </div>
 
       {% if import_summary.errors %}

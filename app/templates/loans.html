@@ -81,8 +81,12 @@
             </td>
             <td data-label="Progress">
               <div style="display:flex;flex-direction:column;gap:3px">
-                <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;width:100%">
-                  <div style="height:100%;width:{{ loan.repaid_pct }}%;background:{{ '#10b981' if loan.status == 'closed' else '#870808' }};border-radius:3px"></div>
+                <div class="progress-track" style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;width:100%">
+                  {% if loan.status == 'closed' %}
+                    <div style="height:100%;width:100%;background:#10b981;border-radius:3px"></div>
+                  {% else %}
+                    <div class="progress-fill" style="height:100%;background:#870808;border-radius:3px" data-pct="{{ loan.repaid_pct }}"></div>
+                  {% endif %}
                 </div>
                 <div class="small muted" style="font-size:0.72rem;display:flex;justify-content:space-between">
                   <span>{{ loan.total_repaid | money }}</span>
@@ -200,5 +204,14 @@
     </form>
   </div>
 </dialog>
+
+<script>
+  (function() {
+    document.querySelectorAll('.progress-fill[data-pct]').forEach(function(el) {
+      var pct = parseFloat(el.getAttribute('data-pct')) || 0;
+      el.style.width = Math.min(Math.max(pct, 0), 100) + '%';
+    });
+  })();
+</script>
 {% endblock %}
 
