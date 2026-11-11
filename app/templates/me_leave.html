@@ -14,6 +14,21 @@
   </div>
 </div>
 
+<style>
+.quota-chip {
+  padding: 1px 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.quota-chip-pl { background: var(--primary-soft); border: 1px solid var(--primary-soft-border); color: var(--primary); }
+.quota-chip-sl { background: #F0FDFA; border: 1px solid #99F6E4; color: #0D9488; }
+.quota-chip-cl { background: #FFFBEB; border: 1px solid #FDE68A; color: #D97706; }
+
+.quota-bar-pl { background: var(--primary); }
+.quota-bar-sl { background: #0D9488; }
+.quota-bar-cl { background: #D97706; }
+</style>
+
 <div class="grid grid-sidebar">
   <div>
     <div class="card mb-3">
@@ -162,14 +177,30 @@
             <div class="quota-bar-wrap mb-2">
               <div class="quota-bar-head">
                 <span style="font-weight:600;display:flex;align-items:center;gap:5px">
-                  <span class="chip" style="background:{{ q.bg }};border:1px solid {{ q.border }};color:{{ q.color }};padding:1px 6px;font-size:0.7rem;font-weight:700">{{ q.code }}</span>
+                  {% if q.code == 'PL' %}
+                    <span class="chip quota-chip quota-chip-pl">PL</span>
+                  {% elif q.code == 'SL' %}
+                    <span class="chip quota-chip quota-chip-sl">SL</span>
+                  {% elif q.code == 'CL' %}
+                    <span class="chip quota-chip quota-chip-cl">CL</span>
+                  {% else %}
+                    <span class="chip quota-chip">{{ q.code }}</span>
+                  {% endif %}
                   <span style="font-size:0.82rem">{{ q.name }}</span>
                 </span>
                 <span class="small"><strong>{{ q.available | number }}</strong> available <span class="muted">({{ q.used | number }} taken / {{ q.allocated | number }} total)</span></span>
               </div>
               <div class="quota-bar-track">
-                {% set rem_pct = (([q.available, 0] | max / ([q.allocated, 1] | max)) * 100) | round | int %}
-                <div class="quota-bar-fill" style="width: {{ [rem_pct, 100] | min }}%; background: {{ q.color }};"></div>
+                {% set rem_pct = [(([q.available, 0] | max / ([q.allocated, 1] | max)) * 100) | round | int, 100] | min %}
+                {% if q.code == 'PL' %}
+                  <div class="quota-bar-fill quota-bar-pl" data-pct="{{ rem_pct }}"></div>
+                {% elif q.code == 'SL' %}
+                  <div class="quota-bar-fill quota-bar-sl" data-pct="{{ rem_pct }}"></div>
+                {% elif q.code == 'CL' %}
+                  <div class="quota-bar-fill quota-bar-cl" data-pct="{{ rem_pct }}"></div>
+                {% else %}
+                  <div class="quota-bar-fill" data-pct="{{ rem_pct }}"></div>
+                {% endif %}
               </div>
             </div>
           {% endfor %}
@@ -313,6 +344,11 @@
       fileInput.files = dt.files;
       renderFileList();
     }
+  });
+  // 3. Set quota bar fill widths safely without inline Jinja in style attribute
+  document.querySelectorAll('.quota-bar-fill[data-pct]').forEach(function(el) {
+    var pct = parseFloat(el.getAttribute('data-pct')) || 0;
+    el.style.width = Math.min(Math.max(pct, 0), 100) + '%';
   });
 })();
 </script>
