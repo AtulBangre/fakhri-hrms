@@ -17,6 +17,7 @@ and reported back so HR can see exactly which dates were charged.
 from __future__ import annotations
 
 from datetime import date, datetime
+import json
 import zoneinfo
 from typing import Any
 
@@ -151,6 +152,7 @@ def apply_leave(
     status: str = "approved",
     requested_by: int | None = None,
     allow_negative: bool = False,
+    attachments: list[dict[str, Any]] | str | None = None,
 ) -> dict[str, Any]:
     """Create a leave record (optionally pending) and, if approved, stamp it.
 
@@ -186,14 +188,15 @@ def apply_leave(
             status = "pending_manager"
 
     now = utcnow_iso()
+    att_json = json.dumps(attachments) if isinstance(attachments, list) else attachments
     cursor = storage.execute(
         """
         INSERT INTO leave_requests (employee_id, leave_type, from_date, to_date, days, reason, status,
-                                    applied_by, created_at, decided_at, manager_status)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                                    applied_by, created_at, decided_at, manager_status, attachments)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (employee_id, leave_type, start.isoformat(), end.isoformat(), days, reason, status,
-         requested_by, now, now if status == "approved" else None, manager_status),
+         requested_by, now, now if status == "approved" else None, manager_status, att_json),
     )
     leave_id = int(cursor.lastrowid)
     leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (leave_id,))
@@ -312,6 +315,7 @@ def _charge_applied(storage: Storage, leave: dict[str, Any], applied: list[dict[
 def approve_leave(
     storage: Storage, *, leave_id: int, actor: str | None = None, force: bool = False,
     allow_negative: bool = False,
+    attachments: list[dict[str, Any]] | str | None = None,
 ) -> dict[str, Any]:
     """Approve a pending request and stamp it onto attendance.
 
@@ -498,6 +502,14 @@ def list_manager_team_leave(
                 d["applied_label"] = created
                 d["applied_date"] = created
                 d["applied_time"] = ""
+        raw_att = d.get("attachments")
+        d["attachment_files"] = []
+        if raw_att:
+            try:
+                import json
+                d["attachment_files"] = json.loads(raw_att) if isinstance(raw_att, str) else (raw_att or [])
+            except Exception:
+                d["attachment_files"] = []
         results.append(d)
     return results
 
@@ -563,6 +575,14 @@ def list_leave(
             row["applied_label"] = "—"
             row["applied_date"] = "—"
             row["applied_time"] = ""
+        raw_att = row.get("attachments")
+        row["attachment_files"] = []
+        if raw_att:
+            try:
+                import json
+                row["attachment_files"] = json.loads(raw_att) if isinstance(raw_att, str) else (raw_att or [])
+            except Exception:
+                row["attachment_files"] = []
     return rows
 
 

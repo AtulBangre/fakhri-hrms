@@ -140,42 +140,108 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
         footer = "If you have questions, reply directly to this email or contact HR at hr@fakhriitservices.com."
 
     elif template == "leave_requested":
-        subject = f"Leave request from {ctx['name']} ({ctx['days']} day(s))"
+        subject = f"Leave Request: {ctx['name']} ({ctx['code']}) — {ctx['days']} day(s) {ctx['leave_type']}"
+        reason_text = ctx.get('reason') or 'No details provided'
+        reason_html = escape(reason_text).replace('\n', '<br>')
+        attachments_list = ctx.get('attachments') or ctx.get('file_attachments') or []
+        att_html = ""
+        if attachments_list:
+            items = []
+            for a in attachments_list:
+                if isinstance(a, tuple):
+                    fname = escape(a[0])
+                elif isinstance(a, dict):
+                    fname = escape(a.get("original_name") or a.get("filename") or "Document")
+                else:
+                    fname = escape(str(a))
+                items.append(f"<li style='margin-bottom:4px'>📎 <b>{fname}</b></li>")
+            att_html = (
+                f"<div style='margin-top:16px;padding:12px 14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px'>"
+                f"<div style='font-size:11px;font-weight:700;color:{BRAND['muted']};text-transform:uppercase;margin-bottom:6px;letter-spacing:0.5px'>Attached Supporting Documents ({len(attachments_list)})</div>"
+                f"<ul style='margin:0;padding-left:18px;font-size:13px;color:{BRAND['ink']}'>{''.join(items)}</ul>"
+                f"</div>"
+            )
+
+        manager_str = f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Reporting Manager</td><td style='padding:5px 12px;font-weight:600'>{escape(ctx.get('manager_name') or 'None')}</td></tr>" if ctx.get('manager_name') else ""
+        dept_str = f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Department</td><td style='padding:5px 12px;font-weight:600'>{escape(ctx.get('department') or '—')}</td></tr>" if ctx.get('department') else ""
+
         body = (
-            f"<p><b>{escape(ctx['name'])}</b> ({escape(ctx['code'])}) requested leave.</p>"
-            f"<ul><li><b>Type:</b> {escape(ctx['leave_type'])}</li>"
-            f"<li><b>Dates:</b> {escape(ctx['from_date'])} → {escape(ctx['to_date'])}</li>"
-            f"<li><b>Days:</b> {escape(str(ctx['days']))}</li>"
-            f"<li><b>Reason:</b> {escape(ctx.get('reason') or '—')}</li></ul>"
-            f"<p><a href='{base}/leave' style='display:inline-block;background:{BRAND['primary']};color:#fff;"
-            f"padding:10px 18px;border-radius:8px;text-decoration:none'>Review &amp; approve</a></p>"
+            f"<div style='margin-bottom:14px'><span style='display:inline-block;padding:3px 10px;background:#F1F5F9;border-radius:12px;font-size:12px;font-weight:600;color:{BRAND['primary']}'>New Leave Application</span></div>"
+            f"<p style='margin:0 0 12px;font-size:15px'><b>{escape(ctx['name'])}</b> has applied for leave.</p>"
+            f"<table role='presentation' cellpadding='0' cellspacing='0' style='width:100%;margin-bottom:16px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:12px 16px;font-size:13px'>"
+            f"<tr><td style='padding:5px 0;color:{BRAND['muted']};width:140px'>Employee</td><td style='padding:5px 12px'><b>{escape(ctx['name'])}</b> ({escape(ctx['code'])})</td></tr>"
+            f"{dept_str}"
+            f"{manager_str}"
+            f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Leave Type</td><td style='padding:5px 12px'><b style='color:{BRAND['primary']}'>{escape(ctx['leave_type'])}</b></td></tr>"
+            f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Dates Requested</td><td style='padding:5px 12px'><b>{escape(ctx['from_date'])}</b> → <b>{escape(ctx['to_date'])}</b></td></tr>"
+            f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Total Days</td><td style='padding:5px 12px'><b>{escape(str(ctx['days']))} day(s)</b></td></tr>"
+            f"</table>"
+            f"<div style='margin-bottom:16px;padding:14px;background:#ffffff;border-left:4px solid {BRAND['primary']};border-top:1px solid #E2E8F0;border-right:1px solid #E2E8F0;border-bottom:1px solid #E2E8F0;border-radius:0 8px 8px 0'>"
+            f"<div style='font-size:11px;font-weight:700;color:{BRAND['muted']};text-transform:uppercase;margin-bottom:6px;letter-spacing:0.5px'>Reason / Application Content</div>"
+            f"<div style='font-size:13px;color:{BRAND['ink']};line-height:1.6'>{reason_html}</div>"
+            f"</div>"
+            f"{att_html}"
+            f"<div style='margin-top:20px'>"
+            f"<a href='{base}/leave' style='display:inline-block;background:{BRAND['primary']};color:#ffffff;padding:11px 22px;border-radius:8px;font-weight:600;text-decoration:none;font-size:14px'>Open HRMS to Review &amp; Decide →</a>"
+            f"</div>"
         )
+        footer = "HR receives this request with Reporting Manager in CC. Supporting documents are attached if uploaded."
 
     elif template == "leave_applied_confirmation":
-        subject = f"Leave Request Submitted ({ctx['days']} day(s))"
+        subject = f"Leave Request Submitted ({ctx['days']} day(s) {ctx['leave_type']})"
         body = (
-            f"<p>Hi {escape(ctx['name'])},</p>"
-            f"<p>Your leave request has been submitted to HR for review.</p>"
-            f"<ul><li><b>Type:</b> {escape(ctx['leave_type'])}</li>"
-            f"<li><b>Dates:</b> {escape(ctx['from_date'])} → {escape(ctx['to_date'])}</li>"
-            f"<li><b>Days:</b> {escape(str(ctx['days']))}</li></ul>"
-            f"<p><a href='{base}/me/leave' style='display:inline-block;background:{BRAND['primary']};color:#fff;"
-            f"padding:10px 18px;border-radius:8px;text-decoration:none'>View leave in portal</a></p>"
+            f"<div style='margin-bottom:14px'><span style='display:inline-block;padding:3px 10px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;font-size:12px;font-weight:600;color:{BRAND['success']}'>Request Submitted</span></div>"
+            f"<p>Hi <b>{escape(ctx['name'])}</b>,</p>"
+            f"<p>Your leave request has been submitted to HR and your reporting manager for review.</p>"
+            f"<table role='presentation' cellpadding='0' cellspacing='0' style='width:100%;margin-bottom:16px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:12px 16px;font-size:13px'>"
+            f"<tr><td style='padding:5px 0;color:{BRAND['muted']};width:130px'>Leave Type</td><td style='padding:5px 12px'><b>{escape(ctx['leave_type'])}</b></td></tr>"
+            f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Dates</td><td style='padding:5px 12px'><b>{escape(ctx['from_date'])}</b> → <b>{escape(ctx['to_date'])}</b></td></tr>"
+            f"<tr><td style='padding:5px 0;color:{BRAND['muted']}'>Days</td><td style='padding:5px 12px'><b>{escape(str(ctx['days']))} day(s)</b></td></tr>"
+            f"</table>"
+            f"<p><a href='{base}/me/leave' style='display:inline-block;background:{BRAND['primary']};color:#fff;padding:10px 18px;border-radius:8px;font-weight:600;text-decoration:none'>View My Requests →</a></p>"
         )
-        footer = "You will receive an email once HR reviews and decides your request."
+        footer = "You will receive an email once your leave is reviewed and decided."
 
     elif template == "leave_decided":
         decision = ctx["decision"]
-        subject = f"Your leave was {decision}"
-        colour = BRAND["success"] if decision == "approved" else BRAND["danger"]
+        is_approved = decision == "approved"
+        action_word = "Approved" if is_approved else "Declined"
+        ltype = ctx.get('leave_type') or 'leave'
+        subject = f"Leave Request {action_word}: {ctx['name']} ({ctx['days']} day(s) {ltype})"
+        colour = BRAND["success"] if is_approved else BRAND["danger"]
+        bg_col = "#F0FDF4" if is_approved else "#FEF2F2"
+        border_col = "#BBF7D0" if is_approved else "#FECACA"
+        badge_text = "✓ Leave Approved" if is_approved else "✕ Leave Request Declined"
+
+        note_section = ""
+        if ctx.get("note"):
+            note_section = (
+                f"<div style='margin:16px 0;padding:12px 16px;background:{bg_col};border:1px solid {border_col};border-radius:8px'>"
+                f"<div style='font-size:11px;font-weight:700;color:{colour};text-transform:uppercase;margin-bottom:4px'>{'Approval Note' if is_approved else 'Reason for Declining'}</div>"
+                f"<div style='font-size:13px;color:{BRAND['ink']};line-height:1.5'><b>{escape(ctx['note'])}</b></div>"
+                f"</div>"
+            )
+
         body = (
-            f"<p>Hi {escape(ctx['name'])},</p>"
-            f"<p>Your leave request ({escape(ctx['from_date'])} → {escape(ctx['to_date'])}, "
-            f"{escape(str(ctx['days']))} day(s)) was "
-            f"<b style='color:{colour}'>{escape(decision)}</b>.</p>"
-            + (f"<p style='color:{BRAND['muted']}'>Note: {escape(ctx['note'])}</p>" if ctx.get("note") else "")
-            + f"<p><a href='{base}/me/leave'>See my leave</a></p>"
+            f"<div style='margin-bottom:14px'><span style='display:inline-block;padding:4px 12px;background:{bg_col};border:1px solid {border_col};border-radius:12px;font-size:12px;font-weight:700;color:{colour}'>{badge_text}</span></div>"
+            f"<p style='margin:0 0 12px;font-size:15px'>Hi <b>{escape(ctx['name'])}</b>,</p>"
+            f"<p style='margin:0 0 14px'>Your request for <b>{escape(ltype)}</b> ({escape(ctx['from_date'])} → {escape(ctx['to_date'])}, {escape(str(ctx['days']))} day(s)) has been <b style='color:{colour}'>{escape(decision)}</b> by {escape(ctx.get('decided_by') or 'HR/Management')}.</p>"
+            f"{note_section}"
+            f"<p style='margin-top:16px'><a href='{base}/me/leave' style='display:inline-block;background:{BRAND['primary']};color:#fff;padding:10px 20px;border-radius:8px;font-weight:600;text-decoration:none'>View My Leave Status →</a></p>"
         )
+        footer = "Reporting Manager and HR are copied on this notification."
+
+    elif template == "leave_cancelled":
+        ltype = ctx.get('leave_type') or 'leave'
+        emp_code = f" ({escape(ctx['code'])})" if ctx.get('code') else ""
+        subject = f"Leave Request Withdrawn: {ctx['name']}{emp_code} — {ctx['days']} day(s) {ltype}"
+        body = (
+            f"<div style='margin-bottom:14px'><span style='display:inline-block;padding:3px 10px;background:#F1F5F9;border-radius:12px;font-size:12px;font-weight:600;color:{BRAND['muted']}'>Leave Request Cancelled</span></div>"
+            f"<p><b>{escape(ctx['name'])}</b>{emp_code} has withdrawn their leave request for <b>{escape(ltype)}</b> ({escape(ctx['from_date'])} → {escape(ctx['to_date'])}, {escape(str(ctx['days']))} day(s)).</p>"
+            f"<p style='color:{BRAND['muted']};font-size:13px'>No action is required.</p>"
+            f"<p><a href='{base}/leave' style='display:inline-block;background:{BRAND['primary']};color:#fff;padding:10px 18px;border-radius:8px;font-weight:600;text-decoration:none'>Open Leave Console</a></p>"
+        )
+        footer = "HR and Reporting Manager have been notified of this cancellation."
 
     elif template == "punch_in":
         subject = f"Attendance marked — IN at {ctx['time']}"
@@ -290,20 +356,40 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
 
 
 # --------------------------------------------------------------- HR alerts
-def hr_emails(storage: Storage) -> list[str]:
+def hr_emails(storage: Storage, settings: Settings | None = None) -> list[str]:
     """Every active HR login with an email address (set under Settings → Logins)."""
-    return [
+    emails = [
         row["email"] for row in storage.query(
             "SELECT DISTINCT email FROM users WHERE role = 'hr' AND active = 1 AND email IS NOT NULL AND email != ''"
         )
     ]
+    if not emails and settings and settings.smtp_from:
+        clean = _clean_email_address(settings.smtp_from)
+        if clean:
+            emails = [clean]
+    if not emails:
+        emails = ["hr@fakhriitservices.com"]
+    return emails
 
 
-def notify_hr(storage: Storage, settings: Settings, template: str, *, category: str, **ctx: Any) -> int:
+def notify_hr(
+    storage: Storage,
+    settings: Settings,
+    template: str,
+    *,
+    category: str,
+    cc: list[str] | str | None = None,
+    reply_to: str | None = None,
+    file_attachments: list[dict[str, Any]] | None = None,
+    **ctx: Any,
+) -> int:
     """Queue one message per HR address. Returns how many were queued."""
     queued = 0
-    for address in hr_emails(storage):
-        if queue_email(storage, address, template, settings=settings, category=category, **ctx):
+    for address in hr_emails(storage, settings):
+        if queue_email(
+            storage, address, template, settings=settings, category=category,
+            cc=cc, reply_to=reply_to, file_attachments=file_attachments, **ctx
+        ):
             queued += 1
     subject, _html, _text = render(template, settings, **ctx)
     if template == "leave_requested":
@@ -420,13 +506,24 @@ def queue_email(
     settings: Settings,
     category: str | None = None,
     attachments: list[tuple[str, bytes]] | None = None,
+    cc: list[str] | str | None = None,
+    reply_to: str | None = None,
+    file_attachments: list[dict[str, Any]] | None = None,
     **ctx: Any,
 ) -> int | None:
+    if file_attachments and "file_attachments" not in ctx:
+        ctx["file_attachments"] = file_attachments
+    if attachments and "attachments" not in ctx:
+        ctx["attachments"] = attachments
     subject, html, _text = render(template, settings, **ctx)
-    meta = {"template": template}
+    meta: dict[str, Any] = {"template": template}
+    if cc:
+        meta["cc"] = cc
+    if reply_to:
+        meta["reply_to"] = reply_to
+    if file_attachments:
+        meta["file_attachments"] = file_attachments
     if attachments:
-        # attachments are written next to the message by the console driver and
-        # re-generated by the SMTP driver from the payslip id
         meta["attachments"] = [name for name, _ in attachments]
     return queue(
         storage, channel="email", recipient=to, subject=subject, body=html,
@@ -512,7 +609,7 @@ class SendError(RuntimeError):
     pass
 
 
-def _attachments_for(storage: Storage, settings: Settings, row: dict[str, Any]) -> list[tuple[str, bytes]]:
+def _attachments_for(storage: Storage, settings: Settings, row: dict[str, Any]) -> list[tuple[str, bytes, str, str]]:
     """Regenerate any attachments this message refers to.
 
     Payslip emails carry the PDF as a real attachment rather than a link, because
@@ -523,6 +620,29 @@ def _attachments_for(storage: Storage, settings: Settings, row: dict[str, Any]) 
         meta = json.loads(row.get("meta") or "{}")
     except json.JSONDecodeError:
         return []
+
+    # File attachments saved on disk (e.g. leave application supporting documents)
+    disk_attachments = meta.get("file_attachments") or []
+    results: list[tuple[str, bytes, str, str]] = []
+    if disk_attachments:
+        import mimetypes
+        from .uploads import path_for
+        for item in disk_attachments:
+            try:
+                kind = item.get("kind", "leave")
+                stored = item.get("stored_name")
+                filename = item.get("filename") or stored
+                p = path_for(settings, kind, stored)
+                if p.exists():
+                    data = p.read_bytes()
+                    mime = item.get("mime") or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+                    maintype, subtype = mime.split("/", 1) if "/" in mime else ("application", "octet-stream")
+                    results.append((filename, data, maintype, subtype))
+            except Exception as exc:
+                logger.warning("Failed to load attachment %s: %s", item, exc)
+        if results:
+            return results
+
     exit_id = meta.get("exit_id")
     if exit_id:
         row_exit = storage.query_one("SELECT * FROM employee_exits WHERE id = ?", (int(exit_id),))
@@ -534,7 +654,7 @@ def _attachments_for(storage: Storage, settings: Settings, row: dict[str, Any]) 
         code = (fnf.get("employee") or {}).get("code") or exit_id
         data = render_fnf(fnf, settings=settings, org_name=storage.get_setting("org_name", settings.org_name),
                           ref=f"FNF-{exit_id}")
-        return [(f"full-and-final-{code}.pdf", data)]
+        return [(f"full-and-final-{code}.pdf", data, "application", "pdf")]
 
     slip_id = meta.get("slip_id")
     if not slip_id:
@@ -559,7 +679,7 @@ def _attachments_for(storage: Storage, settings: Settings, row: dict[str, Any]) 
         org_name=storage.get_setting("org_name", settings.org_name),
         period_label=orgtime.month_label(slip["period"]),
     )
-    return [(filename_for(slip), data)]
+    return [(filename_for(slip), data, "application", "pdf")]
 
 
 def _clean_email_address(raw: str | None) -> str:
@@ -579,6 +699,15 @@ def _send_email(storage: Storage, settings: Settings, row: dict[str, Any]) -> st
     reply_to_addr = "hr@fakhriitservices.com"
     org_display = settings.org_name or "Fakhri IT Services"
 
+    meta: dict[str, Any] = {}
+    try:
+        meta = json.loads(row.get("meta") or "{}")
+    except Exception:
+        pass
+
+    cc_val = meta.get("cc")
+    reply_to_val = _clean_email_address(meta.get("reply_to")) or reply_to_addr
+
     if not settings.smtp_host:
         # console driver: keep a real .eml on disk so it can be inspected
         outbox = Path(settings.data_dir) / "outbox"
@@ -589,15 +718,23 @@ def _send_email(storage: Storage, settings: Settings, row: dict[str, Any]) -> st
         message = EmailMessage()
         message["From"] = formataddr((org_display, from_addr))
         message["To"] = to
-        message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_addr))
+        if cc_val:
+            if isinstance(cc_val, list):
+                valid_ccs = [_clean_email_address(c) for c in cc_val if _clean_email_address(c)]
+                if valid_ccs:
+                    message["Cc"] = ", ".join(valid_ccs)
+            elif isinstance(cc_val, str) and _clean_email_address(cc_val):
+                message["Cc"] = _clean_email_address(cc_val)
+        message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_val))
         if to.strip().lower() != reply_to_addr.lower():
             message["Bcc"] = reply_to_addr
         message["Subject"] = row["subject"] or "(no subject)"
         message["Message-ID"] = make_msgid(domain="hrms.local")
         message.set_content(_plain(row["body"]))
         message.add_alternative(row["body"], subtype="html")
-        for filename, payload in attachments:
-            message.add_attachment(payload, maintype="application", subtype="pdf", filename=filename)
+        for att in attachments:
+            fname, payload, maintype, subtype = att
+            message.add_attachment(payload, maintype=maintype, subtype=subtype, filename=fname)
         path = outbox / f"{stamp}-{safe}-{row['id']}.eml"
         path.write_bytes(bytes(message))
         return f"written to {path.relative_to(settings.data_dir)}"
@@ -606,15 +743,23 @@ def _send_email(storage: Storage, settings: Settings, row: dict[str, Any]) -> st
     message = EmailMessage()
     message["From"] = formataddr((org_display, from_addr))
     message["To"] = to
-    message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_addr))
+    if cc_val:
+        if isinstance(cc_val, list):
+            valid_ccs = [_clean_email_address(c) for c in cc_val if _clean_email_address(c)]
+            if valid_ccs:
+                message["Cc"] = ", ".join(valid_ccs)
+        elif isinstance(cc_val, str) and _clean_email_address(cc_val):
+            message["Cc"] = _clean_email_address(cc_val)
+    message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_val))
     if to.strip().lower() != reply_to_addr.lower():
         message["Bcc"] = reply_to_addr
     message["Subject"] = row["subject"] or "(no subject)"
     message["Message-ID"] = make_msgid()
     message.set_content(_plain(row["body"]))
     message.add_alternative(row["body"], subtype="html")
-    for filename, payload in attachments:
-        message.add_attachment(payload, maintype="application", subtype="pdf", filename=filename)
+    for att in attachments:
+        fname, payload, maintype, subtype = att
+        message.add_attachment(payload, maintype=maintype, subtype=subtype, filename=fname)
 
     try:
         timeout = settings.smtp_timeout

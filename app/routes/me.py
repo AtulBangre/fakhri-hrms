@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 
 from ..auth import SessionUser, require_employee, verify_form_csrf
 from fastapi import Response
@@ -344,7 +344,7 @@ def my_leave(
 
 
 @router.post("/leave")
-def request_leave(
+async def request_leave(
     request: Request,
     user: SessionUser = Depends(require_employee),
     storage=Depends(get_storage),
@@ -355,9 +355,30 @@ def request_leave(
     to_date: str = Form(""),
     half_day: str = Form(""),
     reason: str = Form(""),
+    attachments: list[UploadFile] = File(default=[]),
 ):
     verify_form_csrf(user, csrf)
     employee = _me(storage, user)
+
+    # Process and save any uploaded supporting documents safely
+    stored_attachments: list[dict[str, Any]] = []
+    if attachments:
+        from ..uploads import save_upload
+        for upload in attachments:
+            if upload and upload.filename and upload.filename.strip():
+                try:
+                    data = await upload.read()
+                    if data:
+                        stored = save_upload(settings, "leave", data, original_name=upload.filename)
+                        stored_attachments.append({
+                            "stored_name": stored.stored_name,
+                            "filename": stored.filename,
+                            "size": stored.size,
+                            "mime": stored.mime,
+                        })
+                except Exception as exc:
+                    pass
+
     try:
         result = leave_service.apply_leave(
             storage,
@@ -369,35 +390,53 @@ def request_leave(
             half_day=bool(half_day),
             reason=reason or None,
             actor=user.username,
-            status="pending",           # HR decides; attendance is untouched for now
+            status="pending",           # HR / Manager decides
             requested_by=user.id,
+            attachments=stored_attachments,
         )
     except employees_service.ValidationError as exc:
         return redirect("/me/leave", err=str(exc))
 
     leave = result["leave"]
 
+    manager = (
+        storage.query_one("SELECT id, name, code, email FROM employees WHERE id = ?", (employee.get("manager_id"),))
+        if employee.get("manager_id") else None
+    )
+    cc_list = [manager["email"]] if manager and manager.get("email") else None
+
     if settings.notify_leave_email:
         notify.notify_hr(
             storage, settings, "leave_requested",
-            category="leave_requested", name=employee["name"], code=employee["code"],
+            category="leave_requested",
+            name=employee["name"],
+            code=employee["code"],
+            department=employee.get("department") or "",
+            manager_name=manager["name"] if manager else None,
             leave_type=orgtime.LEAVE_LABELS.get(leave_type, leave_type),
-            from_date=leave["from_date"], to_date=leave["to_date"],
-            days=leave["days"], reason=reason or "",
+            from_date=orgtime.human_date(leave["from_date"]),
+            to_date=orgtime.human_date(leave["to_date"]),
+            days=leave["days"],
+            reason=reason or "",
+            attachments=stored_attachments,
+            cc=cc_list,
+            reply_to=employee.get("email"),
+            file_attachments=stored_attachments,
         )
         if employee.get("email"):
             notify.queue_email(
                 storage, employee["email"], "leave_applied_confirmation",
                 settings=settings, category="leave_requested",
-                name=(employee.get("name") or "").split(" ")[0] or "there",
+                name=employee["name"],
                 leave_type=orgtime.LEAVE_LABELS.get(leave_type, leave_type),
-                from_date=leave["from_date"], to_date=leave["to_date"],
+                from_date=orgtime.human_date(leave["from_date"]),
+                to_date=orgtime.human_date(leave["to_date"]),
                 days=leave["days"],
             )
 
     return redirect(
         "/me/leave",
-        ok=f"Request sent — {leave['days']:g} day(s) {orgtime.LEAVE_LABELS.get(leave_type, leave_type).lower()}. HR will review it.",
+        ok=f"Request sent — {leave['days']:g} day(s) {orgtime.LEAVE_LABELS.get(leave_type, leave_type).lower()}. HR & Manager notified.",
     )
 
 
@@ -407,6 +446,7 @@ def cancel_my_request(
     leave_id: int,
     user: SessionUser = Depends(require_employee),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
 ):
     verify_form_csrf(user, csrf)
@@ -416,8 +456,28 @@ def cancel_my_request(
     if leave["status"] == "approved":
         return redirect("/me/leave", err="That leave is already approved — please speak to HR to cancel it.")
 
+    employee = _me(storage, user)
     leave_service.cancel_leave(storage, leave_id, actor=user.username)
-    return redirect("/me/leave", ok="Request withdrawn.")
+
+    if settings.notify_leave_email:
+        manager = (
+            storage.query_one("SELECT id, name, code, email FROM employees WHERE id = ?", (employee.get("manager_id"),))
+            if employee.get("manager_id") else None
+        )
+        cc_list = [manager["email"]] if manager and manager.get("email") else None
+        notify.notify_hr(
+            storage, settings, "leave_cancelled",
+            category="leave_cancelled",
+            name=employee["name"],
+            code=employee["code"],
+            leave_type=orgtime.LEAVE_LABELS.get(leave["leave_type"], leave["leave_type"]),
+            from_date=orgtime.human_date(leave["from_date"]),
+            to_date=orgtime.human_date(leave["to_date"]),
+            days=leave["days"],
+            cc=cc_list,
+        )
+
+    return redirect("/me/leave", ok="Leave request withdrawn.")
 
 
 @router.get("/team")
@@ -453,18 +513,39 @@ def approve_team_leave(
     request: Request,
     user: SessionUser = Depends(require_employee),
     storage=Depends(get_storage),
-    note: str = Form(""),
+    settings=Depends(get_settings_dep),
+    note: str = Form("Recommended by reporting manager"),
     csrf: str = Form("", alias="_csrf"),
 ):
     from ..auth import verify_form_csrf
     verify_form_csrf(user, csrf)
     employee = _me(storage, user)
     try:
-        leave_service.manager_decide_leave(
+        updated = leave_service.manager_decide_leave(
             storage, leave_id, employee["id"], decision="approved", note=note, actor=user.username
         )
     except Exception as exc:
         return redirect("/me/team", err=str(exc))
+
+    # Notify HR that reporting manager has approved and forwarded
+    applicant = employees_service.get_employee(storage, updated["employee_id"])
+    if settings.notify_leave_email:
+        manager_email = employee.get("email")
+        notify.notify_hr(
+            storage, settings, "leave_requested",
+            category="leave_requested",
+            name=applicant["name"] if applicant else "Employee",
+            code=applicant["code"] if applicant else "",
+            department=applicant.get("department") or "",
+            manager_name=employee["name"],
+            leave_type=orgtime.LEAVE_LABELS.get(updated["leave_type"], updated["leave_type"]),
+            from_date=orgtime.human_date(updated["from_date"]),
+            to_date=orgtime.human_date(updated["to_date"]),
+            days=updated["days"],
+            reason=f"Recommended by Manager ({employee['name']})" + (f": {note}" if note else "") + f"\n\nOriginal Reason: {updated.get('reason') or '—'}",
+            cc=[manager_email] if manager_email else None,
+        )
+
     return redirect("/me/team", ok="Leave recommended and forwarded to HR for final sign-off.")
 
 
@@ -474,6 +555,7 @@ def reject_team_leave(
     request: Request,
     user: SessionUser = Depends(require_employee),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
     note: str = Form(""),
     csrf: str = Form("", alias="_csrf"),
 ):
@@ -481,12 +563,31 @@ def reject_team_leave(
     verify_form_csrf(user, csrf)
     employee = _me(storage, user)
     try:
-        leave_service.manager_decide_leave(
+        updated = leave_service.manager_decide_leave(
             storage, leave_id, employee["id"], decision="rejected", note=note, actor=user.username
         )
     except Exception as exc:
         return redirect("/me/team", err=str(exc))
-    return redirect("/me/team", ok="Leave request rejected.")
+
+    # Notify employee with HR and Manager in CC
+    applicant = employees_service.get_employee(storage, updated["employee_id"])
+    if applicant and applicant.get("email") and settings.notify_leave_email:
+        hr_cc = notify.hr_emails(storage, settings)
+        manager_email = employee.get("email")
+        cc_list = list(set(hr_cc + ([manager_email] if manager_email else [])))
+        notify.queue_email(
+            storage, applicant["email"], "leave_decided", settings=settings,
+            category="leave_update", name=applicant["name"],
+            from_date=orgtime.human_date(updated["from_date"]),
+            to_date=orgtime.human_date(updated["to_date"]),
+            days=updated["days"], decision="rejected",
+            note=note or "Declined by reporting manager",
+            leave_type=orgtime.LEAVE_LABELS.get(updated["leave_type"], updated["leave_type"]),
+            decided_by=f"Reporting Manager ({employee['name']})",
+            cc=cc_list,
+        )
+
+    return redirect("/me/team", ok="Leave request rejected and employee notified.")
 
 
 @router.get("/loans")

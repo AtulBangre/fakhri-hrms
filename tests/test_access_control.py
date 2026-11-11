@@ -30,7 +30,7 @@ PUBLIC = {
 # Their handlers check the person or role themselves; each has its own test below.
 SELF_CHECKED = {
     "/employees/{employee_id}/avatar", "/documents/{document_id}/file", "/expenses/{claim_id}/receipt",
-    "/tax/declarations/{declaration_id}/proof", "/api/ai-hr/query",
+    "/tax/declarations/{declaration_id}/proof", "/api/ai-hr/query", "/leave/attachment/{stored_name}",
 }
 KIOSK_AND_HR = {"/kiosk", "/api/kiosk/challenge", "/api/kiosk/scan", "/api/kiosk/offline-sync", "/api/kiosk/status"}
 MEMBERS = {"/api/inbox", "/api/inbox/seen", "/api/push/subscribe", "/api/push/unsubscribe", "/api/push/test",

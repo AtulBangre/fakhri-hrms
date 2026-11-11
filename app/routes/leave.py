@@ -243,9 +243,40 @@ def _notify_decision(storage, settings, leave: dict, decision: str, *, note: str
     employee = employees_service.get_employee(storage, leave["employee_id"])
     if not employee or not employee.get("email"):
         return
+    manager = (
+        storage.query_one("SELECT id, name, email FROM employees WHERE id = ?", (employee.get("manager_id"),))
+        if employee.get("manager_id") else None
+    )
+    cc = [manager["email"]] if manager and manager.get("email") else None
     notify.queue_email(
         storage, employee["email"], "leave_decided", settings=settings,
-        category=f"leave_{decision}", name=(employee["name"] or "").split(" ")[0] or "there",
-        from_date=leave["from_date"], to_date=leave["to_date"], days=leave["days"],
-        decision=decision, note=note or "",
+        category=f"leave_{decision}", name=employee["name"],
+        from_date=orgtime.human_date(leave["from_date"]), to_date=orgtime.human_date(leave["to_date"]),
+        days=leave["days"], decision=decision, note=note or "",
+        leave_type=orgtime.LEAVE_LABELS.get(leave.get("leave_type", ""), leave.get("leave_type", "leave")),
+        decided_by="HR",
+        cc=cc,
     )
+
+
+@router.get("/attachment/{stored_name}")
+def download_leave_attachment(
+    request: Request,
+    stored_name: str,
+    settings: Settings = Depends(get_settings_dep),
+):
+    from ..auth import current_user
+    session = current_user(request)
+    if not session:
+        return redirect("/login")
+    from fastapi.responses import FileResponse, Response
+    from ..uploads import path_for, UploadError
+    import mimetypes
+    try:
+        p = path_for(settings, "leave", stored_name)
+    except (UploadError, ValueError, Exception):
+        return Response("Attachment file not found", status_code=404)
+    if not p.exists():
+        return Response("Attachment file not found", status_code=404)
+    media_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+    return FileResponse(p, media_type=media_type)

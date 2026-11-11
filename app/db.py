@@ -758,6 +758,7 @@ class Storage:
             ("manager_action_at", "TEXT"),
             ("manager_action_by", "INTEGER"),
             ("manager_note", "TEXT"),
+            ("attachments", "TEXT"),
         ],
         "attendance_regularizations": [
             ("manager_status", "TEXT NOT NULL DEFAULT 'approved'"),

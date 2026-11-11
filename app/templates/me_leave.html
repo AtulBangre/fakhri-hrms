@@ -19,7 +19,7 @@
     <div class="card mb-3">
       <div class="card-head"><h2>Apply for leave</h2></div>
       <div class="card-body">
-        <form method="post" action="/me/leave">
+        <form method="post" action="/me/leave" enctype="multipart/form-data" id="leave-apply-form">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <div class="form-row cols-2">
             <div class="field">
@@ -48,12 +48,56 @@
               </div>
             </div>
           </div>
-          <div class="field">
-            <label for="reason">Reason</label>
-            <input id="reason" name="reason" type="text" placeholder="family function, medical, personal…">
+
+          <!-- Reason & Professional Content Writing UI -->
+          <div class="field mb-3">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem">
+              <label for="reason" style="margin:0;font-weight:600">Reason / Application Letter</label>
+              <span class="small muted">Click template to insert:</span>
+            </div>
+            <!-- Quick Template Buttons -->
+            <div class="template-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:0.6rem">
+              <button type="button" class="btn btn-sm btn-ghost template-btn" data-tmpl="medical" style="font-size:0.75rem;padding:3px 8px;border:1px solid var(--border);border-radius:20px;background:var(--subtle);cursor:pointer">
+                🤒 Medical / Sick
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost template-btn" data-tmpl="emergency" style="font-size:0.75rem;padding:3px 8px;border:1px solid var(--border);border-radius:20px;background:var(--subtle);cursor:pointer">
+                🚨 Family Emergency
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost template-btn" data-tmpl="personal" style="font-size:0.75rem;padding:3px 8px;border:1px solid var(--border);border-radius:20px;background:var(--subtle);cursor:pointer">
+                🏡 Personal Work
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost template-btn" data-tmpl="vacation" style="font-size:0.75rem;padding:3px 8px;border:1px solid var(--border);border-radius:20px;background:var(--subtle);cursor:pointer">
+                ✈️ Vacation / Travel
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost template-btn" data-tmpl="event" style="font-size:0.75rem;padding:3px 8px;border:1px solid var(--border);border-radius:20px;background:var(--subtle);cursor:pointer">
+                🎉 Event / Wedding
+              </button>
+            </div>
+            <textarea id="reason" name="reason" rows="4" placeholder="Dear Team, I am writing to request leave for... (You can select a quick template above or write your own reason)" style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:var(--radius);padding:0.6rem;font-family:inherit;font-size:0.88rem;line-height:1.5;resize:vertical;min-height:90px" required></textarea>
           </div>
-          <button class="btn btn-primary" type="submit">Send request to HR</button>
-          <span class="small muted">HR approves it, then it appears in your attendance. You can withdraw it while it is still pending.</span>
+
+          <!-- Multiple Supporting Documents Upload Dropzone -->
+          <div class="field mb-3">
+            <label style="font-weight:600;display:flex;align-items:center;gap:6px">
+              <span>Supporting Documents (Optional)</span>
+              <span class="small muted" style="font-weight:normal">Doctor's note, medical slip, invitation, tickets, etc.</span>
+            </label>
+            <div id="dropzone" style="border:2px dashed var(--border);border-radius:var(--radius);padding:1.25rem;text-align:center;background:var(--subtle);cursor:pointer;transition:border-color .2s,background .2s">
+              <div style="font-size:1.5rem;margin-bottom:0.35rem">📁</div>
+              <div style="font-size:0.88rem;font-weight:600;color:var(--text)">Click to browse or drag &amp; drop files here</div>
+              <div class="small muted" style="font-size:0.75rem;margin-top:2px">Supports multiple PDF, JPG, PNG, DOC, DOCX files (up to 10MB each)</div>
+              <input id="leave_attachments" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" style="display:none">
+            </div>
+            <!-- File previews list -->
+            <div id="file-list" style="margin-top:0.6rem;display:flex;flex-direction:column;gap:6px"></div>
+          </div>
+
+          <button class="btn btn-primary" type="submit" style="display:inline-flex;align-items:center;gap:6px">
+            <span>Send Request to HR &amp; Manager</span>
+          </button>
+          <div class="small muted mt-2">
+            📧 Notification with attached documents will be sent to <strong>HR</strong> with CC to your <strong>Reporting Manager</strong>.
+          </div>
         </form>
       </div>
     </div>
@@ -73,7 +117,18 @@
               <td data-label="Days" class="num">{{ item.days | number }}</td>
               <td data-label="Status">
                 <span class="chip {{ 'chip-ok' if item.status == 'approved' else ('chip-warn' if item.status == 'pending' else 'chip-muted') }}">{{ item.status }}</span>
-                {% if item.reason %}<span class="sub muted">{{ item.reason }}</span>{% endif %}
+                {% if item.reason %}
+                  <div class="sub muted" style="white-space:pre-wrap;font-size:0.8rem;margin-top:4px;max-width:280px">{{ item.reason }}</div>
+                {% endif %}
+                {% if item.attachment_files %}
+                  <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+                    {% for att in item.attachment_files %}
+                      <a href="/leave/attachment/{{ att.stored_name }}" target="_blank" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.original_name }}">
+                        📎 {{ att.original_name }}
+                      </a>
+                    {% endfor %}
+                  </div>
+                {% endif %}
               </td>
               <td class="actions-cell">
                 {% if item.status == 'pending' %}
@@ -153,4 +208,112 @@
     </div>
   </div>
 </div>
+
+<script>
+(function() {
+  // 1. Template Pills for Professional Leave Letters
+  var templates = {
+    medical: "Dear Team,\n\nI am writing to inform you that I am unwell and unable to report to work due to acute health issues. I request you to please grant me leave for the specified dates.\n\nSupporting medical prescription/certificate is attached for your reference. I will ensure pending deliverables are resumed as soon as I recover.\n\nThank you for understanding.",
+    emergency: "Dear Team,\n\nDue to an urgent and unexpected family emergency that requires my immediate presence and attention, I will be unable to attend office on the specified date(s).\n\nI have delegated critical handoffs to my team and will remain reachable on phone/email for urgent escalations. Kindly approve my leave.",
+    personal: "Dear Team,\n\nI have some urgent personal commitments that cannot be rescheduled outside work hours. I request you to grant me leave for the mentioned date(s).\n\nI have planned my tasks ahead so that project timelines remain unaffected. Thank you for your support.",
+    vacation: "Dear Team,\n\nI would like to apply for leave for a planned family travel/vacation during the mentioned dates. All my deliverables for this period have been planned and coordinated with the team.\n\nI will ensure a smooth handover before leaving and will resume duties promptly upon return. Kindly approve.",
+    event: "Dear Team,\n\nI need to attend an important family event/function on the requested date(s) and will be away from office. I have ensured that my daily responsibilities are handled.\n\nKindly grant me leave for the same. Thank you."
+  };
+
+  var reasonEl = document.getElementById('reason');
+  var leaveTypeEl = document.getElementById('leave_type');
+  document.querySelectorAll('.template-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var key = this.getAttribute('data-tmpl');
+      if (templates[key]) {
+        reasonEl.value = templates[key];
+        reasonEl.focus();
+        if (key === 'medical' && leaveTypeEl) {
+          // auto-select sick leave if available
+          var sickOpt = leaveTypeEl.querySelector('option[value="sick"]');
+          if (sickOpt) leaveTypeEl.value = 'sick';
+        } else if (key === 'emergency' || key === 'personal' || key === 'event') {
+          var casualOpt = leaveTypeEl.querySelector('option[value="casual"]');
+          if (casualOpt) leaveTypeEl.value = 'casual';
+        }
+      }
+    });
+  });
+
+  // 2. Multi-file Dropzone with DataTransfer sync
+  var dropzone = document.getElementById('dropzone');
+  var fileInput = document.getElementById('leave_attachments');
+  var fileList = document.getElementById('file-list');
+  var dt = new DataTransfer();
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function renderFileList() {
+    fileList.innerHTML = '';
+    for (var i = 0; i < dt.files.length; i++) {
+      (function(idx) {
+        var file = dt.files[idx];
+        var item = document.createElement('div');
+        item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);font-size:0.82rem';
+        item.innerHTML = '<div style="display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+          '<span>📎</span>' +
+          '<strong>' + file.name + '</strong>' +
+          '<span class="muted small">(' + formatSize(file.size) + ')</span>' +
+          '</div>' +
+          '<button type="button" class="btn btn-sm btn-ghost" style="padding:0 6px;color:var(--danger);font-weight:700;font-size:1rem;line-height:1" title="Remove">&times;</button>';
+        item.querySelector('button').addEventListener('click', function(e) {
+          e.stopPropagation();
+          var newDt = new DataTransfer();
+          for (var j = 0; j < dt.files.length; j++) {
+            if (j !== idx) newDt.items.add(dt.files[j]);
+          }
+          dt = newDt;
+          fileInput.files = dt.files;
+          renderFileList();
+        });
+        fileList.appendChild(item);
+      })(i);
+    }
+  }
+
+  dropzone.addEventListener('click', function() {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', function() {
+    for (var i = 0; i < this.files.length; i++) {
+      dt.items.add(this.files[i]);
+    }
+    this.files = dt.files;
+    renderFileList();
+  });
+
+  dropzone.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    dropzone.style.borderColor = 'var(--primary)';
+    dropzone.style.background = 'var(--subtle)';
+  });
+
+  dropzone.addEventListener('dragleave', function(e) {
+    e.preventDefault();
+    dropzone.style.borderColor = 'var(--border)';
+  });
+
+  dropzone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    dropzone.style.borderColor = 'var(--border)';
+    if (e.dataTransfer && e.dataTransfer.files) {
+      for (var i = 0; i < e.dataTransfer.files.length; i++) {
+        dt.items.add(e.dataTransfer.files[i]);
+      }
+      fileInput.files = dt.files;
+      renderFileList();
+    }
+  });
+})();
+</script>
 {% endblock %}

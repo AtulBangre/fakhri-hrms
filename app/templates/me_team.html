@@ -52,7 +52,18 @@
               <strong>{{ item.from_label }}</strong>{% if item.to_date != item.from_date %} &rarr; <strong>{{ item.to_label }}</strong>{% endif %}
             </td>
             <td data-label="Days" class="num">{{ item.days | number }}</td>
-            <td data-label="Reason" class="small">{{ item.reason or '—' }}</td>
+            <td data-label="Reason" class="small">
+              <div style="white-space:pre-wrap">{{ item.reason or '—' }}</div>
+              {% if item.attachment_files %}
+                <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
+                  {% for att in item.attachment_files %}
+                    <a href="/leave/attachment/{{ att.stored_name }}" target="_blank" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.original_name }}">
+                      📎 {{ att.original_name }}
+                    </a>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </td>
             <td class="actions-cell">
               <div style="display:flex;gap:.35rem;flex-wrap:wrap;justify-content:flex-end">
                 <form method="post" action="/me/team/leave/{{ item.id }}/approve">
@@ -62,26 +73,6 @@
                 </form>
                 <button class="btn btn-sm btn-danger" type="button" onclick="document.getElementById('reject-dialog-{{ item.id }}').showModal()">Reject</button>
               </div>
-
-              <dialog id="reject-dialog-{{ item.id }}" class="modal-dialog" style="max-width:440px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.2);background:var(--card)">
-                <div class="card" style="margin:0;border:none">
-                  <div class="card-head" style="background:var(--subtle);padding:0.75rem 1rem">
-                    <h3 style="margin:0;font-size:1rem">Reject Leave Request</h3>
-                  </div>
-                  <form method="post" action="/me/team/leave/{{ item.id }}/reject" style="padding:1rem">
-                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                    <p class="small muted mb-2">Please provide a reason so {{ item.employee_name }} knows why this request was declined.</p>
-                    <div class="field mb-3">
-                      <label for="rej-note-{{ item.id }}">Reason for Rejection *</label>
-                      <input id="rej-note-{{ item.id }}" name="note" type="text" placeholder="e.g. Critical deployment on these dates" required>
-                    </div>
-                    <div style="display:flex;gap:0.5rem;justify-content:flex-end">
-                      <button class="btn btn-sm" type="button" onclick="document.getElementById('reject-dialog-{{ item.id }}').close()">Cancel</button>
-                      <button class="btn btn-sm btn-danger" type="submit">Reject Request</button>
-                    </div>
-                  </form>
-                </div>
-              </dialog>
             </td>
           </tr>
         {% endfor %}
@@ -90,6 +81,28 @@
     </div>
   </div>
 </div>
+
+{% for item in pending_leaves %}
+<dialog id="reject-dialog-{{ item.id }}" class="modal-dialog" style="max-width:440px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.3);background:var(--card)">
+  <div class="card" style="margin:0;border:none">
+    <div class="card-head" style="background:var(--subtle);padding:0.75rem 1rem">
+      <h3 style="margin:0;font-size:1rem">Reject Leave Request</h3>
+    </div>
+    <form method="post" action="/me/team/leave/{{ item.id }}/reject" style="padding:1rem">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <p class="small muted mb-2">Please provide a reason so {{ item.employee_name }} knows why this request was declined.</p>
+      <div class="field mb-3">
+        <label for="rej-note-{{ item.id }}">Reason for Rejection *</label>
+        <input id="rej-note-{{ item.id }}" name="note" type="text" placeholder="e.g. Critical deployment on these dates" required>
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+        <button class="btn btn-sm" type="button" onclick="document.getElementById('reject-dialog-{{ item.id }}').close()">Cancel</button>
+        <button class="btn btn-sm btn-danger" type="submit">Reject Request</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+{% endfor %}
 {% endif %}
 
 <div class="card">
