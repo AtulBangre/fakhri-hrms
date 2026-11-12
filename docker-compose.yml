@@ -99,7 +99,7 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 200M
+          memory: 350M
 
   # Optional HTTPS reverse proxy: `docker compose --profile tls up -d`
   caddy:
