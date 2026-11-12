@@ -238,37 +238,64 @@
         </p>
 
         {% if whatsapp_info.status == 'WORKING' %}
-          <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:var(--radius);padding:0.85rem 1rem;margin-bottom:1rem">
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <div>
-                <div style="font-weight:700;color:#15803D;font-size:0.95rem">
-                  ✅ Device Linked &amp; Ready
+          <!-- Connected Status Box -->
+          <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:1.15rem 1.25rem;margin-bottom:1.25rem">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+              <div style="display:flex;align-items:center;gap:0.85rem">
+                <div style="width:44px;height:44px;border-radius:50%;background:#DCFCE7;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0">
+                  🟢
                 </div>
-                <div class="small text-muted" style="margin-top:2px">
-                  Linked ID: <strong>{{ whatsapp_info.me.id.split('@')[0] if whatsapp_info.me else 'Active Number' }}</strong>
-                  {% if whatsapp_info.me and whatsapp_info.me.pushName %}
-                    ({{ whatsapp_info.me.pushName }})
-                  {% endif %}
+                <div>
+                  <div style="font-weight:700;color:#15803D;font-size:1.05rem;display:flex;align-items:center;gap:6px">
+                    <span>WhatsApp Connected &amp; Active</span>
+                  </div>
+                  <div class="small text-muted" style="margin-top:3px;line-height:1.4">
+                    {% set raw_id = whatsapp_info.me.id.split('@')[0] if whatsapp_info.me and whatsapp_info.me.id else '' %}
+                    Number: <strong>+{{ raw_id }}</strong>
+                    {% if whatsapp_info.me and whatsapp_info.me.pushName %}
+                      &bull; Name: <strong>{{ whatsapp_info.me.pushName }}</strong>
+                    {% endif %}
+                    &bull; Engine: <span class="badge" style="background:#E2E8F0;color:#334155;font-size:0.75rem;padding:2px 6px;border-radius:4px">NOWEB</span>
+                  </div>
                 </div>
               </div>
-              <form method="post" action="/settings/whatsapp/logout" data-confirm="Disconnect this WhatsApp device?">
-                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                <button type="submit" class="btn btn-sm btn-ghost" style="color:var(--danger)">Unlink / Logout</button>
-              </form>
+              <div>
+                <form method="post" action="/settings/whatsapp/logout" data-confirm="Are you sure you want to unlink WhatsApp? Notification delivery to employee WhatsApp will pause until a device is re-linked.">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <button type="submit" class="btn btn-sm btn-ghost" style="color:var(--danger);border:1px solid rgba(239,68,68,0.3);background:#FEF2F2;cursor:pointer">
+                    🔴 Unlink / Disconnect
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Active automated services -->
+            <div style="margin-top:1rem;padding-top:0.85rem;border-top:1px dashed #BBF7D0;display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:0.75rem">
+              <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#166534">
+                <span>✓</span> <strong>Punch-In / Out Alerts</strong>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#166534">
+                <span>✓</span> <strong>Salary Slip PDF Attachments</strong>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#166534">
+                <span>✓</span> <strong>Leave Decisions &amp; Notices</strong>
+              </div>
             </div>
           </div>
 
           <!-- Test WhatsApp Message Form -->
-          <form method="post" action="/settings/whatsapp/test" class="mt-2">
-            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-            <div class="field mb-2">
-              <label for="wa-test-phone" style="font-size:0.8rem;font-weight:600">Send Test WhatsApp Message</label>
-              <div style="display:flex;gap:0.5rem">
-                <input id="wa-test-phone" name="phone" type="text" placeholder="e.g. 9876543210" required style="flex:1">
-                <button class="btn btn-sm btn-primary" type="submit">Send Test</button>
+          <div style="background:#F8FAFC;border:1px solid var(--border);border-radius:10px;padding:1rem;margin-top:1rem">
+            <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.25rem">🧪 Send Test WhatsApp Message</div>
+            <div class="small muted mb-3">Verify message delivery to any WhatsApp mobile number directly from your linked device.</div>
+            <form method="post" action="/settings/whatsapp/test">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+                <input id="wa-test-phone" name="phone" type="tel" placeholder="Mobile Number (e.g. 9876543210)" required style="flex:1;min-width:200px">
+                <input name="message" type="text" placeholder="Optional custom message..." style="flex:1;min-width:200px">
+                <button class="btn btn-primary" type="submit">Send Test Message</button>
               </div>
-            </div>
-          </form>
+            </form>
+          </div>
 
         {% else %}
           <div style="padding:0.5rem 0">
@@ -604,20 +631,26 @@
         });
       }
 
-      // Auto-refresh WhatsApp status when on settings page and not yet working
+      {% if whatsapp_info.status != 'WORKING' %}
+      // Auto-refresh WhatsApp status ONLY while pairing or scanning QR (stops once connected)
       var pollTimer = setInterval(function() {
         var card = document.getElementById('whatsapp');
-        if (!card) return;
+        if (!card) {
+          clearInterval(pollTimer);
+          return;
+        }
         fetch('/settings/whatsapp/status')
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data && data.status === 'WORKING') {
               clearInterval(pollTimer);
+              window.location.href = '/settings#whatsapp';
               window.location.reload();
             }
           })
           .catch(function() {});
       }, 3000);
+      {% endif %}
     })();
   })();
 </script>

@@ -923,15 +923,28 @@ def start_or_restart_waha(settings: Settings) -> dict[str, Any]:
 
 
 def logout_waha(settings: Settings) -> dict[str, Any]:
-    """Logout / unpair WAHA WhatsApp session."""
+    """Logout / unpair WAHA WhatsApp session and reset to a clean pairing state."""
     base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
     headers = _waha_headers(settings)
     session_name = getattr(settings, "waha_session", "default")
     try:
         httpx.post(f"{base_url}/api/sessions/{session_name}/logout", headers=headers, timeout=10.0)
-        return {"ok": True}
     except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+        logger.warning("WAHA logout post failed: %s", exc)
+    try:
+        httpx.post(f"{base_url}/api/sessions/{session_name}/stop", headers=headers, timeout=5.0)
+    except Exception:
+        pass
+    try:
+        httpx.post(
+            f"{base_url}/api/sessions/start",
+            headers=headers,
+            json={"name": session_name},
+            timeout=8.0,
+        )
+    except Exception:
+        pass
+    return {"ok": True}
 
 
 def get_waha_qr_image(settings: Settings) -> bytes | None:
