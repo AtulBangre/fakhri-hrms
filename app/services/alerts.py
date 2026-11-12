@@ -25,7 +25,9 @@ REMINDER_WINDOW_HOURS = 3      # after a long outage, an old attendance nudge is
 CHECKOUT_REMINDER_MINUTES = 30
 SUMMARY_AFTER_START_MINUTES = 60
 CLAIM_PREFIX = "alert_day:"
-INBOX_RETENTION_DAYS = 90
+NOTIFICATION_RETENTION_DAYS = 30   # permanently delete notifications (push, email, whatsapp) older than 30 days
+AUDIT_LOG_RETENTION_DAYS = 120     # permanently delete audit logs older than 120 days
+INBOX_RETENTION_DAYS = 30          # backward-compatibility
 OFFLINE_SCAN_ID_DAYS = 14         # long enough to outlast any scan a device may still resend
 
 KIND_LABELS = {"birthday": "Birthday", "anniversary": "Anniversary", "work": "Work anniversary"}
@@ -221,18 +223,54 @@ def _claim(storage: Storage, job: str, today: date) -> bool:
 claim = _claim
 
 
-def _housekeeping(storage: Storage, today: date) -> None:
-    """Keep the claims and the inbox from growing forever. Touches only their own rows."""
+def _housekeeping(storage: Storage, today: date) -> dict[str, int]:
+    """Keep transient logs, claims, and expired tokens from growing forever.
+    Permanently deletes:
+    - All notifications (push, email, whatsapp) older than 30 days
+    - Audit logs older than 120 days
+    - Expired or already-used password tokens and OTP codes
+    - Login rate-limit attempts older than 24 hours
+    """
+    import time
+    from datetime import timezone
+
+    purged: dict[str, int] = {}
     keep_from = (today - timedelta(days=2)).isoformat()
     for row in storage.query("SELECT key FROM app_settings WHERE key LIKE ?", (f"{CLAIM_PREFIX}%",)):
         if row["key"][len(CLAIM_PREFIX):][:10] < keep_from:
             storage.execute("DELETE FROM app_settings WHERE key = ?", (row["key"],))
+
     keep_scans_from = (today - timedelta(days=OFFLINE_SCAN_ID_DAYS)).isoformat()
     for row in storage.query("SELECT key FROM app_settings WHERE key LIKE 'offline_scan:%'"):
         if row["key"].split(":")[1] < keep_scans_from:
             storage.execute("DELETE FROM app_settings WHERE key = ?", (row["key"],))
-    storage.execute("DELETE FROM notifications WHERE channel = 'push' AND created_at < ?",
-                    ((today - timedelta(days=INBOX_RETENTION_DAYS)).isoformat(),))
+
+    # 1. Notifications: permanently delete all channels older than 30 days
+    notif_cutoff = (today - timedelta(days=NOTIFICATION_RETENTION_DAYS)).isoformat()
+    cur = storage.execute("DELETE FROM notifications WHERE created_at < ?", (notif_cutoff,))
+    purged["notifications"] = cur.rowcount
+
+    # 2. Audit log: permanently delete records older than 120 days
+    audit_cutoff = (today - timedelta(days=AUDIT_LOG_RETENTION_DAYS)).isoformat()
+    cur = storage.execute("DELETE FROM audit_log WHERE at < ?", (audit_cutoff,))
+    purged["audit_log"] = cur.rowcount
+
+    # 3. Password tokens: permanently delete expired or already-used tokens
+    now_epoch = time.time()
+    cur = storage.execute("DELETE FROM password_tokens WHERE expires_at < ? OR used_at IS NOT NULL", (now_epoch,))
+    purged["password_tokens"] = cur.rowcount
+
+    # 4. OTP codes: permanently delete expired or already-used codes
+    now_iso = datetime.now(timezone.utc).isoformat()
+    cur = storage.execute("DELETE FROM otp_codes WHERE expires_at < ? OR used_at IS NOT NULL", (now_iso,))
+    purged["otp_codes"] = cur.rowcount
+
+    # 5. Login attempts: delete attempts older than 1 day
+    cur = storage.execute("DELETE FROM login_attempts WHERE at < ?", (now_epoch - 86400,))
+    purged["login_attempts"] = cur.rowcount
+
+    logger.info("Housekeeping completed: %s", purged)
+    return purged
 
 
 def run_due(storage: Storage, settings: Settings, now: datetime | None = None) -> None:

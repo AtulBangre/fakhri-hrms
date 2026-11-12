@@ -533,3 +533,25 @@ def manual_supabase_sync(
         return redirect("/settings#supabase", ok=f"Cloud sync successful! {total_rows} rows mirrored across {len(stats)} tables.")
     return redirect("/settings#supabase", err=msg)
 
+
+@router.post("/housekeeping/run")
+def manual_housekeeping(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+):
+    from ..auth import verify_form_csrf
+    from ..services import alerts, orgtime
+
+    verify_form_csrf(user, csrf)
+    today = orgtime.today(settings)
+    purged = alerts._housekeeping(storage, today)
+    msg = (
+        f"Housekeeping complete: Purged {purged.get('notifications', 0)} notifications (>30d), "
+        f"{purged.get('audit_log', 0)} audit logs (>120d), "
+        f"{purged.get('password_tokens', 0) + purged.get('otp_codes', 0)} expired tokens."
+    )
+    return redirect("/settings#server-notes", ok=msg)
+
+

@@ -648,15 +648,32 @@
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-head"><h3>Server notes</h3></div>
+    <div id="server-notes" class="card">
+      <div class="card-head">
+        <h3>Server notes &amp; Data Retention</h3>
+      </div>
       <div class="card-body small muted">
-        <p class="mb-1"><strong>Database:</strong> one SQLite file holds everything. Back it up by copying
+        <p class="mb-2"><strong>Database:</strong> one SQLite file holds everything. Back it up by copying
           <span class="mono">data/hrms.db</span> (and stop the service first, or use <span class="mono">sqlite3 .backup</span>).</p>
-        <p class="mb-1"><strong>First-run logins:</strong> <span class="mono">{{ credentials_file }}</span> —
+        <p class="mb-2"><strong>First-run logins:</strong> <span class="mono">{{ credentials_file }}</span> —
           delete that file once you have changed the passwords.</p>
-        <p class="mb-0"><strong>Sessions:</strong> HR sessions last a working day; kiosk sessions last
+        <p class="mb-3"><strong>Sessions:</strong> HR sessions last a working day; kiosk sessions last
           {{ settings.kiosk_session_days }} days so the gate phone does not need daily sign-in.</p>
+        
+        <div style="border-top:1px dashed var(--border);padding-top:0.75rem;margin-top:0.75rem">
+          <div style="font-weight:600;color:var(--text);margin-bottom:0.35rem">🧹 Automated Data Retention &amp; Housekeeping</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:0.5rem;margin-bottom:0.75rem">
+            <div>&bull; <strong>Notifications:</strong> Auto-deleted after 30 days</div>
+            <div>&bull; <strong>Audit Logs:</strong> Auto-deleted after 120 days</div>
+            <div>&bull; <strong>Reset Tokens &amp; OTPs:</strong> Auto-purged upon expiry</div>
+          </div>
+          <form method="post" action="/settings/housekeeping/run" data-confirm="Run housekeeping now? This will permanently remove notifications older than 30 days, audit logs older than 120 days, and expired tokens.">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn btn-sm btn-ghost" type="submit" style="color:var(--primary);border:1px solid var(--border)">
+              🧹 Run Housekeeping Cleanup Now
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   </div>

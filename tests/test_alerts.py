@@ -302,3 +302,78 @@ def test_payslip_push_never_shows_an_amount(hr_client: TestClient, storage, sett
     rows = _rows(storage, channel="push", category="payslip")
     assert rows and all("₹" not in r["body"] and "Rs" not in r["body"] for r in rows)
     assert str(int(staff[0]["monthly_gross"])) not in rows[0]["body"]
+
+
+def test_housekeeping_retention_policy(storage, settings):
+    import time
+    from datetime import date, datetime, timedelta, timezone
+    from app.services import alerts
+
+    today = date(2026, 11, 12)
+
+    # 1. Notifications: 1 old (>30d), 1 recent (<30d)
+    storage.execute(
+        "INSERT INTO notifications (created_at, channel, recipient, subject, body, status) VALUES (?,?,?,?,?,?)",
+        ((today - timedelta(days=35)).isoformat(), "whatsapp", "123", "Old", "Old WA", "sent"),
+    )
+    storage.execute(
+        "INSERT INTO notifications (created_at, channel, recipient, subject, body, status) VALUES (?,?,?,?,?,?)",
+        ((today - timedelta(days=10)).isoformat(), "whatsapp", "123", "Recent", "Recent WA", "sent"),
+    )
+
+    # 2. Audit logs: 1 old (>120d), 1 recent (<120d)
+    storage.execute(
+        "INSERT INTO audit_log (at, action, entity) VALUES (?,?,?)",
+        ((today - timedelta(days=130)).isoformat(), "old_action", "system"),
+    )
+    storage.execute(
+        "INSERT INTO audit_log (at, action, entity) VALUES (?,?,?)",
+        ((today - timedelta(days=60)).isoformat(), "recent_action", "system"),
+    )
+
+    # 3. Password tokens: 1 expired, 1 valid, 1 used
+    now_epoch = time.time()
+    storage.execute(
+        "INSERT INTO users (username, password_hash, salt, role, created_at) VALUES ('temp_user', 'hash', 'salt', 'employee', '2026-11-12T00:00:00')"
+    )
+    user_id = storage.execute("SELECT id FROM users WHERE username = 'temp_user'").fetchone()[0]
+    storage.execute(
+        "INSERT INTO password_tokens (user_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)",
+        (user_id, "expired_token", now_epoch - 7200, now_epoch - 3600),
+    )
+    storage.execute(
+        "INSERT INTO password_tokens (user_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)",
+        (user_id, "valid_token", now_epoch, now_epoch + 3600),
+    )
+    storage.execute(
+        "INSERT INTO password_tokens (user_id, token_hash, created_at, expires_at, used_at) VALUES (?,?,?,?,?)",
+        (user_id, "used_token", now_epoch, now_epoch + 3600, now_epoch),
+    )
+
+    # Run housekeeping
+    purged = alerts._housekeeping(storage, today)
+    assert purged["notifications"] >= 1
+    assert purged["audit_log"] >= 1
+    assert purged["password_tokens"] >= 2  # expired + used
+
+    # Verify rows in DB
+    remaining_notifs = storage.query("SELECT * FROM notifications")
+    assert all("Old" not in (n.get("subject") or "") for n in remaining_notifs)
+    assert any("Recent" in (n.get("subject") or "") for n in remaining_notifs)
+
+    remaining_audits = storage.query("SELECT * FROM audit_log")
+    assert all(a["action"] != "old_action" for a in remaining_audits)
+    assert any(a["action"] == "recent_action" for a in remaining_audits)
+
+    remaining_tokens = storage.query("SELECT * FROM password_tokens WHERE user_id = ?", (user_id,))
+    assert len(remaining_tokens) == 1
+    assert remaining_tokens[0]["token_hash"] == "valid_token"
+
+
+def test_manual_housekeeping_route(hr_client):
+    from tests.helpers import csrf_of
+    token = csrf_of(hr_client, "/settings")
+    res = hr_client.post("/settings/housekeeping/run", data={"_csrf": token}, follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"].startswith("/settings#server-notes")
+
