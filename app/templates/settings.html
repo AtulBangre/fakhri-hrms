@@ -583,7 +583,12 @@
                 if (codeBox) codeBox.style.display = 'block';
               } else {
                 if (codeError) {
-                  codeError.textContent = res.error || 'Failed to generate code. Please try again.';
+                  var errMsg = res.error || 'Failed to generate code. Please try again.';
+                  try {
+                    var parsed = JSON.parse(errMsg);
+                    if (parsed.message) errMsg = parsed.message;
+                  } catch(e) {}
+                  codeError.textContent = 'Error: ' + errMsg;
                   codeError.style.display = 'block';
                 }
               }

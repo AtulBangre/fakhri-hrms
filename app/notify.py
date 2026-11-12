@@ -975,16 +975,16 @@ def request_waha_pairing_code(settings: Settings, phone_number: str) -> dict[str
         if res.status_code in (200, 201):
             data = res.json()
             return {"ok": True, "code": data.get("code"), "phone": digits}
-        # If 422 because session timed out, restart and retry once
-        if res.status_code == 422:
-            start_or_restart_waha(settings)
-            time.sleep(2.5)
-            res2 = httpx.post(f"{base_url}/api/{session_name}/auth/request-code", json=payload, headers=headers, timeout=20.0)
-            if res2.status_code in (200, 201):
-                data = res2.json()
-                return {"ok": True, "code": data.get("code"), "phone": digits}
-            return {"ok": False, "error": res2.text, "status_code": res2.status_code}
-        return {"ok": False, "error": res.text, "status_code": res.status_code}
+        # If it failed due to stale credentials or timeout, reset session and retry once
+        logout_waha(settings)
+        time.sleep(1.0)
+        start_or_restart_waha(settings)
+        time.sleep(3.0)
+        res2 = httpx.post(f"{base_url}/api/{session_name}/auth/request-code", json=payload, headers=headers, timeout=20.0)
+        if res2.status_code in (200, 201):
+            data = res2.json()
+            return {"ok": True, "code": data.get("code"), "phone": digits}
+        return {"ok": False, "error": res2.text, "status_code": res2.status_code}
     except Exception as exc:
         logger.warning("Failed to request waha pairing code: %s", exc)
         return {"ok": False, "error": str(exc)}
