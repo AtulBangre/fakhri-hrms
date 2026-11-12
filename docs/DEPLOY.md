@@ -1,23 +1,37 @@
 # Deploying Fakhri HRMS
 
-Two small services, both CPU-only:
+The production architecture consists of four tightly-integrated services orchestrated via Docker:
 
 ```
-   phone at the gate ─┐
-   HR laptop ─────────┼──►  HRMS (FastAPI + SQLite)  ──►  Face API (YuNet + SFace)
-                      │        port 8100                      port 8000 (internal)
-   accountant ────────┘
+   Phone at the gate ─┐
+   HR Console ────────┼──►  Caddy (TLS Reverse Proxy, Ports 80/443)
+   Employee Portal ───┘           │
+                                  ▼
+                         HRMS API (FastAPI + SQLite WAL, Port 8100)
+                                  │
+                   ┌──────────────┴──────────────┐
+                   ▼                             ▼
+        Face API (YuNet + SFace)       WAHA (WhatsApp HTTP API)
+             Port 8000                      Port 3000
 ```
 
 | Resource | Minimum | Comfortable |
 |---|---|---|
-| CPU | 2 vCPU (1 for each service) | 4 vCPU |
-| RAM | 1.5 GB | 3 GB |
-| Disk | 5 GB (models + databases + backups) | 20 GB |
-| Traffic | a scan is ~60–120 KB up and a few KB down — 1,000 scans/day is tiny | — |
+| CPU | 2 vCPU | 4 vCPU |
+| RAM | 2 GB | 4 GB |
+| Disk | 10 GB (models + database + backups) | 25 GB |
+| Traffic | Light (~60–120 KB per scan) | — |
 
-Both fit on one **€6–8/month VPS**. SQLite means the HRMS is a *single-instance*
-service: scale up, not out.
+Everything comfortably runs on a single **€6–10/month VPS**. SQLite WAL mode ensures ultra-fast, single-file ACID operations with zero heavy database overhead.
+
+---
+
+## Services in Docker Compose
+
+1. **`api`** — The core HRMS backend (Python 3.12 / FastAPI / SQLite / Uvicorn).
+2. **`faceapi`** — Face detection & biometric recognition engine (YuNet + SFace ONNX models).
+3. **`waha`** — WhatsApp HTTP API engine (Automated punch alerts, payslips, leave & loan notices).
+4. **`caddy`** — Automated TLS reverse proxy providing valid Let's Encrypt certificates.
 
 ---
 
@@ -57,6 +71,16 @@ HRMS_FACEAPI_URL=http://faceapi:8000
 
 # Required: shared by the HRMS and Face API. Generate with: openssl rand -base64 32
 FACEAPI_SERVICE_KEY=
+
+# WhatsApp Integration (WAHA)
+WAHA_BASE_URL=http://waha:3000
+WAHA_SESSION=default
+HRMS_HR_WHATSAPP_PHONE=+91XXXXXXXXXX
+HRMS_NOTIFY_WHATSAPP_ATTENDANCE=true
+HRMS_NOTIFY_WHATSAPP_LEAVE=true
+HRMS_NOTIFY_WHATSAPP_PAYSLIP=true
+HRMS_NOTIFY_WHATSAPP_REMINDERS=true
+HRMS_NOTIFY_WHATSAPP_CELEBRATIONS=true
 
 # Optional and OFF by default: Supabase mirror. Enabling it REWRITES the Postgres
 # mirror (truncates, deletes, upserts) and copies every table, including salaries.

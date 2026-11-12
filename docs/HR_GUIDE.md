@@ -32,21 +32,26 @@ password**. Do not share the HR login with the gate staff.
 **Employees → ➕ Add employee**
 
 1. **Required:** full name, employee code (it suggests `FITS004`), date of
-   joining and monthly gross (CTC).
-2. Department, designation, email, phone, employment type, and — if you track
+   joining and monthly gross / stipend.
+2. **Employment Type:** Choose between `Full-time`, `Contract`, `Intern`, or `Trainee`:
+   - Selecting **Trainee** or **Intern** switches the gross pay label to **Monthly Stipend (₹)**.
+   - **Unpaid Trainees / Volunteers (₹0 Stipend):** If Stipend is set to `0`, the Bank Details and EPFO/ESIC sections automatically collapse into *"Unpaid Trainee Mode"*, bypassing mandatory bank details.
+   - **Paid Trainees / Interns (> ₹0):** If Stipend is greater than `0`, the banking section expands dynamically so payout details can be recorded.
+   - All monetary fields accept precise amounts (e.g. `12345.50` or `15000`) without requiring `.00` or `.0`.
+3. Department, designation, email, phone, and — if you track
    them — basic / HRA / PF / ESI / professional tax.
-3. **Personal & bank details** (optional, can be added later): address,
+4. **Personal & bank details** (optional, can be added later): address,
    emergency contact, PAN, Aadhaar, bank, account number, IFSC. PAN and IFSC
    formats are checked; for Aadhaar only the **last 4 digits are kept**
    (`XXXX-XXXX-1234`) — upload the card itself as a document.
-4. **KYC documents** (optional): Aadhaar, PAN, resume and a photo or offer
+5. **KYC documents** (optional): Aadhaar, PAN, resume and a photo or offer
    letter — or tick **Skip for now** and let the employee upload them from
    their profile. A rejected file never loses the form; it is reported after saving.
-5. **Portal login** (ticked by default): the username is the employee code in
+6. **Portal login** (ticked by default): the username is the employee code in
    lower case; they can also sign in with their email address. With an email on
    file they receive a one-time **"Set my password"** link (valid 72 hours);
    without one you see the username and password **once** — hand them over in person.
-6. **Save** — then enrol their face from the employee page.
+7. **Save** — then enrol their face from the employee page.
 
 ### Enrolling their face
 
@@ -553,3 +558,53 @@ An assistant is available via the floating maroon button at the bottom-right of 
   - *"What are the current shift timings?"*
 
 Answers come from live records and include links to the relevant page. Employees only ever see their own data, and only HR can ask about other people. The assistant changes nothing and sends nothing to an outside service.
+
+---
+
+## 11. WhatsApp Integration & Real-Time Alerts
+
+The HRMS integrates with **WAHA** to dispatch real-time WhatsApp notifications to employees and HR.
+
+### A. Connecting / Linking WhatsApp
+1. Navigate to **Settings → WhatsApp Integration** (`/settings#whatsapp`).
+2. If the session is disconnected, a dynamic QR code will be displayed on the screen.
+3. Open WhatsApp on your official company/HR phone:
+   - Go to **Linked Devices** → **Link a Device**.
+   - Point the camera at the QR code displayed in the HRMS.
+4. Once scanned, the status instantly turns green (**Connected**) and shows your phone number, connected name, and device battery level.
+5. You can unlink or reconnect the device anytime with the **Unlink Device** button.
+
+### B. Configuring HR Direct Alerts
+In **Settings → WhatsApp Integration**, enter your **HR WhatsApp Phone** (e.g. `+91XXXXXXXXXX`):
+- **Morning HR Digest (9:30 AM):** Receive a concise summary of today's attendance directly on WhatsApp (Present count, Late arrivals, On Leave, Not marked).
+- **Loan Requests:** Receive immediate WhatsApp alerts when an employee submits a new loan or salary advance.
+- **Leave Requests:** Receive direct alerts when staff apply for leave.
+
+### C. Automated Employee Alerts
+Employees receive instant WhatsApp confirmations (provided their phone number is entered on their profile):
+- **Punch-in & Check-out:** Time of arrival/departure and total hours worked.
+- **Monthly Payslips:** Automated dispatch of salary payslip with the PDF attached directly in WhatsApp.
+- **Leave & Loan Decisions:** Instant notifications when their leave or loan request is approved or rejected.
+- **Celebrations:** Automated personalized birthday and work anniversary greetings on their special day.
+
+---
+
+## 12. Loans & Salary Advances Management
+
+Manage personal loans and short-term advances with structured monthly EMI recovery:
+
+### A. Employee Application (`/me/loans`)
+1. Employees navigate to **Loans & Advances** in their self-service portal.
+2. Click **Apply for Loan / Advance**, select the type (`Salary Advance` or `Personal Loan`), enter the requested amount, desired monthly EMI, and reason.
+3. Submitting triggers in-app push, confirmation email, and WhatsApp confirmation to the applicant, plus immediate alerts to HR.
+
+### B. HR Review & Approval (`/loans`)
+1. HR reviews pending requests under **Loans & Advances** (`/loans`).
+2. Review the applicant's tenure, existing advances, and proposed EMI.
+3. Actions available:
+   - **Approve:** Activates the loan and begins the EMI schedule.
+   - **Disburse:** Direct record of disbursement to the employee.
+   - **Reject:** Declines the request with an optional reason note.
+   - **Close / Settle:** Marks the loan as fully recovered or settled early.
+4. Every decision automatically dispatches multi-channel notifications (In-App Push + Email + WhatsApp) to the employee.
+5. Active loan EMIs are reflected under the **Salary Advance** deduction column in monthly payroll.

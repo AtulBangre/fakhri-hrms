@@ -25,24 +25,31 @@ font families (Poppins headings, Inter body).
 | 6 | **Apply paid leave and half days** | `/leave` — full day, multi-day, or a single half day; weekly offs and holidays are never charged; balances accrue 1.5/month from joining date |
 | 7 | **Shift Master & Dynamic Attendance Form** | `/settings` & `/employees/bulk-update` — multi-shift management; PagarBook-style attendance corrections with blank same-day checkout |
 | 8 | **Visual Org Hierarchy Chart & Team Reassignment** | `/employees/chart` dynamic tree & `/employees/bulk-update` batch department/shift assigner |
-| 9a | **Notifications** | Bell and web push (needs HTTPS; on iPhone, the app must be added to the Home Screen first) for punches, missed-punch reminders, approvals and announcements. Birthday and anniversary emails go out automatically with a different wish each time, and HR is reminded 3 days ahead, the day before and on the day. The push signing key is created at `data/vapid_private.pem`: keep it with your backups, because a new key means every device must turn alerts on again. |
-| 9b | **Offline gate scans** | With no network, the gate saves an encrypted photo on the device. When the network returns, the server identifies the person and marks attendance at the capture time. The record shows as offline, the time comes from the device, and HR is told about any scan that could not be marked. No face templates are stored on the device. |
-| 9c | **Employee face registration** | An employee sends a photo from their portal. It is enrolled only when HR approves it under Profile changes, and the photo is deleted after the decision. |
-| 9d | **Fingerprint or Face ID sign-in** | Optional passkeys on the app's https address. The fingerprint or face stays on the device. |
-| 9 | **Ask HR Assistant** | Floating in-app chat that answers English and Hinglish questions from the app's own data. It is role-scoped and read-only, and sends nothing to an outside service. It matches keywords and does not use an LLM. |
-| 10 | **Mobile-first responsive PWA & Geofencing** | Sidebar on desktop, bottom tab bar on phones, installable manifests, GPS geofenced mobile punch for remote staff (`/field`) |
-| 11 | **HR & Gate Kiosk Roles** | `hr` role (full management), `kiosk` role (locked-down camera scanner), and `employee` role (self-service portal) |
-| 12 | **Hybrid SQLite WAL + Supabase Cloud Sync** | Local SQLite WAL engine with an optional mirror to Supabase PostgreSQL, off by default. Enabling it rewrites the mirror and copies every table |
+| 9 | **WhatsApp Messaging & Notifications via WAHA** | Attendance IN/OUT alerts, 9:30 AM HR Daily Digest, Payslips, Leave & Loan approvals, Birthday/Anniversary greetings via connected WhatsApp |
+| 10 | **Loans & Salary Advances** | `/loans` & `/me/loans` — employee loan requests, EMI calculation, HR approval/rejection/disbursement, and full settlement tracking with push, email & WhatsApp alerts |
+| 11 | **Trainee & Stipend Flexibility** | Trainee employment role with dynamic ₹0 stipend bank/EPFO bypass and auto-expanding payout details for paid interns/trainees |
+| 12 | **Mobile-first responsive PWA & Geofencing** | Sidebar on desktop, bottom tab bar on phones, installable manifests, GPS geofenced mobile punch for remote staff (`/field`) |
+| 13 | **Offline gate scans & Passkeys** | Encrypted offline scanning buffer with automatic sync, fingerprint / Face ID biometric passkey sign-in |
+| 14 | **HR, Gate Kiosk & Employee Roles** | `hr` role (full management), `kiosk` role (locked-down camera scanner), and `employee` role (self-service portal) |
+| 15 | **Hybrid SQLite WAL + Supabase Cloud Sync** | Local SQLite WAL engine with an optional mirror to Supabase PostgreSQL, off by default |
 
 ### Notifications, noticeboard and self-service
 
-* **Email + WhatsApp/SMS outbox.** Every message is queued in SQLite and sent by a
-  background thread, so a kiosk scan never waits for SMTP. Three drivers ship:
-  `console` (writes real `.eml` files to `data/outbox/` — the default, so the whole
-  thing works with no credentials), `smtp`, and `twilio`/`meta` for WhatsApp.
-* **Automatic messages:** punch-in/check-out confirmation, a late alert, "your
-  leave was requested" to HR, "your leave was approved/rejected" to the employee,
-  "your profile change was decided", and **payslips with the PDF attached**.
+* **Multi-channel Outbox (Email + WhatsApp via WAHA + Push).** Every message is queued in
+  SQLite and processed by asynchronous workers, so kiosk or mobile scans never lag:
+  - **WhatsApp Integration (WAHA):** Built-in native WAHA (WhatsApp HTTP API) driver. Supports
+    session QR linking, link status monitoring in Settings (`/settings#whatsapp`), and sends
+    instant punch confirmations, morning 9:30 AM HR attendance digest, payslips (with PDF),
+    leave decisions, loan approvals/rejections, and celebratory birthday/work anniversary greetings.
+  - **Email:** Native SMTP delivery or console file fallback in `data/outbox/`.
+  - **In-App & Web Push:** Instant push notifications to employee and HR browsers/devices.
+* **Loans & Salary Advances (`/loans` & `/me/loans`):**
+  - Employees can request personal loans and salary advances directly from their portal with EMI calculators.
+  - HR can disburse, approve, reject, or mark loans as fully settled/closed.
+  - Real-time multi-channel alerts (WhatsApp + Email + Push) notify both the applicant and HR on every event.
+* **Automatic messages:** punch-in/check-out confirmation, late alerts, "leave requested" to HR,
+  "leave approved/rejected" to employee, loan application alerts to HR, loan disbursement & closure confirmations,
+  profile change decisions, and **payslips with PDF attached**.
 * **Noticeboard** (`/announcements`) — post a notice once; it appears on the HR
   dashboard and every employee portal, and can be mailed/WhatsApped to everyone in
   the same action. Pin it, expire it, hide it.
@@ -314,34 +321,39 @@ and are edited at **Settings** in the UI — no restart needed.
 ```
 hrms/
 ├── app/
-│   ├── main.py            FastAPI factory, static mount, 404 page
-│   ├── config.py          settings + the brand palette from the website
-│   ├── db.py              SQLite schema, settings store, audit helper, migrations
-│   ├── auth.py            scrypt passwords, signed sessions, CSRF, roles
-│   ├── face.py            HTTP client for the Face API (health/enrol/identify)
-│   ├── deps.py            Jinja setup, filters, render helpers
-│   ├── services/
-│   │   ├── orgtime.py     local-time + calendar helpers (week offs, holidays)
-│   │   ├── employees.py   employee CRUD, salary revisions, face enrolment
-│   │   ├── employees_bulk.py   bulk CSV import with 18-month salary history
-│   │   ├── employees_export.py 52-column native OpenXML (.xlsx) & CSV export
-│   │   ├── attendance.py  scan state machine, registers, CSV, dashboards
-│   │   ├── leave.py       paid/unpaid/half-day leave, balances
-│   │   ├── payroll.py     runs, LOP maths, payslips, exports
-│   │   ├── sync_supabase.py asynchronous cloud replication to Supabase PostgreSQL
-│   │   └── field.py       geo-fenced field attendance & GPS tracking
-│   ├── routes/            auth, dashboard, employees, attendance, leave,
-│   │                      payroll, admin/settings, kiosk, me (ESS), ai_hr, field, meta
-│   ├── templates/         39 Jinja templates (branded, responsive, print-friendly)
-│   └── static/            css/app.css · js/app.js · js/kiosk.js · sw.js · icons
-├── scripts/               make_icons.py, seed_demo.py, verify_e2e.py, setup_local.sh
-├── tests/                 330+ tests (services, web, ESS, shifts, export, notifications)
-├── deploy/                Caddyfile, hrms.service (systemd)
-├── cli.py                 doctor · init · serve · users · ess · stats · seed-demo
-├── app/notify.py          outbox queue + email / WhatsApp / SMS drivers
-├── app/pdf.py             payslip PDF renderer
-├── app/uploads.py         validated file storage (magic-number sniffing, 8 MB cap)
-├── app/services/records.py  documents · assets · expense claims
+│   ├── main.py            FastAPI application factory, middleware, router mounts
+│   ├── config.py          Settings (env + DB overrides), brand palette, features
+│   ├── db.py              SQLite WAL schema, settings store, audit logging, migrations
+│   ├── auth.py            scrypt hashing, signed session cookies, CSRF guard, RBAC
+│   ├── face.py            Face API client (YuNet detection, SFace recognition, liveness)
+│   ├── notify.py          Multi-channel notifications (Push, SMTP, WAHA WhatsApp)
+│   ├── pdf.py             Payslip & F&F PDF rendering with fpdf2
+│   ├── push.py            VAPID Web Push delivery to browsers and mobile PWAs
+│   ├── uploads.py         Magic-byte verified uploads (8 MB cap, private sandbox)
+│   ├── icons.py           SVG icon components
+│   ├── services/          23 business service modules:
+│   │   ├── attendance.py  Face scan state machine, registers, CSV export, dashboards
+│   │   ├── employees.py   Staff records, trainee/intern roles, salary revisions, face
+│   │   ├── loans.py       Personal loans, salary advances, EMI, settlements
+│   │   ├── leave.py       Paid/unpaid/half-day leave rules, auto-accrual, balances
+│   │   ├── payroll.py     Payroll cycles, LOP formulas, deductions, tax, payslips
+│   │   ├── exits.py       Resignations, clearances, Full & Final settlements
+│   │   ├── appraisal.py   Performance appraisal cycles, self & manager ratings
+│   │   ├── letters.py     HR letter generation (Offer, Experience, Increment)
+│   │   ├── tax.py         IT declaration proofs, regimes, Form 16 projections
+│   │   ├── field.py       Geo-fenced mobile attendance & remote GPS tracking
+│   │   ├── alerts.py      Automated 9:30 AM HR digests, missed punch & celebrations
+│   │   ├── sync_supabase.py Cloud replica synchronization to PostgreSQL
+│   │   └── ...
+│   ├── routes/            24 endpoint controllers (auth, dashboard, employees, attendance,
+│   │                      leave, payroll, loans, exits, appraisals, letters, tax,
+│   │                      kiosk, me (ESS), inbox, passkeys, admin/settings, meta)
+│   ├── templates/         69 branded Jinja templates (responsive PWA & desktop)
+│   └── static/            css/app.css · js/ (app, kiosk, face-login, passkey, pwa) · sw.js
+├── scripts/               make_icons.py, seed_demo.py, verify_e2e.py, face_gallery_report.py
+├── tests/                 555+ unit & integration tests across 24 test modules
+├── deploy/                Caddyfile (TLS reverse proxy)
+├── cli.py                 Administrative CLI (doctor, init, serve, users, ess, seed-demo)
 └── Dockerfile · docker-compose.yml · .env.example
 ```
 
@@ -350,7 +362,7 @@ hrms/
 ## Tests
 
 ```bash
-./.venv/bin/python3 -m pytest            # 330+ tests, ~25 s
+./.venv/bin/pytest                      # 555+ tests, ~70 s
 ./.venv/bin/python3 cli.py doctor        # environment + face service check
 ./.venv/bin/python3 scripts/verify_e2e.py --help
 ```
