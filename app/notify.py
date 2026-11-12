@@ -887,7 +887,7 @@ def get_waha_session_info(settings: Settings) -> dict[str, Any]:
     headers = _waha_headers(settings)
     session_name = getattr(settings, "waha_session", "default")
     try:
-        res = httpx.get(f"{base_url}/api/sessions/{session_name}", headers=headers, timeout=5.0)
+        res = httpx.get(f"{base_url}/api/sessions/{session_name}", headers=headers, timeout=8.0)
         if res.status_code == 200:
             data = res.json()
             return {
