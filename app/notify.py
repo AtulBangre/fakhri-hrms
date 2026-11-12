@@ -581,7 +581,8 @@ def _whatsapp_text(template: str, settings: Settings, **ctx: Any) -> str:
             f"({ctx['from_date']} → {ctx['to_date']}). Approve in the HRMS."
         )
     if template == "payslip":
-        return f"*{settings.org_name}* — your payslip for {ctx['period']} has been sent to your email."
+        name = ctx.get("name") or "there"
+        return f"*{settings.org_name}* — Hi {name}, your payslip for {ctx['period']} is generated. Downloadable PDF document is attached below."
     if template == "otp":
         return f"*{settings.org_name}* — password reset code: {ctx['code']} (valid {ctx['minutes']} min)."
     if template == "welcome":
@@ -807,6 +808,168 @@ def _send_twilio(settings: Settings, row: dict[str, Any], *, whatsapp: bool) -> 
     return f"twilio sid={response.json().get('sid', '?')}"
 
 
+def format_whatsapp_chat_id(recipient: str | None) -> str:
+    """Format an Indian or international mobile number to WAHA chat ID format (e.g. 919876543210@c.us)."""
+    raw = (recipient or "").strip()
+    if "@c.us" in raw or "@g.us" in raw:
+        return raw
+    digits = re.sub(r"[^0-9]", "", raw)
+    if not digits:
+        raise ValueError(f"Invalid phone number: {recipient}")
+    # 10 digits Indian mobile number (e.g. 9876543210)
+    if len(digits) == 10 and digits[0] in "6789":
+        digits = "91" + digits
+    # 11 digits starting with 0 (e.g. 09876543210)
+    elif len(digits) == 11 and digits.startswith("0") and digits[1] in "6789":
+        digits = "91" + digits[1:]
+    return f"{digits}@c.us"
+
+
+def _waha_headers(settings: Settings) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if getattr(settings, "waha_api_key", None):
+        headers["X-Api-Key"] = settings.waha_api_key
+    return headers
+
+
+def _send_waha_whatsapp(storage: Storage, settings: Settings, row: dict[str, Any]) -> str:
+    base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
+    chat_id = format_whatsapp_chat_id(row["recipient"])
+    headers = _waha_headers(settings)
+    session_name = getattr(settings, "waha_session", "default")
+
+    # Check if this notification has file attachments (like a payslip PDF)
+    attachments = _attachments_for(storage, settings, row)
+    pdf_attachment = next((att for att in attachments if att[2] == "application" and att[3] == "pdf"), None)
+
+    if pdf_attachment:
+        import base64
+        filename, data_bytes, maintype, subtype = pdf_attachment
+        b64 = base64.b64encode(data_bytes).decode("ascii")
+        data_uri = f"data:application/pdf;base64,{b64}"
+        caption = row.get("body") or f"*{settings.org_name}* — Your {filename}"
+
+        payload = {
+            "session": session_name,
+            "chatId": chat_id,
+            "file": {
+                "mimetype": "application/pdf",
+                "filename": filename,
+                "url": data_uri,
+            },
+            "caption": caption,
+        }
+        try:
+            res = httpx.post(f"{base_url}/api/sendFile", json=payload, headers=headers, timeout=30.0)
+            if res.status_code >= 400:
+                raise SendError(f"waha sendFile error {res.status_code}: {res.text[:200]}")
+            return f"waha doc sent ({filename})"
+        except httpx.HTTPError as exc:
+            raise SendError(f"waha sendFile connection error: {exc}") from exc
+    else:
+        payload = {
+            "session": session_name,
+            "chatId": chat_id,
+            "text": row["body"],
+        }
+        try:
+            res = httpx.post(f"{base_url}/api/sendText", json=payload, headers=headers, timeout=20.0)
+            if res.status_code >= 400:
+                raise SendError(f"waha sendText error {res.status_code}: {res.text[:200]}")
+            return "waha message sent"
+        except httpx.HTTPError as exc:
+            raise SendError(f"waha sendText connection error: {exc}") from exc
+
+
+def get_waha_session_info(settings: Settings) -> dict[str, Any]:
+    """Get status of the WAHA WhatsApp session."""
+    base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
+    headers = _waha_headers(settings)
+    session_name = getattr(settings, "waha_session", "default")
+    try:
+        res = httpx.get(f"{base_url}/api/sessions/{session_name}", headers=headers, timeout=5.0)
+        if res.status_code == 200:
+            data = res.json()
+            return {
+                "online": True,
+                "status": data.get("status"),
+                "me": data.get("me"),
+                "engine": data.get("engine", {}).get("engine", "NOWEB"),
+            }
+        elif res.status_code == 404:
+            return {"online": True, "status": "NOT_CREATED", "me": None}
+        return {"online": False, "status": f"HTTP {res.status_code}", "error": res.text[:100]}
+    except Exception as exc:
+        return {"online": False, "status": "OFFLINE", "error": str(exc)}
+
+
+def start_or_restart_waha(settings: Settings) -> dict[str, Any]:
+    """Start or restart the WAHA session to generate a fresh QR code."""
+    base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
+    headers = _waha_headers(settings)
+    session_name = getattr(settings, "waha_session", "default")
+    try:
+        check = httpx.get(f"{base_url}/api/sessions/{session_name}", headers=headers, timeout=5.0)
+        if check.status_code == 404:
+            create_res = httpx.post(f"{base_url}/api/sessions", json={"name": session_name}, headers=headers, timeout=10.0)
+            create_res.raise_for_status()
+        res = httpx.post(f"{base_url}/api/sessions/{session_name}/restart", headers=headers, timeout=10.0)
+        if res.status_code != 200:
+            res = httpx.post(f"{base_url}/api/sessions/{session_name}/start", headers=headers, timeout=10.0)
+        return {"ok": True, "status": "restarted"}
+    except Exception as exc:
+        logger.warning("Failed to start/restart waha: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
+def logout_waha(settings: Settings) -> dict[str, Any]:
+    """Logout / unpair WAHA WhatsApp session."""
+    base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
+    headers = _waha_headers(settings)
+    session_name = getattr(settings, "waha_session", "default")
+    try:
+        httpx.post(f"{base_url}/api/sessions/{session_name}/logout", headers=headers, timeout=10.0)
+        return {"ok": True}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def get_waha_qr_image(settings: Settings) -> bytes | None:
+    """Fetch QR code PNG from WAHA if session is in SCAN_QR_CODE state."""
+    base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
+    headers = _waha_headers(settings)
+    session_name = getattr(settings, "waha_session", "default")
+    try:
+        res = httpx.get(f"{base_url}/api/{session_name}/auth/qr", headers=headers, timeout=8.0)
+        if res.status_code == 200 and "image" in res.headers.get("content-type", ""):
+            return res.content
+        return None
+    except Exception as exc:
+        logger.warning("Failed to fetch waha QR: %s", exc)
+        return None
+
+
+def send_test_whatsapp(settings: Settings, to_phone: str, message: str = "") -> dict[str, Any]:
+    """Send an immediate test WhatsApp message to verify the connection."""
+    base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
+    headers = _waha_headers(settings)
+    session_name = getattr(settings, "waha_session", "default")
+    chat_id = format_whatsapp_chat_id(to_phone)
+    msg_text = message.strip() or f"*{settings.org_name}* — Test Notification! 🚀\nYour HRMS WhatsApp Linked Device is successfully connected."
+    payload = {
+        "session": session_name,
+        "chatId": chat_id,
+        "text": msg_text,
+    }
+    try:
+        res = httpx.post(f"{base_url}/api/sendText", json=payload, headers=headers, timeout=15.0)
+        if res.status_code >= 400:
+            return {"ok": False, "error": f"WAHA Error ({res.status_code}): {res.text[:200]}"}
+        return {"ok": True, "chat_id": chat_id}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def _send_meta_whatsapp(settings: Settings, row: dict[str, Any]) -> str:
     if not (settings.meta_phone_id and settings.meta_token):
         raise SendError("meta whatsapp credentials are not configured")
@@ -865,7 +1028,9 @@ def send_one(storage: Storage, settings: Settings, notification: dict[str, Any])
         if channel == "email":
             receipt = _send_email(storage, settings, notification)
         elif channel == "whatsapp":
-            if settings.whatsapp_provider == "twilio":
+            if settings.whatsapp_provider == "waha":
+                receipt = _send_waha_whatsapp(storage, settings, notification)
+            elif settings.whatsapp_provider == "twilio":
                 receipt = _send_twilio(settings, notification, whatsapp=True)
             elif settings.whatsapp_provider == "meta":
                 receipt = _send_meta_whatsapp(settings, notification)

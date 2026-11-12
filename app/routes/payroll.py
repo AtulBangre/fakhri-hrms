@@ -297,6 +297,18 @@ def email_single_slip(
             "UPDATE notifications SET meta=? WHERE id=?",
             (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
         )
+    phone = (emp or {}).get("phone")
+    if getattr(settings, "notify_whatsapp_payslip", True) and phone:
+        wa_id = notify.queue_whatsapp(
+            storage, phone, "payslip", settings=settings,
+            name=(emp.get("name") or "").split(" ")[0] or "there",
+            period=months,
+        )
+        if wa_id:
+            storage.execute(
+                "UPDATE notifications SET meta=? WHERE id=?",
+                (f'{{"template":"payslip","slip_id":{slip["id"]}}}', wa_id),
+            )
     smtp_host = storage.get_setting("smtp_host", "")
     if smtp_host:
         results = notify.dispatch(storage, settings, limit=1)
@@ -352,6 +364,19 @@ def email_bulk_slips(
                 (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
             )
             queued_count += 1
+        phone = (emp or {}).get("phone")
+        if getattr(settings, "notify_whatsapp_payslip", True) and phone:
+            wa_id = notify.queue_whatsapp(
+                storage, phone, "payslip", settings=settings,
+                name=(emp.get("name") or "").split(" ")[0] or "there",
+                period=months,
+            )
+            if wa_id:
+                storage.execute(
+                    "UPDATE notifications SET meta=? WHERE id=?",
+                    (f'{{"template":"payslip","slip_id":{slip["id"]}}}', wa_id),
+                )
+                queued_count += 1
 
     if queued_count > 0:
         if smtp_host:
@@ -494,6 +519,19 @@ def email_payslips(
                 "UPDATE notifications SET meta=? WHERE id=?",
                 (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
             )
+        phone = (employee or {}).get("phone")
+        if getattr(settings, "notify_whatsapp_payslip", True) and phone:
+            wa_id = notify.queue_whatsapp(
+                storage, phone, "payslip", settings=settings,
+                name=(employee.get("name") or "").split(" ")[0] or "there",
+                period=months,
+            )
+            if wa_id:
+                storage.execute(
+                    "UPDATE notifications SET meta=? WHERE id=?",
+                    (f'{{"template":"payslip","slip_id":{slip["id"]}}}', wa_id),
+                )
+                queued += 1
 
     message = f"Queued {queued} payslip email(s) for {months}"
     if skipped:

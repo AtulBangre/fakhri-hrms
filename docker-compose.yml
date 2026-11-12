@@ -58,6 +58,7 @@ services:
     environment:
       HRMS_FACEAPI_URL: "http://faceapi:8000"
       HRMS_FACEAPI_KEY: "${HRMS_FACEAPI_KEY:-${FACEAPI_SERVICE_KEY:-}}"
+      HRMS_WAHA_URL: "http://waha:3000"
       HRMS_DATA_DIR: /app/data
       PORT: "8100"
       WORKERS: "2"
@@ -81,6 +82,22 @@ services:
       retries: 3
       start_period: 15s
 
+  waha:
+    image: devlikeapro/waha:latest
+    restart: unless-stopped
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: NOWEB
+      WAHA_ZIP_LOGS: "false"
+      WAHA_PRINT_QR: "false"
+      WAHA_DASHBOARD_ENABLED: "false"
+    volumes:
+      - waha-data:/app/.sessions
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 200M
+
   # Optional HTTPS reverse proxy: `docker compose --profile tls up -d`
   caddy:
     image: caddy:2-alpine
@@ -101,3 +118,4 @@ volumes:
   faceapi-data:
   caddy-data:
   caddy-config:
+  waha-data:

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Request, Response
+from fastapi.responses import JSONResponse
 
-from .. import auth
+from .. import auth, notify
 from ..auth import (
     SessionUser,
     change_password,
@@ -59,6 +60,7 @@ def settings_page(
         credentials_file=str(settings.data_dir / auth.CREDENTIALS_FILE),
         faceapi_url=settings.faceapi_url,
         collection_name=settings.face_collection,
+        whatsapp_info=notify.get_waha_session_info(settings),
     )
 
 
@@ -371,3 +373,63 @@ def delete_shift(
     storage.execute("DELETE FROM shifts WHERE id = ?", (shift_id,))
     storage.audit(actor=user.username, action="delete_shift", detail=f"Deleted shift '{shift['name']}'")
     return redirect("/settings", ok=f"Shift '{shift['name']}' deleted.")
+
+
+# --------------------------------------------------------------------- WhatsApp (WAHA) Gateway
+@router.get("/whatsapp/status")
+def whatsapp_status(
+    user: SessionUser = Depends(require_hr),
+    settings=Depends(get_settings_dep),
+):
+    info = notify.get_waha_session_info(settings)
+    return JSONResponse(info)
+
+
+@router.get("/whatsapp/qr")
+def whatsapp_qr(
+    user: SessionUser = Depends(require_hr),
+    settings=Depends(get_settings_dep),
+):
+    png_bytes = notify.get_waha_qr_image(settings)
+    if png_bytes:
+        return Response(content=png_bytes, media_type="image/png")
+    return Response(status_code=204)
+
+
+@router.post("/whatsapp/start")
+def whatsapp_start(
+    user: SessionUser = Depends(require_hr),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+):
+    verify_form_csrf(user, csrf)
+    res = notify.start_or_restart_waha(settings)
+    if res.get("ok"):
+        return redirect("/settings#whatsapp", ok="WhatsApp session started. Please scan the QR code.")
+    return redirect("/settings#whatsapp", err=f"Failed to start WhatsApp: {res.get('error')}")
+
+
+@router.post("/whatsapp/logout")
+def whatsapp_logout(
+    user: SessionUser = Depends(require_hr),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+):
+    verify_form_csrf(user, csrf)
+    notify.logout_waha(settings)
+    return redirect("/settings#whatsapp", ok="WhatsApp session disconnected successfully.")
+
+
+@router.post("/whatsapp/test")
+def whatsapp_test(
+    user: SessionUser = Depends(require_hr),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+    phone: str = Form(...),
+    message: str = Form(""),
+):
+    verify_form_csrf(user, csrf)
+    res = notify.send_test_whatsapp(settings, phone, message)
+    if res.get("ok"):
+        return redirect("/settings#whatsapp", ok=f"Test message sent successfully to {phone}!")
+    return redirect("/settings#whatsapp", err=f"Failed to send test message: {res.get('error')}")

@@ -124,8 +124,11 @@ class Settings:
     )  # starttls|ssl|none
     smtp_timeout: float = field(default_factory=lambda: float(_env("HRMS_SMTP_TIMEOUT", "20")))
 
-    #: WhatsApp / SMS provider: console | twilio | meta (meta = WhatsApp only)
-    whatsapp_provider: str = field(default_factory=lambda: _env("HRMS_WHATSAPP_PROVIDER", "console"))
+    #: WhatsApp / SMS provider: console | waha | twilio | meta
+    whatsapp_provider: str = field(default_factory=lambda: _env("HRMS_WHATSAPP_PROVIDER", "waha"))
+    waha_api_url: str = field(default_factory=lambda: _env("HRMS_WAHA_URL", "http://waha:3000"))
+    waha_api_key: str = field(default_factory=lambda: _env("HRMS_WAHA_API_KEY", "fakhri_hrms_waha_secret"))
+    waha_session: str = field(default_factory=lambda: _env("HRMS_WAHA_SESSION", "default"))
     sms_provider: str = field(default_factory=lambda: _env("HRMS_SMS_PROVIDER", "console"))
     twilio_account_sid: str = field(default_factory=lambda: _env("HRMS_TWILIO_ACCOUNT_SID", ""))
     twilio_auth_token: str = field(default_factory=lambda: _env("HRMS_TWILIO_AUTH_TOKEN", ""))
@@ -150,7 +153,13 @@ class Settings:
     notify_late: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_LATE", True))
     notify_leave_email: bool = field(default_factory=lambda: _env_bool("HRMS_NOTIFY_LEAVE", True))
     notify_whatsapp_attendance: bool = field(
-        default_factory=lambda: _env_bool("HRMS_NOTIFY_WHATSAPP_ATTENDANCE", False)
+        default_factory=lambda: _env_bool("HRMS_NOTIFY_WHATSAPP_ATTENDANCE", True)
+    )
+    notify_whatsapp_payslip: bool = field(
+        default_factory=lambda: _env_bool("HRMS_NOTIFY_WHATSAPP_PAYSLIP", True)
+    )
+    notify_whatsapp_leave: bool = field(
+        default_factory=lambda: _env_bool("HRMS_NOTIFY_WHATSAPP_LEAVE", True)
     )
     #: How often the background thread drains the outbox, in seconds
     notify_interval_seconds: float = field(default_factory=lambda: float(_env("HRMS_NOTIFY_INTERVAL", "20")))

@@ -218,6 +218,92 @@
       </div>
     </div>
 
+    <div class="card mb-3" id="whatsapp">
+      <div class="card-head">
+        <h3 style="display:flex;align-items:center;gap:6px">
+          <span>📱 WhatsApp Linked Device</span>
+        </h3>
+        <span class="spacer"></span>
+        {% if whatsapp_info.status == 'WORKING' %}
+          <span class="chip chip-ok">● Connected</span>
+        {% elif whatsapp_info.status == 'SCAN_QR_CODE' %}
+          <span class="chip chip-warn">● Scan QR Code</span>
+        {% else %}
+          <span class="chip chip-muted">● Disconnected</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <p class="small muted mb-2">
+          Automate Punch-In, Punch-Out, and PDF Payslips directly to employees' WhatsApp via QR-linked device. <strong>100% Free (Zero Meta API charges)</strong>.
+        </p>
+
+        {% if whatsapp_info.status == 'WORKING' %}
+          <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:var(--radius);padding:0.85rem 1rem;margin-bottom:1rem">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div style="font-weight:700;color:#15803D;font-size:0.95rem">
+                  ✅ Device Linked &amp; Ready
+                </div>
+                <div class="small text-muted" style="margin-top:2px">
+                  Linked ID: <strong>{{ whatsapp_info.me.id.split('@')[0] if whatsapp_info.me else 'Active Number' }}</strong>
+                  {% if whatsapp_info.me and whatsapp_info.me.pushName %}
+                    ({{ whatsapp_info.me.pushName }})
+                  {% endif %}
+                </div>
+              </div>
+              <form method="post" action="/settings/whatsapp/logout" data-confirm="Disconnect this WhatsApp device?">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-sm btn-ghost" style="color:var(--danger)">Unlink / Logout</button>
+              </form>
+            </div>
+          </div>
+
+          <!-- Test WhatsApp Message Form -->
+          <form method="post" action="/settings/whatsapp/test" class="mt-2">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <div class="field mb-2">
+              <label for="wa-test-phone" style="font-size:0.8rem;font-weight:600">Send Test WhatsApp Message</label>
+              <div style="display:flex;gap:0.5rem">
+                <input id="wa-test-phone" name="phone" type="text" placeholder="e.g. 9876543210" required style="flex:1">
+                <button class="btn btn-sm btn-primary" type="submit">Send Test</button>
+              </div>
+            </div>
+          </form>
+
+        {% else %}
+          <div style="text-align:center;padding:1rem 0">
+            {% if whatsapp_info.status == 'SCAN_QR_CODE' %}
+              <div style="display:inline-block;padding:0.75rem;background:#fff;border:2px dashed var(--border);border-radius:12px;margin-bottom:0.75rem">
+                <img id="wa-qr-img" src="/settings/whatsapp/qr" alt="Scan WhatsApp QR" style="width:200px;height:200px;display:block">
+              </div>
+              <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.3rem">
+                Point your phone camera here to link WhatsApp
+              </div>
+              <div class="small muted mb-3" style="max-width:320px;margin-left:auto;margin-right:auto;line-height:1.4">
+                1. Open WhatsApp on your official phone.<br>
+                2. Tap <strong>Linked Devices &gt; Link a Device</strong>.<br>
+                3. Scan this QR code.
+              </div>
+              <form method="post" action="/settings/whatsapp/start">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <button class="btn btn-sm btn-ghost" type="submit">🔄 Refresh QR Code</button>
+              </form>
+            {% else %}
+              <div style="margin-bottom:0.75rem">
+                <span style="font-size:2.2rem">📲</span>
+                <div style="font-weight:600;margin-top:0.4rem">WhatsApp is currently not linked</div>
+                <div class="small muted" style="margin-top:2px">Click the button below to generate a QR code for linking.</div>
+              </div>
+              <form method="post" action="/settings/whatsapp/start">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <button class="btn btn-primary" type="submit">🚀 Generate WhatsApp QR Code</button>
+              </form>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
     <div class="card mb-3">
       <div class="card-head"><h3>Work Shifts</h3><span class="spacer"></span>
         <span class="small muted">{{ shifts|length }} shift(s)</span></div>
@@ -390,6 +476,24 @@
       carrySelect.addEventListener('change', updateLeavePolicyFields);
     }
     updateLeavePolicyFields();
+
+    // Auto-refresh WhatsApp status when scanning QR
+    (function() {
+      var qrImg = document.getElementById('wa-qr-img');
+      if (qrImg) {
+        var pollTimer = setInterval(function() {
+          fetch('/settings/whatsapp/status')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (data && data.status === 'WORKING') {
+                clearInterval(pollTimer);
+                window.location.reload();
+              }
+            })
+            .catch(function() {});
+        }, 3000);
+      }
+    })();
   })();
 </script>
 {% endblock %}

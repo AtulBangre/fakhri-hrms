@@ -333,6 +333,12 @@ def _notify_decision(storage, settings, leave: dict, decision: str, *, note: str
         decided_by="HR",
         cc=cc,
     )
+    if getattr(settings, "notify_whatsapp_leave", True) and employee.get("phone"):
+        notify.queue_whatsapp(
+            storage, employee["phone"], "leave_decided", settings=settings,
+            from_date=orgtime.human_date(leave["from_date"]), to_date=orgtime.human_date(leave["to_date"]),
+            decision=decision,
+        )
 
 
 @router.get("/attachment/{stored_name}")
