@@ -59,6 +59,8 @@ services:
       HRMS_FACEAPI_URL: "http://faceapi:8000"
       HRMS_FACEAPI_KEY: "${HRMS_FACEAPI_KEY:-${FACEAPI_SERVICE_KEY:-}}"
       HRMS_WAHA_URL: "http://waha:3000"
+      HRMS_WAHA_API_KEY: "fakhri_hrms_waha_secret"
+      HRMS_WHATSAPP_PROVIDER: "waha"
       HRMS_DATA_DIR: /app/data
       PORT: "8100"
       WORKERS: "2"
@@ -87,6 +89,7 @@ services:
     restart: unless-stopped
     environment:
       WHATSAPP_DEFAULT_ENGINE: NOWEB
+      WAHA_API_KEY: "fakhri_hrms_waha_secret"
       WAHA_ZIP_LOGS: "false"
       WAHA_PRINT_QR: "false"
       WAHA_DASHBOARD_ENABLED: "false"
