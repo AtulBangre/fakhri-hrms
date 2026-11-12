@@ -70,3 +70,4 @@ def test_send_waha_whatsapp_text(mock_post):
     }
     res = _send_waha_whatsapp(storage, settings, row)
     assert res == "waha message sent"
+
