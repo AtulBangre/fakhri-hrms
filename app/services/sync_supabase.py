@@ -9,9 +9,11 @@ Provides continuous, non-blocking background replication of SQLite data to Supab
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import threading
 import time
+from datetime import datetime
 from typing import Any
 
 from ..config import Settings
@@ -40,11 +42,64 @@ def map_type(sqlite_type: str) -> str:
     return "TEXT"
 
 
+def mask_url(url: str) -> str:
+    """Safely mask database password in connection string for display."""
+    if not url:
+        return ""
+    return re.sub(r":([^:@]+)@", r":••••••••@", url)
+
+
+def get_effective_config(storage: Storage, settings: Settings) -> dict[str, Any]:
+    """Resolve active sync configuration, preferring database settings over env defaults."""
+    db_enabled = storage.get_setting("supabase_sync_enabled", "")
+    if db_enabled in ("1", "true", "yes", "on"):
+        enabled = True
+    elif db_enabled in ("0", "false", "no", "off"):
+        enabled = False
+    else:
+        enabled = settings.supabase_sync_enabled
+
+    db_url = storage.get_setting("supabase_db_url", "").strip() or settings.supabase_db_url.strip()
+    interval = storage.get_int("supabase_sync_interval", settings.supabase_sync_interval)
+
+    return {
+        "enabled": enabled,
+        "db_url": db_url,
+        "interval": max(15, interval),
+    }
+
+
 def get_pg_connection(db_url: str):
     """Open an SSL-encrypted PostgreSQL connection to Supabase pooler."""
     if not HAS_PSYCOPG2:
         raise RuntimeError("psycopg2 is required for Supabase sync.")
     return psycopg2.connect(db_url, sslmode="require", connect_timeout=12)
+
+
+def test_connection(db_url: str) -> tuple[bool, str]:
+    """Test connection to a PostgreSQL database endpoint."""
+    if not HAS_PSYCOPG2:
+        return False, "psycopg2-binary is not installed in the environment."
+    clean_url = (db_url or "").strip()
+    if not clean_url:
+        return False, "Database connection URL cannot be empty."
+
+    pg_conn = None
+    try:
+        pg_conn = get_pg_connection(clean_url)
+        with pg_conn.cursor() as cur:
+            cur.execute("SELECT version();")
+            row = cur.fetchone()
+            ver_text = str(row[0])[:60] if row else "PostgreSQL"
+        return True, f"Connection successful! Handshake verified with {ver_text}"
+    except Exception as exc:
+        return False, f"Connection failed: {exc}"
+    finally:
+        if pg_conn:
+            try:
+                pg_conn.close()
+            except Exception:
+                pass
 
 
 def _source_has_data(storage: Storage) -> bool:
@@ -60,21 +115,33 @@ def _source_has_data(storage: Storage) -> bool:
         return False
 
 
-def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
-    """Mirror SQLite tables and upsert all rows to Supabase PostgreSQL."""
-    if not settings.supabase_sync_enabled or not settings.supabase_db_url or not HAS_PSYCOPG2:
-        return {}
+def sync_database(
+    storage: Storage,
+    settings: Settings,
+    override_url: str | None = None,
+    force: bool = False,
+) -> tuple[bool, str, dict[str, int]]:
+    """Synchronize all SQLite tables and upsert rows to Supabase PostgreSQL."""
+    cfg = get_effective_config(storage, settings)
+    target_url = (override_url or cfg["db_url"]).strip()
+
+    if not HAS_PSYCOPG2:
+        return False, "psycopg2-binary is not installed in the environment.", {}
+    if not target_url:
+        return False, "Supabase PostgreSQL Database URL is not configured.", {}
+    if not cfg["enabled"] and not override_url and not force:
+        return False, "Supabase Cloud Sync is currently disabled in settings.", {}
 
     if not _source_has_data(storage):
-        logger.error("Supabase sync aborted: the local employees or users table is empty.")
-        return {}
+        logger.warning("Supabase sync aborted: the local employees or users table is empty.")
+        return False, "Local database is empty (employees or users table has no records).", {}
 
     started = time.perf_counter()
     results: dict[str, int] = {}
-
     pg_conn = None
+
     try:
-        pg_conn = get_pg_connection(settings.supabase_db_url)
+        pg_conn = get_pg_connection(target_url)
         pg_cur = pg_conn.cursor()
 
         # Direct read connection to SQLite in WAL mode
@@ -112,7 +179,7 @@ def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
                 # Ensure missing columns in PostgreSQL are added
                 pg_cur.execute(
                     "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
-                    (tbl,)
+                    (tbl,),
                 )
                 existing_pg_cols = {r[0] for r in pg_cur.fetchall()}
                 for c in cols_info:
@@ -162,8 +229,9 @@ def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
         pg_conn.commit()
         elapsed = time.perf_counter() - started
         total_rows = sum(results.values())
-        logger.info("Supabase sync complete: %d rows across %d tables in %.2fs", total_rows, len(results), elapsed)
-        return results
+        msg = f"Synced {total_rows} rows across {len(results)} tables in {elapsed:.2f}s."
+        logger.info("Supabase sync complete: %s", msg)
+        return True, msg, results
 
     except Exception as exc:
         if pg_conn:
@@ -171,14 +239,21 @@ def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
                 pg_conn.rollback()
             except Exception:
                 pass
-        logger.warning("Supabase sync paused (will retry): %s", exc)
-        return {}
+        err_msg = f"Supabase sync failed: {exc}"
+        logger.warning(err_msg)
+        return False, err_msg, {}
     finally:
         if pg_conn:
             try:
                 pg_conn.close()
             except Exception:
                 pass
+
+
+def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
+    """Mirror SQLite tables and upsert all rows to Supabase PostgreSQL (backward-compatible)."""
+    ok, _, results = sync_database(storage, settings)
+    return results if ok else {}
 
 
 def get_data_version(storage: Storage) -> int:
@@ -188,6 +263,35 @@ def get_data_version(storage: Storage) -> int:
             return int(row[0]) if row else 0
     except Exception:
         return 0
+
+
+def get_sync_status(
+    storage: Storage,
+    settings: Settings,
+    worker: SupabaseSyncWorker | None = None,
+) -> dict[str, Any]:
+    """Summarize the live status of Supabase Cloud Sync for the HR console."""
+    cfg = get_effective_config(storage, settings)
+    last_synced_str = ""
+    last_synced_sec = None
+    if worker and worker._last_synced:
+        last_synced_sec = int(time.time() - worker._last_synced)
+        last_synced_str = datetime.fromtimestamp(worker._last_synced).strftime("%d %b %Y, %I:%M %p")
+
+    return {
+        "has_psycopg2": HAS_PSYCOPG2,
+        "enabled": cfg["enabled"],
+        "db_url_configured": bool(cfg["db_url"]),
+        "db_url_raw": cfg["db_url"],
+        "masked_db_url": mask_url(cfg["db_url"]),
+        "interval": cfg["interval"],
+        "is_running": (worker._thread is not None and worker._thread.is_alive()) if worker else False,
+        "last_synced": last_synced_str,
+        "last_synced_seconds": last_synced_sec,
+        "last_error": worker._last_error if worker else None,
+        "last_stats": worker._last_stats if worker else {},
+        "total_rows_synced": sum(worker._last_stats.values()) if (worker and worker._last_stats) else 0,
+    }
 
 
 class SupabaseSyncWorker:
@@ -201,20 +305,31 @@ class SupabaseSyncWorker:
         self._thread: threading.Thread | None = None
         self._last_synced: float = 0
         self._last_data_version: int | None = None
+        self._last_error: str | None = None
+        self._last_stats: dict[str, int] = {}
 
     def start(self) -> None:
-        if not self.settings.supabase_sync_enabled or not HAS_PSYCOPG2:
+        cfg = get_effective_config(self.storage, self.settings)
+        if not cfg["enabled"] or not HAS_PSYCOPG2:
             logger.info("Supabase background sync is disabled or psycopg2 is missing.")
+            return
+
+        if self._thread and self._thread.is_alive():
+            self._wake_event.set()
             return
 
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run, name="supabase-sync", daemon=True)
         self._thread.start()
-        logger.info("Supabase background sync started (interval=%ds)", self.settings.supabase_sync_interval)
+        logger.info("Supabase background sync engine started.")
 
     def trigger(self) -> None:
-        """Wake up the sync worker immediately."""
-        self._wake_event.set()
+        """Wake up sync worker immediately (and start thread if enabled and stopped)."""
+        cfg = get_effective_config(self.storage, self.settings)
+        if cfg["enabled"]:
+            if not self._thread or not self._thread.is_alive():
+                self.start()
+            self._wake_event.set()
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -224,26 +339,27 @@ class SupabaseSyncWorker:
         logger.info("Supabase background sync stopped.")
 
     def _run(self) -> None:
-        # Initial sync on startup
         time.sleep(2)
-        if not self._stop_event.is_set():
-            sync_all(self.storage, self.settings)
-            self._last_synced = time.time()
-            self._last_data_version = get_data_version(self.storage)
-
         while not self._stop_event.is_set():
-            self._wake_event.wait(timeout=self.settings.supabase_sync_interval)
-            self._wake_event.clear()
-
-            if self._stop_event.is_set():
-                break
+            cfg = get_effective_config(self.storage, self.settings)
+            if not cfg["enabled"] or not cfg["db_url"]:
+                # Idle poll every 15s to check if admin enabled it
+                self._wake_event.wait(timeout=15)
+                self._wake_event.clear()
+                continue
 
             curr_ver = get_data_version(self.storage)
             if self._last_data_version is not None and curr_ver == self._last_data_version:
                 logger.debug("Database data_version unchanged (%d), skipping Supabase sync", curr_ver)
-                continue
+            else:
+                ok, msg, stats = sync_database(self.storage, self.settings)
+                if ok:
+                    self._last_synced = time.time()
+                    self._last_data_version = curr_ver
+                    self._last_error = None
+                    self._last_stats = stats
+                else:
+                    self._last_error = msg
 
-            sync_all(self.storage, self.settings)
-            self._last_synced = time.time()
-            self._last_data_version = curr_ver
-
+            self._wake_event.wait(timeout=cfg["interval"])
+            self._wake_event.clear()

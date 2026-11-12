@@ -42,6 +42,10 @@ def settings_page(
         except FaceServiceUnavailable as exc:
             collection = {"error": str(exc)}
 
+    from ..services import sync_supabase
+    supabase_worker = getattr(request.app.state, "supabase_sync", None)
+    supabase_status = sync_supabase.get_sync_status(storage, settings, worker=supabase_worker)
+
     return render(
         request,
         "settings.html",
@@ -61,6 +65,7 @@ def settings_page(
         faceapi_url=settings.faceapi_url,
         collection_name=settings.face_collection,
         whatsapp_info=notify.get_waha_session_info(settings),
+        supabase_status=supabase_status,
     )
 
 
@@ -447,3 +452,84 @@ def whatsapp_test(
     if res.get("ok"):
         return redirect("/settings#whatsapp", ok=f"Test message sent successfully to {phone}!")
     return redirect("/settings#whatsapp", err=f"Failed to send test message: {res.get('error')}")
+
+
+@router.post("/supabase/config")
+def save_supabase_config(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+    enabled: str = Form("0"),
+    db_url: str = Form(""),
+    interval: str = Form("60"),
+):
+    verify_form_csrf(user, csrf)
+    is_enabled = "1" if enabled in ("1", "true", "on", "yes") else "0"
+    storage.set_setting("supabase_sync_enabled", is_enabled)
+    if db_url.strip():
+        storage.set_setting("supabase_db_url", db_url.strip())
+    try:
+        sec = max(15, int(interval.strip()))
+        storage.set_setting("supabase_sync_interval", str(sec))
+    except ValueError:
+        pass
+
+    worker = getattr(request.app.state, "supabase_sync", None)
+    if worker:
+        if is_enabled == "1":
+            worker.start()
+            worker.trigger()
+        else:
+            worker.stop()
+
+    return redirect("/settings#supabase", ok="Supabase Cloud Sync settings saved successfully.")
+
+
+@router.post("/supabase/test")
+def test_supabase_endpoint(
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+    db_url: str = Form(""),
+):
+    from ..services import sync_supabase
+
+    verify_form_csrf(user, csrf)
+    target_url = db_url.strip() or storage.get_setting("supabase_db_url", settings.supabase_db_url)
+    if not target_url:
+        return redirect("/settings#supabase", err="Please enter a valid Supabase PostgreSQL Database URL to test.")
+
+    ok, message = sync_supabase.test_connection(target_url)
+    if ok:
+        return redirect("/settings#supabase", ok=message)
+    return redirect("/settings#supabase", err=message)
+
+
+@router.post("/supabase/sync")
+def manual_supabase_sync(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+):
+    from ..services import sync_supabase
+
+    verify_form_csrf(user, csrf)
+    ok, msg, stats = sync_supabase.sync_database(storage, settings, force=True)
+    worker = getattr(request.app.state, "supabase_sync", None)
+    if worker:
+        if ok:
+            worker._last_synced = time.time()
+            worker._last_error = None
+            worker._last_stats = stats
+        else:
+            worker._last_error = msg
+
+    if ok:
+        total_rows = sum(stats.values())
+        return redirect("/settings#supabase", ok=f"Cloud sync successful! {total_rows} rows mirrored across {len(stats)} tables.")
+    return redirect("/settings#supabase", err=msg)
+

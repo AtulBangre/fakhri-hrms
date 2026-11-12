@@ -403,6 +403,131 @@
       </div>
     </div>
 
+    <!-- Supabase Cloud Sync Card -->
+    <div id="supabase" class="card mb-3">
+      <div class="card-head">
+        <h3>☁️ Supabase Cloud Database Mirror</h3>
+        <span class="spacer"></span>
+        {% if supabase_status.enabled and supabase_status.db_url_configured %}
+          {% if supabase_status.last_error %}
+            <span class="chip" style="background:#FEF2F2;color:#B91C1C;border:1px solid #FECACA">Sync Paused</span>
+          {% elif supabase_status.last_synced %}
+            <span class="chip" style="background:#F0FDF4;color:#15803D;border:1px solid #BBF7D0">Active &bull; Synced</span>
+          {% else %}
+            <span class="chip chip-primary">Enabled</span>
+          {% endif %}
+        {% else %}
+          <span class="chip chip-muted">Disabled</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <p class="small muted mb-3">
+          Asynchronous, non-blocking cloud replication of local SQLite tables to a Supabase PostgreSQL instance.
+          Enables offsite backups, cloud reporting, and high availability without sacrificing sub-millisecond local SQLite speed.
+        </p>
+
+        <!-- Status Box -->
+        <div style="background:#F8FAFC;border:1px solid var(--border);border-radius:10px;padding:1rem;margin-bottom:1.25rem">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1rem;font-size:0.875rem">
+            <div>
+              <div class="small muted">Sync Engine Status</div>
+              <div style="font-weight:600;margin-top:2px">
+                {% if supabase_status.enabled %}
+                  <span style="color:#15803D">● Enabled &amp; Running</span>
+                {% else %}
+                  <span style="color:var(--muted)">○ Disabled (Local SQLite Only)</span>
+                {% endif %}
+              </div>
+            </div>
+            <div>
+              <div class="small muted">Configured Target</div>
+              <div class="mono" style="font-weight:600;margin-top:2px;font-size:0.82rem;word-break:break-all">
+                {{ supabase_status.masked_db_url or '— Not configured —' }}
+              </div>
+            </div>
+            <div>
+              <div class="small muted">Last Synced</div>
+              <div style="font-weight:600;margin-top:2px">
+                {% if supabase_status.last_synced %}
+                  {{ supabase_status.last_synced }}
+                  <span class="small muted">({{ supabase_status.last_synced_seconds }}s ago)</span>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </div>
+            </div>
+            <div>
+              <div class="small muted">Mirrored Rows</div>
+              <div style="font-weight:600;margin-top:2px">
+                {{ supabase_status.total_rows_synced }} rows
+                {% if supabase_status.last_stats %}
+                  <span class="small muted">({{ supabase_status.last_stats|length }} tables)</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          {% if supabase_status.last_error %}
+            <div style="margin-top:0.85rem;padding:0.6rem 0.8rem;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:6px;color:#991B1B;font-size:0.82rem">
+              <strong>Error:</strong> {{ supabase_status.last_error }}
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Configuration Form -->
+        <form method="post" action="/settings/supabase/config" class="mb-3">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          
+          <div class="field mb-3">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+              <input type="checkbox" name="enabled" value="1" {% if supabase_status.enabled %}checked{% endif %} style="width:18px;height:18px">
+              <span>Enable Background Cloud Database Sync</span>
+            </label>
+            <div class="small muted" style="margin-left:26px">When enabled, background daemon thread replicates data version changes every {{ supabase_status.interval }}s.</div>
+          </div>
+
+          <div class="field mb-3">
+            <label for="sb_db_url">Supabase PostgreSQL Connection URI</label>
+            <input id="sb_db_url" name="db_url" type="password" value="{{ supabase_status.db_url_raw }}" placeholder="postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres" autocomplete="new-password">
+            <div class="small muted">Found under Supabase Dashboard &rarr; Project Settings &rarr; Database &rarr; Connection string (URI - Session mode).</div>
+          </div>
+
+          <div class="form-row cols-2 mb-3">
+            <div class="field">
+              <label for="sb_interval">Sync Interval</label>
+              <select id="sb_interval" name="interval">
+                <option value="30" {% if supabase_status.interval == 30 %}selected{% endif %}>Every 30 seconds</option>
+                <option value="60" {% if supabase_status.interval == 60 %}selected{% endif %}>Every 1 minute (Recommended)</option>
+                <option value="300" {% if supabase_status.interval == 300 %}selected{% endif %}>Every 5 minutes</option>
+                <option value="900" {% if supabase_status.interval == 900 %}selected{% endif %}>Every 15 minutes</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary" type="submit">Save Supabase Settings</button>
+          </div>
+        </form>
+
+        <!-- Test Connection & Manual Sync Buttons -->
+        <div style="border-top:1px solid var(--border);padding-top:1rem;display:flex;gap:0.75rem;flex-wrap:wrap">
+          <form method="post" action="/settings/supabase/test" style="display:inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn btn-ghost" type="submit" {% if not supabase_status.db_url_configured %}disabled title="Configure a URL first"{% endif %}>
+              🔌 Test PostgreSQL Handshake
+            </button>
+          </form>
+
+          <form method="post" action="/settings/supabase/sync" style="display:inline">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn btn-ghost" type="submit" {% if not supabase_status.db_url_configured %}disabled title="Configure a URL first"{% endif %}>
+              🔄 Sync to Cloud Now
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
     <div class="card mb-3">
       <div class="card-head"><h3>Work Shifts</h3><span class="spacer"></span>
         <span class="small muted">{{ shifts|length }} shift(s)</span></div>

@@ -309,4 +309,10 @@ SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
      "How close a field employee must be to an allowed location to mark attendance."),
     ("hr_whatsapp_phone", "", "HR / Admin WhatsApp Number", "text",
      "Receives daily attendance summary and leave request notifications."),
+    ("supabase_sync_enabled", "0", "Supabase Cloud Sync", "select:0|1",
+     "Replicate local SQLite tables and rows to cloud Supabase PostgreSQL in background."),
+    ("supabase_db_url", "", "Supabase PostgreSQL Database URL", "text",
+     "PostgreSQL pooler connection URI (e.g. postgresql://postgres:password@db.xxx.supabase.co:5432/postgres)."),
+    ("supabase_sync_interval", "60", "Supabase Sync Interval (seconds)", "number",
+     "Seconds between background sync checks (minimum 15s)."),
 ]
