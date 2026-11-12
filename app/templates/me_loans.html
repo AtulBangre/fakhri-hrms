@@ -176,11 +176,11 @@
       <div class="form-row cols-2 mb-3">
         <div class="field">
           <label for="l-principal">Requested Amount (₹) *</label>
-          <input id="l-principal" name="principal_amount" type="number" step="500" min="500" required placeholder="e.g. 10000" oninput="syncSalaryAdvanceEmi()">
+          <input id="l-principal" name="principal_amount" type="number" step="any" min="100" required placeholder="e.g. 10000" oninput="syncSalaryAdvanceEmi()">
         </div>
         <div class="field" id="wrap-l-emi" style="display:none">
           <label for="l-emi">Preferred Monthly EMI (₹) *</label>
-          <input id="l-emi" name="monthly_emi" type="number" step="500" min="500" placeholder="e.g. 5000">
+          <input id="l-emi" name="monthly_emi" type="number" step="any" min="100" placeholder="e.g. 5000">
           <div class="hint">Will be deducted monthly from payroll</div>
         </div>
       </div>

@@ -583,6 +583,44 @@ def _whatsapp_text(template: str, settings: Settings, **ctx: Any) -> str:
     if template == "payslip":
         name = ctx.get("name") or "there"
         return f"*{settings.org_name}* — Hi {name}, your payslip for {ctx['period']} is generated. Downloadable PDF document is attached below."
+    if template == "regularization_decided":
+        status = ctx.get("status", "processed")
+        note = f" Note: {ctx['note']}" if ctx.get("note") else ""
+        return f"*{settings.org_name}* — Your missed-punch correction for {ctx['date']} was {status}.{note}"
+    if template == "regularization_requested":
+        return f"*{settings.org_name}* — {ctx['name']} requested attendance regularization for {ctx['date']}. Reason: {ctx.get('reason') or '—'}"
+    if template == "expense_update":
+        amt = ctx.get("amount", "")
+        amt_str = f" (Rs {amt})" if amt else ""
+        return f"*{settings.org_name}* — Your {ctx.get('category', '')} expense claim{amt_str} was {ctx.get('status', 'updated')}."
+    if template == "attendance_reminder":
+        return f"*{settings.org_name}* — ⚠️ {ctx.get('message', 'Reminder: Please mark your attendance.')}"
+    if template == "hr_attendance_summary":
+        base = settings.public_base_url.rstrip("/")
+        return (
+            f"*{settings.org_name} — Today's Attendance Summary* 📊\n"
+            f"Date: {ctx.get('date')}\n"
+            f"• Present: {ctx.get('present', 0)}\n"
+            f"• Late: {ctx.get('late', 0)}\n"
+            f"• Half Day: {ctx.get('half_day', 0)}\n"
+            f"• On Leave: {ctx.get('leave', 0)}\n"
+            f"• Not Marked: {ctx.get('not_marked', 0)}\n"
+            f"Portal: {base}/attendance"
+        )
+    if template == "birthday_wish":
+        return f"*{settings.org_name}* — 🎂 Happy Birthday, {ctx.get('name', 'there')}! Wishing you happiness, good health, and success from everyone on the team!"
+    if template == "anniversary_wish":
+        years = f"{ctx.get('years')} " if ctx.get("years") else ""
+        return f"*{settings.org_name}* — 💐 Happy {years}Work Anniversary, {ctx.get('name', 'there')}! Thank you for your dedication and valued contributions!"
+    if template == "loan_applied":
+        return f"*{settings.org_name}* — Your request for {ctx.get('loan_type', 'loan')} (Rs {ctx.get('amount')}) has been submitted to HR for approval."
+    if template == "loan_requested_hr":
+        return f"*{settings.org_name}* — {ctx.get('name')} requested {ctx.get('loan_type', 'loan')} of Rs {ctx.get('amount')}. Reason: {ctx.get('reason') or '—'}"
+    if template == "loan_decided":
+        note = f" Note: {ctx['note']}" if ctx.get("note") else ""
+        return f"*{settings.org_name}* — Your {ctx.get('loan_type', 'loan')} request for Rs {ctx.get('amount')} was {ctx.get('status')}.{note}"
+    if template == "loan_closed":
+        return f"*{settings.org_name}* — Your {ctx.get('loan_type', 'loan')} (#{ctx.get('loan_id')}) of Rs {ctx.get('amount')} has been fully settled and marked closed."
     if template == "otp":
         return f"*{settings.org_name}* — password reset code: {ctx['code']} (valid {ctx['minutes']} min)."
     if template == "welcome":

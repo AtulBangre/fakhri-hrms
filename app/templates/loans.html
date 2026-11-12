@@ -187,11 +187,11 @@
       <div class="form-row cols-2 mb-3">
         <div class="field">
           <label for="principal_amount">Principal Amount (₹) *</label>
-          <input id="principal_amount" name="principal_amount" type="number" min="500" step="500" placeholder="e.g. 10000" required oninput="syncHrAdvanceEmi()">
+          <input id="principal_amount" name="principal_amount" type="number" min="100" step="any" placeholder="e.g. 10000" required oninput="syncHrAdvanceEmi()">
         </div>
         <div class="field" id="wrap-hr-emi" style="display:none">
           <label for="monthly_emi">Monthly EMI (₹) *</label>
-          <input id="monthly_emi" name="monthly_emi" type="number" min="500" step="100" placeholder="e.g. 5000">
+          <input id="monthly_emi" name="monthly_emi" type="number" min="100" step="any" placeholder="e.g. 5000">
           <div class="hint">Will be auto-deducted monthly in payroll.</div>
         </div>
       </div>

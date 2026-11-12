@@ -63,7 +63,7 @@
           <div class="form-row cols-3">
             <div class="field">
               <label for="monthly_gross">Monthly gross</label>
-              <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="100" value="{{ employee.monthly_gross | round(0) | int }}" required>
+              <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="any" value="{{ employee.monthly_gross | round(0) | int }}" required>
             </div>
             <div class="field">
               <label for="effective_from">Effective from</label>
@@ -75,14 +75,14 @@
             </div>
           </div>
           <div class="form-row cols-3">
-            <div class="field"><label for="basic">Basic</label><input id="basic" name="basic" type="number" min="0" step="100" value="{{ salary_defaults.basic | plain }}"></div>
-            <div class="field"><label for="hra">HRA</label><input id="hra" name="hra" type="number" min="0" step="100" value="{{ salary_defaults.hra | plain }}"></div>
-            <div class="field"><label for="other_allowances">Other allowances</label><input id="other_allowances" name="other_allowances" type="number" min="0" step="100" value="{{ salary_defaults.other_allowances | plain }}"></div>
+            <div class="field"><label for="basic">Basic</label><input id="basic" name="basic" type="number" min="0" step="any" value="{{ salary_defaults.basic | plain }}"></div>
+            <div class="field"><label for="hra">HRA</label><input id="hra" name="hra" type="number" min="0" step="any" value="{{ salary_defaults.hra | plain }}"></div>
+            <div class="field"><label for="other_allowances">Other allowances</label><input id="other_allowances" name="other_allowances" type="number" min="0" step="any" value="{{ salary_defaults.other_allowances | plain }}"></div>
           </div>
           <div class="form-row cols-3">
-            <div class="field"><label for="pf">PF</label><input id="pf" name="pf" type="number" min="0" step="10" value="{{ salary_defaults.pf | plain }}"></div>
-            <div class="field"><label for="esi">ESI</label><input id="esi" name="esi" type="number" min="0" step="10" value="{{ salary_defaults.esi | plain }}"></div>
-            <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="10" value="{{ salary_defaults.professional_tax | plain }}"></div>
+            <div class="field"><label for="pf">PF</label><input id="pf" name="pf" type="number" min="0" step="any" value="{{ salary_defaults.pf | plain }}"></div>
+            <div class="field"><label for="esi">ESI</label><input id="esi" name="esi" type="number" min="0" step="any" value="{{ salary_defaults.esi | plain }}"></div>
+            <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="any" value="{{ salary_defaults.professional_tax | plain }}"></div>
             <div class="field"><label for="statutory_mode">PF / ESI</label>
                 <select id="statutory_mode" name="statutory_mode">
                   <option value="auto" {{ 'selected' if salary_defaults.statutory_mode == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>

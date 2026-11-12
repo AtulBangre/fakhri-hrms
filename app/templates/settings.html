@@ -272,15 +272,38 @@
             <!-- Active automated services -->
             <div style="margin-top:1rem;padding-top:0.85rem;border-top:1px dashed #BBF7D0;display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:0.75rem">
               <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#166534">
-                <span>✓</span> <strong>Punch-In / Out Alerts</strong>
+                <span>✓</span> <strong>Punch-In / Out Alerts (Kiosk &amp; Field)</strong>
               </div>
               <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#166534">
                 <span>✓</span> <strong>Salary Slip PDF Attachments</strong>
               </div>
               <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#166534">
-                <span>✓</span> <strong>Leave Decisions &amp; Notices</strong>
+                <span>✓</span> <strong>Leave &amp; Missed-Punch Updates</strong>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#166534">
+                <span>✓</span> <strong>Shift Check-In &amp; Check-Out Reminders</strong>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#166534">
+                <span>✓</span> <strong>Birthday &amp; Anniversary Greetings</strong>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#166534">
+                <span>✓</span> <strong>Daily HR Morning Attendance Digest</strong>
               </div>
             </div>
+          </div>
+
+          <!-- HR Daily Digest Phone Form -->
+          <div style="background:#F8FAFC;border:1px solid var(--border);border-radius:10px;padding:1rem;margin-top:1rem">
+            <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.25rem">📊 HR / Admin Daily Digest WhatsApp Number</div>
+            <div class="small muted mb-2">Receives daily 10:00 AM attendance summary report and employee leave request alerts.</div>
+            <form method="post" action="/settings/value">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input type="hidden" name="key" value="hr_whatsapp_phone">
+              <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+                <input name="value" type="tel" placeholder="e.g. 916263638053" value="{{ values.get('hr_whatsapp_phone', '') }}" style="flex:1;min-width:200px">
+                <button class="btn btn-primary" type="submit">Save HR Number</button>
+              </div>
+            </form>
           </div>
 
           <!-- Test WhatsApp Message Form -->

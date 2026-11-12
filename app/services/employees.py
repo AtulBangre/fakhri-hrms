@@ -13,12 +13,13 @@ from . import orgtime
 
 logger = logging.getLogger("hrms.employees")
 
-EMPLOYMENT_TYPES = ("full_time", "part_time", "intern", "contract")
+EMPLOYMENT_TYPES = ("full_time", "part_time", "intern", "contract", "trainee")
 EMPLOYMENT_LABELS = {
     "full_time": "Full time",
     "part_time": "Part time",
     "intern": "Intern",
     "contract": "Contract",
+    "trainee": "Trainee",
 }
 
 EDITABLE_FIELDS = (

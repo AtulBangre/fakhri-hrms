@@ -178,26 +178,31 @@
                      placeholder="{{ masked_aadhaar or '12-digit number' }}">
               <div class="hint">Only the last 4 digits are stored{% if masked_aadhaar %} (on file: {{ masked_aadhaar }}){% endif %}.</div></div>
           </div>
-          <div class="form-row cols-2">
-            <div class="field"><label for="uan">EPFO UAN (Universal Account Number)</label>
-              <input id="uan" name="uan" type="text" inputmode="numeric" maxlength="12" placeholder="12-digit UAN"
-                     value="{{ f.get('uan') or (employee.uan if employee else '') or '' }}">
-              <div class="hint">Used for 1-click EPFO ECR filing</div></div>
-            <div class="field"><label for="esic_ip">ESIC Insurance Number (IP)</label>
-              <input id="esic_ip" name="esic_ip" type="text" inputmode="numeric" maxlength="17" placeholder="10–17 digit IP"
-                     value="{{ f.get('esic_ip') or (employee.esic_ip if employee else '') or '' }}">
-              <div class="hint">Used for 1-click ESIC return export</div></div>
+          <div id="unpaid_trainee_notice" style="display:none;background:#EFF6FF;border:1px solid #BFDBFE;padding:0.75rem 1rem;border-radius:8px;margin-bottom:1rem;color:#1E40AF;font-size:0.875rem">
+            ℹ️ <strong>Unpaid Trainee:</strong> Stipend is ₹0. Bank details, EPFO, and ESIC are bypassed and not required.
           </div>
-          <div class="form-row cols-4">
-            <div class="field"><label for="bank_name">Bank</label>
-              <input id="bank_name" name="bank_name" type="text" value="{{ f.get('bank_name') or (employee.bank_name if employee else '') or '' }}"></div>
-            <div class="field"><label for="account_holder">Account holder</label>
-              <input id="account_holder" name="account_holder" type="text" value="{{ f.get('account_holder') or (employee.account_holder if employee else '') or '' }}"></div>
-            <div class="field"><label for="account_number">Account number</label>
-              <input id="account_number" name="account_number" type="text" inputmode="numeric" value="{{ f.get('account_number') or (employee.account_number if employee else '') or '' }}"></div>
-            <div class="field"><label for="ifsc">IFSC</label>
-              <input id="ifsc" name="ifsc" type="text" maxlength="11" placeholder="HDFC0001234" style="text-transform:uppercase"
-                     value="{{ f.get('ifsc') or (employee.ifsc if employee else '') or '' }}"></div>
+          <div id="bank_details_section">
+            <div class="form-row cols-2">
+              <div class="field"><label for="uan">EPFO UAN (Universal Account Number)</label>
+                <input id="uan" name="uan" type="text" inputmode="numeric" maxlength="12" placeholder="12-digit UAN"
+                       value="{{ f.get('uan') or (employee.uan if employee else '') or '' }}">
+                <div class="hint">Used for 1-click EPFO ECR filing</div></div>
+              <div class="field"><label for="esic_ip">ESIC Insurance Number (IP)</label>
+                <input id="esic_ip" name="esic_ip" type="text" inputmode="numeric" maxlength="17" placeholder="10–17 digit IP"
+                       value="{{ f.get('esic_ip') or (employee.esic_ip if employee else '') or '' }}">
+                <div class="hint">Used for 1-click ESIC return export</div></div>
+            </div>
+            <div class="form-row cols-4">
+              <div class="field"><label for="bank_name">Bank</label>
+                <input id="bank_name" name="bank_name" type="text" value="{{ f.get('bank_name') or (employee.bank_name if employee else '') or '' }}"></div>
+              <div class="field"><label for="account_holder">Account holder</label>
+                <input id="account_holder" name="account_holder" type="text" value="{{ f.get('account_holder') or (employee.account_holder if employee else '') or '' }}"></div>
+              <div class="field"><label for="account_number">Account number</label>
+                <input id="account_number" name="account_number" type="text" inputmode="numeric" value="{{ f.get('account_number') or (employee.account_number if employee else '') or '' }}"></div>
+              <div class="field"><label for="ifsc">IFSC</label>
+                <input id="ifsc" name="ifsc" type="text" maxlength="11" placeholder="HDFC0001234" style="text-transform:uppercase"
+                       value="{{ f.get('ifsc') or (employee.ifsc if employee else '') or '' }}"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -291,28 +296,28 @@
           <div class="card-body">
             <div class="form-row cols-2">
               <div class="field">
-                <label for="monthly_gross">Monthly gross (CTC) *</label>
-                <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="100" value="{{ f.get('monthly_gross') or '' }}" placeholder="45000">
-                <div class="hint">This is what payroll pays before deductions and LOP.</div>
+                <label for="monthly_gross" id="gross_label">Monthly gross (CTC) *</label>
+                <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="any" value="{{ f.get('monthly_gross') or '' }}" placeholder="45000">
+                <div class="hint" id="gross_hint">This is what payroll pays before deductions and LOP.</div>
               </div>
               <div class="field">
                 <label for="basic">Basic</label>
-                <input id="basic" name="basic" type="number" min="0" step="100" value="{{ f.get('basic') or '' }}">
+                <input id="basic" name="basic" type="number" min="0" step="any" value="{{ f.get('basic') or '' }}">
               </div>
             </div>
             <div class="form-row cols-3">
               <div class="field"><label for="hra">HRA</label>
-                <input id="hra" name="hra" type="number" min="0" step="100" value="{{ f.get('hra') or '' }}"></div>
+                <input id="hra" name="hra" type="number" min="0" step="any" value="{{ f.get('hra') or '' }}"></div>
               <div class="field"><label for="other_allowances">Other allowances</label>
-                <input id="other_allowances" name="other_allowances" type="number" min="0" step="100" value="{{ f.get('other_allowances') or '' }}"></div>
+                <input id="other_allowances" name="other_allowances" type="number" min="0" step="any" value="{{ f.get('other_allowances') or '' }}"></div>
               <div class="field"><label for="pf">PF (monthly)</label>
-                <input id="pf" name="pf" type="number" min="0" step="10" value="{{ f.get('pf') or '' }}"></div>
+                <input id="pf" name="pf" type="number" min="0" step="any" value="{{ f.get('pf') or '' }}"></div>
             </div>
             <div class="form-row cols-3">
               <div class="field"><label for="esi">ESI (monthly)</label>
-                <input id="esi" name="esi" type="number" min="0" step="10" value="{{ f.get('esi') or '' }}"></div>
+                <input id="esi" name="esi" type="number" min="0" step="any" value="{{ f.get('esi') or '' }}"></div>
               <div class="field"><label for="professional_tax">Professional tax</label>
-                <input id="professional_tax" name="professional_tax" type="number" min="0" step="10" value="{{ f.get('professional_tax') or '200' }}"></div>
+                <input id="professional_tax" name="professional_tax" type="number" min="0" step="any" value="{{ f.get('professional_tax') or '200' }}"></div>
               <div class="field"><label for="statutory_mode">PF / ESI</label>
                 <select id="statutory_mode" name="statutory_mode">
                   <option value="auto" {{ 'selected' if (f.get('statutory_mode') or 'auto') == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
@@ -351,4 +356,47 @@
     </div>
   </div>
 </form>
+
+<script>
+(function() {
+  var empType = document.getElementById('employment_type');
+  var grossInput = document.getElementById('monthly_gross');
+  var grossLabel = document.getElementById('gross_label');
+  var grossHint = document.getElementById('gross_hint');
+  var bankSection = document.getElementById('bank_details_section');
+  var unpaidNotice = document.getElementById('unpaid_trainee_notice');
+
+  function updateTraineeUI() {
+    if (!empType) return;
+    var type = empType.value;
+    var val = parseFloat((grossInput && grossInput.value) || 0);
+    var isTrainee = (type === 'trainee' || type === 'intern');
+
+    if (grossLabel) {
+      grossLabel.textContent = isTrainee ? 'Monthly Stipend (₹) *' : 'Monthly gross (CTC) *';
+    }
+    if (grossHint) {
+      grossHint.textContent = isTrainee
+        ? 'Enter 0 if unpaid trainee / evaluation period.'
+        : 'This is what payroll pays before deductions and LOP.';
+    }
+    if (unpaidNotice && bankSection) {
+      if (type === 'trainee' && (isNaN(val) || val <= 0)) {
+        unpaidNotice.style.display = 'block';
+        bankSection.style.display = 'none';
+      } else {
+        unpaidNotice.style.display = 'none';
+        bankSection.style.display = 'block';
+      }
+    }
+  }
+
+  if (empType) empType.addEventListener('change', updateTraineeUI);
+  if (grossInput) {
+    grossInput.addEventListener('input', updateTraineeUI);
+    grossInput.addEventListener('change', updateTraineeUI);
+  }
+  updateTraineeUI();
+})();
+</script>
 {% endblock %}

@@ -24,6 +24,7 @@ from ..uploads import delete_file, save_upload
 from . import attendance as attendance_service
 from . import employees as employees_service
 from . import orgtime
+from . import orgtime
 
 EARTH_RADIUS_M = 6_371_000
 
@@ -216,6 +217,20 @@ def check_in(
         source="field",
     )
     notify.push_punch(storage, settings, employee, outcome)
+    if getattr(settings, "notify_whatsapp_attendance", True) and employee.get("phone") and outcome.action in ("check_in", "check_out"):
+        is_in = outcome.action == "check_in"
+        template = "punch_in" if is_in else "check_out"
+        ctx = {
+            "name": employee["name"],
+            "date": orgtime.human_date(outcome.work_date),
+            "time": orgtime.format_clock(outcome.check_in if is_in else outcome.check_out),
+            "late_minutes": outcome.late_minutes,
+            "shift_start": orgtime.shift_for(storage, employee)["start_time"],
+            "worked": orgtime.format_minutes(outcome.worked_minutes),
+        }
+        notify.queue_whatsapp(
+            storage, employee["phone"], template, settings=settings, **ctx
+        )
     storage.audit(actor=actor, action="field_check_inside", entity="employee",
                   entity_id=employee["id"],
                   detail=f"{kind} at {place}" + (f" ({distance:.0f}m)" if distance is not None else ""))

@@ -15,6 +15,7 @@ is no employee-id parameter anywhere in these routes for someone to tamper with.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 
@@ -434,6 +435,26 @@ async def request_leave(
                 days=leave["days"],
             )
 
+    if getattr(settings, "notify_whatsapp_leave", True):
+        if employee.get("phone"):
+            notify.queue_whatsapp(
+                storage, employee["phone"], "leave_applied_confirmation",
+                settings=settings,
+                days=leave["days"],
+                from_date=orgtime.human_date(leave["from_date"]),
+                to_date=orgtime.human_date(leave["to_date"]),
+            )
+        hr_phone = getattr(settings, "hr_whatsapp_phone", "")
+        if hr_phone:
+            notify.queue_whatsapp(
+                storage, hr_phone, "leave_requested",
+                settings=settings,
+                name=employee["name"],
+                days=leave["days"],
+                from_date=orgtime.human_date(leave["from_date"]),
+                to_date=orgtime.human_date(leave["to_date"]),
+            )
+
     return redirect(
         "/me/leave",
         ok=f"Request sent — {leave['days']:g} day(s) {orgtime.LEAVE_LABELS.get(leave_type, leave_type).lower()}. HR & Manager notified.",
@@ -635,6 +656,7 @@ def apply_loan_route(
     csrf: str = Form("", alias="_csrf"),
     user: SessionUser = Depends(require_employee),
     storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
 ):
     verify_form_csrf(user, csrf)
     employee = _me(storage, user)
@@ -651,6 +673,54 @@ def apply_loan_route(
         return redirect("/me/loans", err=str(exc))
     except Exception as exc:
         return redirect("/me/loans", err=f"Failed to submit loan request: {exc}")
+
+    # Send multi-channel notifications
+    loan_label = loan_type.replace("_", " ").title()
+    amt_str = f"{principal_amount:,.2f}"
+
+    # In-app push
+    notify.push_employee(
+        storage, settings, employee["id"],
+        f"{loan_label} submitted",
+        f"Your request for ₹{amt_str} has been submitted to HR.",
+        "/me/loans", category="loan",
+    )
+    notify.push_hr(
+        storage, settings,
+        f"New {loan_label} request",
+        f"{employee['name']} requested ₹{amt_str}.",
+        "/loans", category="loan",
+    )
+
+    # Email
+    if settings.notify_email_enabled:
+        notify.notify_hr(
+            storage, settings, "hr_alert", category="loan",
+            subject=f"Loan Request: {employee['name']} · ₹{amt_str}",
+            message=f"{employee['name']} ({employee['code']}) requested {loan_label} of ₹{amt_str}. Reason: {reason or '—'}",
+            link="/loans",
+        )
+        if employee.get("email"):
+            notify.queue_email(
+                storage, employee["email"], "hr_alert", settings=settings, category="loan",
+                name=employee["name"],
+                subject=f"{loan_label} Request Submitted (₹{amt_str})",
+                message=f"Hi {employee['name']}, your request for {loan_label} of ₹{amt_str} has been submitted to HR.",
+            )
+
+    # WhatsApp
+    if getattr(settings, "notify_whatsapp_leave", True):
+        if employee.get("phone"):
+            notify.queue_whatsapp(
+                storage, employee["phone"], "loan_applied", settings=settings,
+                loan_type=loan_label, amount=amt_str,
+            )
+        hr_phone = storage.get_setting("hr_whatsapp_phone", getattr(settings, "hr_whatsapp_phone", ""))
+        if hr_phone:
+            notify.queue_whatsapp(
+                storage, hr_phone, "loan_requested_hr", settings=settings,
+                name=employee["name"], loan_type=loan_label, amount=amt_str, reason=reason,
+            )
 
     return redirect("/me/loans", ok=f"Loan request #{loan_id} for ₹{principal_amount:,.2f} submitted. Awaiting HR approval.")
 

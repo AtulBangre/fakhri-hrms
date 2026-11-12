@@ -89,3 +89,51 @@ def test_request_waha_pairing_code(mock_session_info, mock_post):
     assert res["phone"] == "919876543210"
 
 
+def test_whatsapp_new_templates():
+    from app.notify import _whatsapp_text
+    settings = Settings()
+    settings.org_name = "Fakhri IT Services"
+
+    # Regularization
+    txt = _whatsapp_text("regularization_decided", settings, date="11 Nov 2026", status="Approved", note="Approved by HR")
+    assert "Attendance correction" in txt or "missed-punch" in txt
+    assert "Approved" in txt
+
+    # Expense
+    txt_exp = _whatsapp_text("expense_update", settings, category="Travel", amount="1,500.00", status="approved")
+    assert "Travel" in txt_exp
+    assert "1,500.00" in txt_exp
+
+    # Birthday
+    txt_bday = _whatsapp_text("birthday_wish", settings, name="Farhan")
+    assert "Happy Birthday" in txt_bday
+    assert "Farhan" in txt_bday
+
+    # Attendance reminder
+    txt_rem = _whatsapp_text("attendance_reminder", settings, message="Your shift started at 09:30 AM.")
+    assert "Your shift started at 09:30 AM." in txt_rem
+
+    # HR summary
+    txt_sum = _whatsapp_text("hr_attendance_summary", settings, date="12 Nov 2026", present=15, late=2, half_day=1, leave=1, not_marked=0)
+    assert "Today's Attendance Summary" in txt_sum
+    assert "Present: 15" in txt_sum
+
+
+def test_trainee_employment_type(storage):
+    from app.services import employees as employees_service
+    emp_id = employees_service.create_employee(
+        storage,
+        {
+            "name": "Sameer Khan",
+            "employment_type": "trainee",
+            "monthly_gross": 0,
+            "phone": "9876543210",
+        },
+    )
+    emp = employees_service.get_employee(storage, emp_id)
+    assert emp["employment_type"] == "trainee"
+    assert emp["monthly_gross"] == 0
+    assert emp["status"] == "active"
+
+
+

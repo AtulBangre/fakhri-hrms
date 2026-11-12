@@ -28,7 +28,7 @@
                 {% for value, label in categories.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
               </select></div>
             <div class="field"><label for="serial">Serial</label><input id="serial" name="serial" type="text"></div>
-            <div class="field"><label for="cost">Cost</label><input id="cost" name="cost" type="number" min="0" step="100" value="0"></div>
+            <div class="field"><label for="cost">Cost</label><input id="cost" name="cost" type="number" min="0" step="any" value="0"></div>
           </div>
           <div class="form-row cols-2">
             <div class="field"><label for="purchase_date">Purchase date</label>

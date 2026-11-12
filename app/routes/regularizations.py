@@ -19,6 +19,12 @@ def _notify_employee(storage, settings, row: dict) -> None:
                          f"Your request for {row['work_date']} was {row['status']}."
                          + (f" Note: {row['decision_note']}" if row.get("decision_note") else ""),
                          "/me/attendance", category="regularization")
+    emp = storage.query_one("SELECT phone FROM employees WHERE id = ?", (row["employee_id"],))
+    if getattr(settings, "notify_whatsapp_attendance", True) and emp and emp.get("phone"):
+        notify.queue_whatsapp(
+            storage, emp["phone"], "regularization_decided", settings=settings,
+            date=row["work_date"], status=row["status"], note=row.get("decision_note") or "",
+        )
 
 
 @router.get("")

@@ -161,6 +161,15 @@ class Settings:
     notify_whatsapp_leave: bool = field(
         default_factory=lambda: _env_bool("HRMS_NOTIFY_WHATSAPP_LEAVE", True)
     )
+    notify_whatsapp_reminders: bool = field(
+        default_factory=lambda: _env_bool("HRMS_NOTIFY_WHATSAPP_REMINDERS", True)
+    )
+    notify_whatsapp_celebrations: bool = field(
+        default_factory=lambda: _env_bool("HRMS_NOTIFY_WHATSAPP_CELEBRATIONS", True)
+    )
+    hr_whatsapp_phone: str = field(
+        default_factory=lambda: _env("HRMS_HR_WHATSAPP_PHONE", "")
+    )
     #: How often the background thread drains the outbox, in seconds
     notify_interval_seconds: float = field(default_factory=lambda: float(_env("HRMS_NOTIFY_INTERVAL", "20")))
 
@@ -298,4 +307,6 @@ SETTING_DEFS: list[tuple[str, str, str, str, str]] = [
      "full = name, code, designation and IN/OUT for 3.5 s · anonymous = only IN/OUT and the time."),
     ("geofence_radius_meters", "200", "GPS attendance radius (m)", "number",
      "How close a field employee must be to an allowed location to mark attendance."),
+    ("hr_whatsapp_phone", "", "HR / Admin WhatsApp Number", "text",
+     "Receives daily attendance summary and leave request notifications."),
 ]

@@ -105,6 +105,14 @@ def submit(
                 f"in {orgtime.format_clock(check_in)}, out {orgtime.format_clock(check_out)}. Reason: {reason}",
         link="/attendance/regularizations",
     )
+    hr_phone = getattr(settings, "hr_whatsapp_phone", "")
+    if hr_phone and getattr(settings, "notify_whatsapp_attendance", True):
+        notify.queue_whatsapp(
+            storage, hr_phone, "regularization_requested", settings=settings,
+            name=employee.get("name") or "Employee",
+            date=orgtime.human_date(day),
+            reason=reason or "",
+        )
     return get(storage, int(cursor.lastrowid))
 
 

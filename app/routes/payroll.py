@@ -110,10 +110,26 @@ def set_status(
         return redirect("/payroll", err=str(exc), period=period)
     if status == "finalized":
         # No amounts here: this text can show on a lock screen.
+        months_label = orgtime.month_label(period)
         for slip in payroll.list_slips(storage, period):
             notify.push_employee(storage, settings, slip["employee_id"], "Your payslip is ready",
-                                 f"Your payslip for {orgtime.month_label(period)} is available.", "/me/payslips",
+                                 f"Your payslip for {months_label} is available.", "/me/payslips",
                                  category="payslip")
+            # Automatically queue WhatsApp PDF payslip if enabled
+            if getattr(settings, "notify_whatsapp_payslip", True):
+                emp = employees_service.get_employee(storage, slip["employee_id"])
+                phone = (emp or {}).get("phone")
+                if phone and float(slip.get("monthly_gross") or 0) > 0:
+                    wa_id = notify.queue_whatsapp(
+                        storage, phone, "payslip", settings=settings,
+                        name=(emp.get("name") or "").split(" ")[0] or "there",
+                        period=months_label,
+                    )
+                    if wa_id:
+                        storage.execute(
+                            "UPDATE notifications SET meta=? WHERE id=?",
+                            (f'{{"template":"payslip","slip_id":{slip["id"]}}}', wa_id),
+                        )
     return redirect("/payroll", period=period, ok=f"{orgtime.month_label(period)} marked {status}.")
 
 
@@ -278,27 +294,31 @@ def email_single_slip(
         return redirect("/payroll", err="Payslip not found.")
     emp = employees_service.get_employee(storage, slip["employee_id"])
     email = (emp or {}).get("email")
-    if not email:
+    phone = (emp or {}).get("phone")
+    has_whatsapp = bool(getattr(settings, "notify_whatsapp_payslip", True) and phone)
+    if not email and not has_whatsapp:
         return redirect(
             f"/payroll?period={slip['period']}",
-            err=f"Cannot email: {slip['name']} has no email address on file in their employee profile.",
+            err=f"Cannot send payslip: {slip['name']} has neither an email address nor a phone number on file.",
         )
     months = orgtime.month_label(slip["period"])
-    row_id = notify.queue_email(
-        storage, email, "payslip", settings=settings, category="payslip",
-        name=(emp.get("name") or "").split(" ")[0] or "there",
-        period=months,
-        gross=f"Rs {float(slip['monthly_gross']):,.2f}",
-        deductions=f"Rs {float(slip['total_deductions']):,.2f}",
-        net=f"Rs {float(slip['net_pay']):,.2f}",
-    )
-    if row_id:
-        storage.execute(
-            "UPDATE notifications SET meta=? WHERE id=?",
-            (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
+    queued_channels = []
+    if email:
+        row_id = notify.queue_email(
+            storage, email, "payslip", settings=settings, category="payslip",
+            name=(emp.get("name") or "").split(" ")[0] or "there",
+            period=months,
+            gross=f"Rs {float(slip['monthly_gross']):,.2f}",
+            deductions=f"Rs {float(slip['total_deductions']):,.2f}",
+            net=f"Rs {float(slip['net_pay']):,.2f}",
         )
-    phone = (emp or {}).get("phone")
-    if getattr(settings, "notify_whatsapp_payslip", True) and phone:
+        if row_id:
+            storage.execute(
+                "UPDATE notifications SET meta=? WHERE id=?",
+                (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
+            )
+            queued_channels.append(f"Email ({email})")
+    if has_whatsapp:
         wa_id = notify.queue_whatsapp(
             storage, phone, "payslip", settings=settings,
             name=(emp.get("name") or "").split(" ")[0] or "there",
@@ -309,20 +329,11 @@ def email_single_slip(
                 "UPDATE notifications SET meta=? WHERE id=?",
                 (f'{{"template":"payslip","slip_id":{slip["id"]}}}', wa_id),
             )
-    smtp_host = storage.get_setting("smtp_host", "")
-    if smtp_host:
-        results = notify.dispatch(storage, settings, limit=1)
-        if results and results[0].get("ok"):
-            msg = f"Payslip email sent successfully to {slip['name']} ({email})."
-            return redirect(f"/payroll?period={slip['period']}", ok=msg)
-        else:
-            err = results[0].get("error") if results else "SMTP error"
-            return redirect(f"/payroll?period={slip['period']}", err=f"SMTP dispatch failed: {err}")
-    else:
-        return redirect(
-            f"/payroll?period={slip['period']}",
-            ok=f"Payslip email queued for {slip['name']} ({email}). (Note: SMTP is not configured in Settings → Email & Notifications, so email was queued locally).",
-        )
+            queued_channels.append(f"WhatsApp ({phone})")
+
+    results = notify.dispatch(storage, settings, limit=len(queued_channels) or 2)
+    channels_label = " & ".join(queued_channels) if queued_channels else "notification queue"
+    return redirect(f"/payroll?period={slip['period']}", ok=f"Payslip dispatched successfully to {slip['name']} via {channels_label}.")
 
 
 @router.post("/slips/bulk-email")
@@ -347,25 +358,27 @@ def email_bulk_slips(
             continue
         emp = employees_service.get_employee(storage, slip["employee_id"])
         email = (emp or {}).get("email")
-        if not email:
+        phone = (emp or {}).get("phone")
+        has_wa = bool(getattr(settings, "notify_whatsapp_payslip", True) and phone)
+        if not email and not has_wa:
             missing_email += 1
             continue
-        row_id = notify.queue_email(
-            storage, email, "payslip", settings=settings, category="payslip",
-            name=(emp.get("name") or "").split(" ")[0] or "there",
-            period=months,
-            gross=f"Rs {float(slip['monthly_gross']):,.2f}",
-            deductions=f"Rs {float(slip['total_deductions']):,.2f}",
-            net=f"Rs {float(slip['net_pay']):,.2f}",
-        )
-        if row_id:
-            storage.execute(
-                "UPDATE notifications SET meta=? WHERE id=?",
-                (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
+        if email:
+            row_id = notify.queue_email(
+                storage, email, "payslip", settings=settings, category="payslip",
+                name=(emp.get("name") or "").split(" ")[0] or "there",
+                period=months,
+                gross=f"Rs {float(slip['monthly_gross']):,.2f}",
+                deductions=f"Rs {float(slip['total_deductions']):,.2f}",
+                net=f"Rs {float(slip['net_pay']):,.2f}",
             )
-            queued_count += 1
-        phone = (emp or {}).get("phone")
-        if getattr(settings, "notify_whatsapp_payslip", True) and phone:
+            if row_id:
+                storage.execute(
+                    "UPDATE notifications SET meta=? WHERE id=?",
+                    (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
+                )
+                queued_count += 1
+        if has_wa:
             wa_id = notify.queue_whatsapp(
                 storage, phone, "payslip", settings=settings,
                 name=(emp.get("name") or "").split(" ")[0] or "there",
@@ -491,10 +504,12 @@ def email_payslips(
             continue
         employee = employees_service.get_employee(storage, slip["employee_id"])
         address = (employee or {}).get("email")
-        if not address:
+        phone = (employee or {}).get("phone")
+        has_wa = bool(getattr(settings, "notify_whatsapp_payslip", True) and phone)
+        if not address and not has_wa:
             skipped += 1
             continue
-        if only_missing:
+        if address and only_missing:
             # match this exact payslip only — not any old email that mentions the month (NTF-02)
             previous = storage.query_one(
                 "SELECT id FROM notifications WHERE category='payslip' AND recipient=? "
@@ -504,23 +519,23 @@ def email_payslips(
             if previous:
                 already += 1
                 continue
-        row_id = notify.queue_email(
-            storage, address, "payslip", settings=settings, category="payslip",
-            name=(employee.get("name") or "").split(" ")[0] or "there",
-            period=months,
-            gross=f"Rs {float(slip['monthly_gross']):,.2f}",
-            deductions=f"Rs {float(slip['total_deductions']):,.2f}",
-            net=f"Rs {float(slip['net_pay']):,.2f}",
-        )
-        if row_id:
-            queued += 1
-            # keep the payslip id so the PDF can be regenerated as an attachment
-            storage.execute(
-                "UPDATE notifications SET meta=? WHERE id=?",
-                (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
+        if address:
+            row_id = notify.queue_email(
+                storage, address, "payslip", settings=settings, category="payslip",
+                name=(employee.get("name") or "").split(" ")[0] or "there",
+                period=months,
+                gross=f"Rs {float(slip['monthly_gross']):,.2f}",
+                deductions=f"Rs {float(slip['total_deductions']):,.2f}",
+                net=f"Rs {float(slip['net_pay']):,.2f}",
             )
-        phone = (employee or {}).get("phone")
-        if getattr(settings, "notify_whatsapp_payslip", True) and phone:
+            if row_id:
+                queued += 1
+                # keep the payslip id so the PDF can be regenerated as an attachment
+                storage.execute(
+                    "UPDATE notifications SET meta=? WHERE id=?",
+                    (f'{{"template":"payslip","slip_id":{slip["id"]}}}', row_id),
+                )
+        if has_wa:
             wa_id = notify.queue_whatsapp(
                 storage, phone, "payslip", settings=settings,
                 name=(employee.get("name") or "").split(" ")[0] or "there",

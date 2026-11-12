@@ -353,8 +353,10 @@ def test_apply_and_cancel_leave_from_the_ui(hr_client: TestClient, storage, staf
     from app.services import leave as leave_service
 
     token = csrf_of(hr_client, "/leave")
-    target_date = date.today() + timedelta(days=10)
-    target_end = target_date + timedelta(days=1)
+    target_date = date.today() + timedelta(days=1)
+    while target_date.weekday() >= 5:  # skip Saturday and Sunday
+        target_date += timedelta(days=1)
+    target_end = target_date
     period = target_date.strftime("%Y-%m")
 
     response = hr_client.post(

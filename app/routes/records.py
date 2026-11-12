@@ -311,6 +311,12 @@ def decide_expense(
         claim = records.get_claim(storage, claim_id)
         notify.push_employee(storage, settings, claim["employee_id"], "Expense claim paid",
                              f"Your {claim['category']} claim has been paid.", "/me/expenses", category="expense")
+        emp = storage.query_one("SELECT phone FROM employees WHERE id = ?", (claim["employee_id"],))
+        if emp and emp.get("phone"):
+            notify.queue_whatsapp(
+                storage, emp["phone"], "expense_update", settings=settings,
+                category=claim["category"], amount=f"{claim['amount']:,.2f}", status="paid",
+            )
         return redirect("/expenses", ok="Claim marked paid.")
     try:
         claim = records.decide_claim(
@@ -322,6 +328,12 @@ def decide_expense(
     notify.push_employee(storage, settings, claim["employee_id"], f"Expense claim {claim['status']}",
                          f"Your {claim['category']} claim was {claim['status']}." + (f" Note: {note}" if note else ""),
                          "/me/expenses", category="expense")
+    emp = storage.query_one("SELECT phone FROM employees WHERE id = ?", (claim["employee_id"],))
+    if emp and emp.get("phone"):
+        notify.queue_whatsapp(
+            storage, emp["phone"], "expense_update", settings=settings,
+            category=claim["category"], amount=f"{claim['amount']:,.2f}", status=claim["status"],
+        )
     return redirect("/expenses", ok=f"Claim {decision}d.")
 
 

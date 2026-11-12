@@ -442,6 +442,13 @@ def _email_statement(storage: Storage, settings: Settings, row: dict[str, Any], 
         storage.execute("UPDATE notifications SET meta = ? WHERE id = ?",
                         (json.dumps({"template": "hr_alert", "exit_id": row["id"]}), row_id))
 
+    if getattr(settings, "notify_whatsapp_leave", True) and employee.get("phone"):
+        notify.queue_whatsapp(
+            storage, employee["phone"], "attendance_reminder", settings=settings,
+            message=(f"Hi {employee.get('name', '')}, your Full & Final settlement is complete. "
+                     f"Net {verdict}: ₹{abs(fnf['net']):,.2f}. The statement has been emailed to you."),
+        )
+
 
 def settle(storage: Storage, settings: Settings, exit_id: int, *, actor: str | None = None) -> dict[str, Any]:
     row = get(storage, exit_id)

@@ -247,7 +247,7 @@
                   <div class="form-row cols-2 mb-3">
                     <div class="field">
                       <label for="bonus{{ slip.id }}">Bonus / Incentive (₹)</label>
-                      <input id="bonus{{ slip.id }}" name="bonus" type="number" min="0" step="100" value="{{ slip.bonus | round(0) | int }}">
+                      <input id="bonus{{ slip.id }}" name="bonus" type="number" min="0" step="any" value="{{ slip.bonus | round(0) | int }}">
                     </div>
                     <div class="field">
                       <label for="bnote{{ slip.id }}">Bonus Note / Reason</label>
@@ -261,7 +261,7 @@
                   <div class="form-row cols-2 mb-2">
                     <div class="field">
                       <label for="advance{{ slip.id }}">Salary Advance Recovered (₹)</label>
-                      <input id="advance{{ slip.id }}" name="advance" type="number" min="0" step="100" value="{{ slip.advance | round(0) | int }}">
+                      <input id="advance{{ slip.id }}" name="advance" type="number" min="0" step="any" value="{{ slip.advance | round(0) | int }}">
                     </div>
                     <div class="field">
                       <label for="anote{{ slip.id }}">Advance Note / Reason</label>
@@ -272,7 +272,7 @@
                   <div class="form-row cols-2 mb-2">
                     <div class="field">
                       <label for="other{{ slip.id }}">Other Deduction (₹)</label>
-                      <input id="other{{ slip.id }}" name="other_deduction" type="number" min="0" step="100" value="{{ slip.other_deduction | round(0) | int }}">
+                      <input id="other{{ slip.id }}" name="other_deduction" type="number" min="0" step="any" value="{{ slip.other_deduction | round(0) | int }}">
                     </div>
                     <div class="field">
                       <label for="onote{{ slip.id }}">Other Deduction Note / Reason</label>

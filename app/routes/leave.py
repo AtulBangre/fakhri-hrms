@@ -309,30 +309,31 @@ def reject(
 
 
 def _notify_decision(storage, settings, leave: dict, decision: str, *, note: str | None = None) -> None:
-    """Tell the employee (by push and email) that HR decided their leave."""
+    """Tell the employee (by push, email, and WhatsApp) that HR decided their leave."""
     notify.push_employee(storage, settings, leave["employee_id"], f"Your leave was {decision}",
                          f"{leave['from_date']} to {leave['to_date']}, {leave['days']} day(s)."
                          + (f" Note: {note}" if note else ""),
                          "/me/leave", category="leave_update")
-    if not settings.notify_leave_email:
-        return
     employee = employees_service.get_employee(storage, leave["employee_id"])
-    if not employee or not employee.get("email"):
+    if not employee:
         return
-    manager = (
-        storage.query_one("SELECT id, name, email FROM employees WHERE id = ?", (employee.get("manager_id"),))
-        if employee.get("manager_id") else None
-    )
-    cc = [manager["email"]] if manager and manager.get("email") else None
-    notify.queue_email(
-        storage, employee["email"], "leave_decided", settings=settings,
-        category=f"leave_{decision}", name=employee["name"],
-        from_date=orgtime.human_date(leave["from_date"]), to_date=orgtime.human_date(leave["to_date"]),
-        days=leave["days"], decision=decision, note=note or "",
-        leave_type=orgtime.LEAVE_LABELS.get(leave.get("leave_type", ""), leave.get("leave_type", "leave")),
-        decided_by="HR",
-        cc=cc,
-    )
+
+    if settings.notify_leave_email and employee.get("email"):
+        manager = (
+            storage.query_one("SELECT id, name, email FROM employees WHERE id = ?", (employee.get("manager_id"),))
+            if employee.get("manager_id") else None
+        )
+        cc = [manager["email"]] if manager and manager.get("email") else None
+        notify.queue_email(
+            storage, employee["email"], "leave_decided", settings=settings,
+            category=f"leave_{decision}", name=employee["name"],
+            from_date=orgtime.human_date(leave["from_date"]), to_date=orgtime.human_date(leave["to_date"]),
+            days=leave["days"], decision=decision, note=note or "",
+            leave_type=orgtime.LEAVE_LABELS.get(leave.get("leave_type", ""), leave.get("leave_type", "leave")),
+            decided_by="HR",
+            cc=cc,
+        )
+
     if getattr(settings, "notify_whatsapp_leave", True) and employee.get("phone"):
         notify.queue_whatsapp(
             storage, employee["phone"], "leave_decided", settings=settings,
