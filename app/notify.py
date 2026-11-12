@@ -949,6 +949,47 @@ def get_waha_qr_image(settings: Settings) -> bytes | None:
         return None
 
 
+def request_waha_pairing_code(settings: Settings, phone_number: str) -> dict[str, Any]:
+    """Request an 8-character pairing code for 'Link with phone number instead'."""
+    base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
+    headers = _waha_headers(settings)
+    session_name = getattr(settings, "waha_session", "default")
+    digits = re.sub(r"\D+", "", phone_number or "")
+    if len(digits) == 10:
+        digits = "91" + digits
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = "91" + digits[1:]
+
+    if not digits or len(digits) < 10:
+        return {"ok": False, "error": "Please enter a valid 10-digit mobile number."}
+
+    # Session must be in SCAN_QR_CODE. If not, restart it first.
+    info = get_waha_session_info(settings)
+    if info.get("status") not in ("SCAN_QR_CODE", "STARTING"):
+        start_or_restart_waha(settings)
+        time.sleep(2.5)
+
+    payload = {"phoneNumber": digits}
+    try:
+        res = httpx.post(f"{base_url}/api/{session_name}/auth/request-code", json=payload, headers=headers, timeout=20.0)
+        if res.status_code in (200, 201):
+            data = res.json()
+            return {"ok": True, "code": data.get("code"), "phone": digits}
+        # If 422 because session timed out, restart and retry once
+        if res.status_code == 422:
+            start_or_restart_waha(settings)
+            time.sleep(2.5)
+            res2 = httpx.post(f"{base_url}/api/{session_name}/auth/request-code", json=payload, headers=headers, timeout=20.0)
+            if res2.status_code in (200, 201):
+                data = res2.json()
+                return {"ok": True, "code": data.get("code"), "phone": digits}
+            return {"ok": False, "error": res2.text, "status_code": res2.status_code}
+        return {"ok": False, "error": res.text, "status_code": res.status_code}
+    except Exception as exc:
+        logger.warning("Failed to request waha pairing code: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
 def send_test_whatsapp(settings: Settings, to_phone: str, message: str = "") -> dict[str, Any]:
     """Send an immediate test WhatsApp message to verify the connection."""
     base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")

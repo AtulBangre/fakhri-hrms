@@ -271,34 +271,83 @@
           </form>
 
         {% else %}
-          <div style="text-align:center;padding:1rem 0">
-            {% if whatsapp_info.status == 'SCAN_QR_CODE' %}
-              <div style="display:inline-block;padding:0.75rem;background:#fff;border:2px dashed var(--border);border-radius:12px;margin-bottom:0.75rem">
-                <img id="wa-qr-img" src="/settings/whatsapp/qr" alt="Scan WhatsApp QR" style="width:200px;height:200px;display:block">
+          <div style="padding:0.5rem 0">
+            <!-- Tabs / Segmented switcher -->
+            <div style="display:flex;justify-content:center;gap:8px;margin-bottom:1.2rem">
+              <button type="button" id="tab-btn-pair" class="btn btn-sm btn-primary" style="font-weight:600">
+                📱 Link with Phone Number (No Camera)
+              </button>
+              <button type="button" id="tab-btn-qr" class="btn btn-sm btn-ghost" style="font-weight:600">
+                📷 Scan QR Code
+              </button>
+            </div>
+
+            <!-- View 1: Link with Phone Number (Pairing Code) -->
+            <div id="wa-view-pair" style="max-width:380px;margin:0 auto;text-align:left">
+              <div class="field mb-2">
+                <label for="wa-pair-phone" style="font-size:0.85rem;font-weight:600;display:block;margin-bottom:4px">
+                  WhatsApp Mobile Number
+                </label>
+                <div style="display:flex;gap:0.5rem">
+                  <input id="wa-pair-phone" type="tel" placeholder="e.g. 9876543210" style="flex:1" autocomplete="tel">
+                  <button class="btn btn-primary" type="button" id="wa-get-code-btn">Get Code</button>
+                </div>
+                <div class="small muted mt-1">Enter the 10-digit phone number of your company WhatsApp.</div>
               </div>
-              <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.3rem">
-                Point your phone camera here to link WhatsApp
+
+              <div id="wa-code-loading" style="display:none;text-align:center;padding:1rem">
+                <span class="small muted">⏳ Generating WhatsApp pairing code... Please wait.</span>
               </div>
-              <div class="small muted mb-3" style="max-width:320px;margin-left:auto;margin-right:auto;line-height:1.4">
-                1. Open WhatsApp on your official phone.<br>
-                2. Tap <strong>Linked Devices &gt; Link a Device</strong>.<br>
-                3. Scan this QR code.
+
+              <div id="wa-code-error" class="small mt-2" style="display:none;color:var(--danger);background:#FEF2F2;padding:0.5rem 0.75rem;border-radius:6px;border:1px solid #FCA5A5"></div>
+
+              <div id="wa-code-box" style="display:none;margin-top:1rem;background:#F8FAFC;border:2px dashed #94A3B8;border-radius:12px;padding:1rem;text-align:center">
+                <div class="small muted" style="font-weight:600;text-transform:uppercase;letter-spacing:1px;font-size:0.75rem">
+                  Enter this code on your phone
+                </div>
+                <div id="wa-code-display" style="font-size:2rem;font-weight:800;letter-spacing:6px;color:var(--primary);margin:0.5rem 0;font-family:monospace">
+                  ----
+                </div>
+                <div class="small muted" style="text-align:left;line-height:1.5;margin-top:0.75rem;background:#fff;padding:0.85rem;border-radius:8px;border:1px solid var(--border)">
+                  <strong>Phone par kaise daalein:</strong><br>
+                  1. Phone me WhatsApp open karein ➡️ <strong>Linked Devices ➡️ Link a device</strong>.<br>
+                  2. Niche screen par tap karein: <strong>"Link with phone number instead"</strong>.<br>
+                  3. Screen par dikh raha yeh 8-digit code daal dijiye.<br>
+                  <span style="color:#15803D;font-weight:600">✓ Code enter hote hi WhatsApp automatic connect ho jayega!</span>
+                </div>
               </div>
-              <form method="post" action="/settings/whatsapp/start">
-                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                <button class="btn btn-sm btn-ghost" type="submit">🔄 Refresh QR Code</button>
-              </form>
-            {% else %}
-              <div style="margin-bottom:0.75rem">
-                <span style="font-size:2.2rem">📲</span>
-                <div style="font-weight:600;margin-top:0.4rem">WhatsApp is currently not linked</div>
-                <div class="small muted" style="margin-top:2px">Click the button below to generate a QR code for linking.</div>
-              </div>
-              <form method="post" action="/settings/whatsapp/start">
-                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                <button class="btn btn-primary" type="submit">🚀 Generate WhatsApp QR Code</button>
-              </form>
-            {% endif %}
+            </div>
+
+            <!-- View 2: Scan QR Code -->
+            <div id="wa-view-qr" style="display:none;text-align:center">
+              {% if whatsapp_info.status == 'SCAN_QR_CODE' %}
+                <div style="display:inline-block;padding:0.75rem;background:#fff;border:2px dashed var(--border);border-radius:12px;margin-bottom:0.75rem">
+                  <img id="wa-qr-img" src="/settings/whatsapp/qr" alt="Scan WhatsApp QR" style="width:200px;height:200px;display:block">
+                </div>
+                <div style="font-size:0.85rem;font-weight:600;margin-bottom:0.3rem">
+                  Point your phone camera here to link WhatsApp
+                </div>
+                <div class="small muted mb-3" style="max-width:320px;margin-left:auto;margin-right:auto;line-height:1.4">
+                  1. Open WhatsApp on your official phone.<br>
+                  2. Tap <strong>Linked Devices &gt; Link a Device</strong>.<br>
+                  3. Scan this QR code.
+                </div>
+                <form method="post" action="/settings/whatsapp/start">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <button class="btn btn-sm btn-ghost" type="submit">🔄 Refresh QR Code</button>
+                </form>
+              {% else %}
+                <div style="margin-bottom:0.75rem">
+                  <span style="font-size:2.2rem">📲</span>
+                  <div style="font-weight:600;margin-top:0.4rem">WhatsApp is currently not linked</div>
+                  <div class="small muted" style="margin-top:2px">Click the button below to generate a QR code for linking.</div>
+                </div>
+                <form method="post" action="/settings/whatsapp/start">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                  <button class="btn btn-primary" type="submit">🚀 Generate WhatsApp QR Code</button>
+                </form>
+              {% endif %}
+            </div>
           </div>
         {% endif %}
       </div>
@@ -477,22 +526,93 @@
     }
     updateLeavePolicyFields();
 
-    // Auto-refresh WhatsApp status when scanning QR
+    // WhatsApp Phone Pairing Code & Tabs handling
     (function() {
-      var qrImg = document.getElementById('wa-qr-img');
-      if (qrImg) {
-        var pollTimer = setInterval(function() {
-          fetch('/settings/whatsapp/status')
+      var tabPair = document.getElementById('tab-btn-pair');
+      var tabQr = document.getElementById('tab-btn-qr');
+      var viewPair = document.getElementById('wa-view-pair');
+      var viewQr = document.getElementById('wa-view-qr');
+      var getCodeBtn = document.getElementById('wa-get-code-btn');
+      var phoneInput = document.getElementById('wa-pair-phone');
+      var codeBox = document.getElementById('wa-code-box');
+      var codeDisplay = document.getElementById('wa-code-display');
+      var codeLoading = document.getElementById('wa-code-loading');
+      var codeError = document.getElementById('wa-code-error');
+
+      if (tabPair && tabQr && viewPair && viewQr) {
+        tabPair.addEventListener('click', function() {
+          tabPair.className = 'btn btn-sm btn-primary';
+          tabQr.className = 'btn btn-sm btn-ghost';
+          viewPair.style.display = 'block';
+          viewQr.style.display = 'none';
+        });
+        tabQr.addEventListener('click', function() {
+          tabQr.className = 'btn btn-sm btn-primary';
+          tabPair.className = 'btn btn-sm btn-ghost';
+          viewQr.style.display = 'block';
+          viewPair.style.display = 'none';
+        });
+      }
+
+      if (getCodeBtn && phoneInput) {
+        getCodeBtn.addEventListener('click', function() {
+          var phone = phoneInput.value.trim();
+          if (!phone) {
+            alert('Please enter your WhatsApp mobile number.');
+            return;
+          }
+          if (codeError) codeError.style.display = 'none';
+          if (codeBox) codeBox.style.display = 'none';
+          if (codeLoading) codeLoading.style.display = 'block';
+          getCodeBtn.disabled = true;
+
+          var formData = new FormData();
+          formData.append('_csrf', '{{ csrf_token }}');
+          formData.append('phone', phone);
+
+          fetch('/settings/whatsapp/pair-code', {
+            method: 'POST',
+            body: formData,
+          })
             .then(function(r) { return r.json(); })
-            .then(function(data) {
-              if (data && data.status === 'WORKING') {
-                clearInterval(pollTimer);
-                window.location.reload();
+            .then(function(res) {
+              if (codeLoading) codeLoading.style.display = 'none';
+              getCodeBtn.disabled = false;
+              if (res.ok && res.code) {
+                if (codeDisplay) codeDisplay.textContent = res.code;
+                if (codeBox) codeBox.style.display = 'block';
+              } else {
+                if (codeError) {
+                  codeError.textContent = res.error || 'Failed to generate code. Please try again.';
+                  codeError.style.display = 'block';
+                }
               }
             })
-            .catch(function() {});
-        }, 3000);
+            .catch(function(err) {
+              if (codeLoading) codeLoading.style.display = 'none';
+              getCodeBtn.disabled = false;
+              if (codeError) {
+                codeError.textContent = 'Network error: ' + err;
+                codeError.style.display = 'block';
+              }
+            });
+        });
       }
+
+      // Auto-refresh WhatsApp status when on settings page and not yet working
+      var pollTimer = setInterval(function() {
+        var card = document.getElementById('whatsapp');
+        if (!card) return;
+        fetch('/settings/whatsapp/status')
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data && data.status === 'WORKING') {
+              clearInterval(pollTimer);
+              window.location.reload();
+            }
+          })
+          .catch(function() {});
+      }, 3000);
     })();
   })();
 </script>

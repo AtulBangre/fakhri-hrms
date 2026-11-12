@@ -409,6 +409,20 @@ def whatsapp_start(
     return redirect("/settings#whatsapp", err=f"Failed to start WhatsApp: {res.get('error')}")
 
 
+@router.post("/whatsapp/pair-code")
+def whatsapp_pair_code(
+    user: SessionUser = Depends(require_hr),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+    phone: str = Form(...),
+):
+    verify_form_csrf(user, csrf)
+    res = notify.request_waha_pairing_code(settings, phone)
+    if res.get("ok"):
+        return JSONResponse({"ok": True, "code": res.get("code"), "phone": res.get("phone")})
+    return JSONResponse({"ok": False, "error": res.get("error") or "Failed to generate pairing code"}, status_code=400)
+
+
 @router.post("/whatsapp/logout")
 def whatsapp_logout(
     user: SessionUser = Depends(require_hr),

@@ -9,6 +9,7 @@ from app.notify import (
     get_waha_session_info,
     get_waha_qr_image,
     send_test_whatsapp,
+    request_waha_pairing_code,
     _send_waha_whatsapp,
 )
 
@@ -70,4 +71,21 @@ def test_send_waha_whatsapp_text(mock_post):
     }
     res = _send_waha_whatsapp(storage, settings, row)
     assert res == "waha message sent"
+
+
+@patch("httpx.post")
+@patch("app.notify.get_waha_session_info")
+def test_request_waha_pairing_code(mock_session_info, mock_post):
+    mock_session_info.return_value = {"status": "SCAN_QR_CODE", "online": True}
+    settings = Settings()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 201
+    mock_resp.json.return_value = {"code": "3Z5Y-E3M5"}
+    mock_post.return_value = mock_resp
+
+    res = request_waha_pairing_code(settings, "9876543210")
+    assert res["ok"] is True
+    assert res["code"] == "3Z5Y-E3M5"
+    assert res["phone"] == "919876543210"
+
 
