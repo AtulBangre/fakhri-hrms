@@ -88,6 +88,7 @@ def disburse_loan(
                 storage, emp["email"], "hr_alert", settings=settings, category="loan",
                 name=emp["name"], subject=f"{loan_label} Disbursed (₹{amt_str})",
                 message=f"Hi {emp['name']}, your {loan_label} of ₹{amt_str} has been disbursed.",
+                link="/me/loans",
             )
         if getattr(settings, "notify_whatsapp_leave", True) and emp.get("phone"):
             notify.queue_whatsapp(
@@ -127,6 +128,13 @@ def close_loan_route(
                 f"Your {loan_label} (#{loan_id}) is fully settled and closed.",
                 "/me/loans", category="loan",
             )
+            if settings.notify_email_enabled and emp.get("email"):
+                notify.queue_email(
+                    storage, emp["email"], "hr_alert", settings=settings, category="loan",
+                    name=emp["name"], subject=f"{loan_label} Fully Settled & Closed (#{loan_id})",
+                    message=f"Hi {emp['name']}, your {loan_label} (#{loan_id}) of ₹{amt_str} has been marked as fully settled and closed.",
+                    link="/me/loans",
+                )
             if getattr(settings, "notify_whatsapp_leave", True) and emp.get("phone"):
                 notify.queue_whatsapp(
                     storage, emp["phone"], "loan_closed", settings=settings,
@@ -169,6 +177,7 @@ def approve_loan_route(
                     storage, emp["email"], "hr_alert", settings=settings, category="loan",
                     name=emp["name"], subject=f"{loan_label} Approved (₹{amt_str})",
                     message=f"Hi {emp['name']}, your request for {loan_label} of ₹{amt_str} has been approved by HR.",
+                    link="/me/loans",
                 )
             if getattr(settings, "notify_whatsapp_leave", True) and emp.get("phone"):
                 notify.queue_whatsapp(
@@ -208,6 +217,13 @@ def reject_loan_route(
                 f"Your request for ₹{amt_str} was not approved." + (f" Note: {reason}" if reason else ""),
                 "/me/loans", category="loan",
             )
+            if settings.notify_email_enabled and emp.get("email"):
+                notify.queue_email(
+                    storage, emp["email"], "hr_alert", settings=settings, category="loan",
+                    name=emp["name"], subject=f"{loan_label} Request Not Approved (₹{amt_str})",
+                    message=f"Hi {emp['name']}, your request for {loan_label} of ₹{amt_str} was not approved by HR." + (f"\n\nReason / Note: {reason}" if reason else ""),
+                    link="/me/loans",
+                )
             if getattr(settings, "notify_whatsapp_leave", True) and emp.get("phone"):
                 notify.queue_whatsapp(
                     storage, emp["phone"], "loan_decided", settings=settings,

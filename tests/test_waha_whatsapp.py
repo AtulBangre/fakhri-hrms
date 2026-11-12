@@ -136,4 +136,52 @@ def test_trainee_employment_type(storage):
     assert emp["status"] == "active"
 
 
+def test_loan_reject_enqueues_email_and_whatsapp(hr_client, storage):
+    from app.services import employees as employees_service
+    from app.services import loans as loans_service
+    from app import auth
+    from tests.helpers import csrf_of
+
+    token = csrf_of(hr_client, "/loans")
+    emp_id = employees_service.create_employee(
+        storage,
+        {"name": "Pooja Sharma", "email": "pooja@example.com", "phone": "919876543210"},
+    )
+    user = auth.create_user(
+        storage,
+        username="pooja",
+        password="secretpassword",
+        role="employee",
+        employee_id=emp_id,
+    )
+    loan_id = loans_service.apply_loan(
+        storage,
+        employee_id=emp_id,
+        loan_type="personal_loan",
+        principal_amount=150000.0,
+        monthly_emi=10000.0,
+        reason="Medical emergency",
+    )
+    # Perform rejection via route
+    res = hr_client.post(f"/loans/{loan_id}/reject", data={"_csrf": token, "reason": "Insufficient tenure"}, follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"].startswith("/loans")
+
+    # Check notifications
+    pushes = storage.query("SELECT * FROM notifications WHERE channel = 'push'")
+    assert any("Personal Loan Rejected" in p["subject"] for p in pushes)
+
+    # Check that email was enqueued
+    emails = storage.query("SELECT * FROM notifications WHERE channel = 'email' AND recipient = ?", ("pooja@example.com",))
+    assert len(emails) >= 1
+    assert "Personal Loan Request Not Approved" in emails[-1]["subject"]
+    assert "Insufficient tenure" in emails[-1]["body"]
+
+    # Check that WhatsApp was enqueued
+    was = storage.query("SELECT * FROM notifications WHERE channel = 'whatsapp' AND recipient LIKE '%9876543210'")
+    assert len(was) >= 1
+    assert "rejected" in was[-1]["body"].lower()
+
+
+
 
