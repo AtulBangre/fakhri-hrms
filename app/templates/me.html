@@ -6,64 +6,114 @@
 {% block content %}
 {% set punched_in = today_row and today_row.check_in and not today_row.check_out and today_row.status != 'leave' %}
 
-<section class="me-hero">
-  <div class="me-hero-top">
+<!-- iOS Header: Greeting & Status Dot -->
+<header class="ios-me-header">
+  <div class="ios-avatar-wrap">
     {% if employee.photo_filename %}
       <img src="/employees/{{ employee.id }}/avatar" alt="{{ employee.name }}">
     {% else %}
       <span class="avatar">{{ employee.name | initials }}</span>
     {% endif %}
-    <div class="me-hello">
-      <h1>Hi, {{ employee.name.split(' ')[0] }}</h1>
-      <div>{{ today_label }}</div>
-    </div>
-    {% if today_row and today_row.late_minutes %}
-      <span class="me-pill">{{ today_row.late_minutes }} min late</span>
-    {% endif %}
+    <span class="live-indicator {{ 'pulse' if punched_in else '' }}" style="background: {{ 'var(--ios-green)' if punched_in else ('var(--ios-blue)' if (today_row and today_row.check_out) else 'var(--faint)') }}"></span>
   </div>
+  <div class="ios-me-title">
+    <h1>Hi, {{ employee.name.split(' ')[0] }}</h1>
+    <div class="sub">{{ today_label }} · shift {{ shift_start }}–{{ shift_end }}</div>
+  </div>
+  {% if today_row and today_row.late_minutes %}
+    <span class="ios-pill-badge">{{ today_row.late_minutes }}m late</span>
+  {% elif punched_in %}
+    <span class="ios-pill-badge" style="background:rgba(52,199,89,0.12);color:#15803d;border-color:rgba(52,199,89,0.3)">On Duty</span>
+  {% endif %}
+</header>
 
-  <div class="me-today">
-    <div class="me-eyebrow">Today · shift {{ shift_start }}–{{ shift_end }}</div>
+<!-- iOS Live Activity Shift Card -->
+<section class="me-live-card">
+  <div class="me-live-head">
     {% if punched_in %}
-      <div class="me-status">Checked in at {{ today_row.check_in | clock }}</div>
-      {% if checkout_after %}
-        <div class="me-note">You can check out after {{ checkout_after }}.</div>
-      {% else %}
-        <div class="me-note">You are still inside — scan at the gate again when you leave.</div>
-      {% endif %}
+      <span class="me-live-badge on-duty"><span class="pulse-dot"></span> Live On Duty</span>
     {% elif today_row and today_row.check_out %}
-      <div class="me-status">Checked out at {{ today_row.check_out | clock }}</div>
-      <div class="me-note">Worked {{ today_row.worked_minutes | duration }}{% if today_row.status == 'half_day' %} · marked as a half day{% endif %}</div>
+      <span class="me-live-badge completed"><span class="pulse-dot"></span> Shift Complete</span>
     {% elif today_row and today_row.status == 'leave' %}
-      <div class="me-status">On leave today</div>
-      <div class="me-note">{{ LEAVE_LABELS.get(today_row.leave_type, 'Approved leave') }}</div>
-    {% elif today_row and today_row.status == 'half_day' %}
-      <div class="me-status">Half day</div>
-      <div class="me-note">{{ LEAVE_LABELS.get(today_row.leave_type, 'Half day') }}</div>
-    {% elif kind == 'week_off' %}
-      <div class="me-status">Weekly off</div>
-      <div class="me-note">No need to scan today.</div>
-    {% elif kind == 'holiday' %}
-      <div class="me-status">Holiday</div>
-      <div class="me-note">Enjoy the day off.</div>
+      <span class="me-live-badge leave"><span class="pulse-dot"></span> On Leave</span>
+    {% elif kind == 'week_off' or kind == 'holiday' %}
+      <span class="me-live-badge rest"><span class="pulse-dot"></span> {{ 'Weekly Off' if kind == 'week_off' else 'Holiday' }}</span>
     {% else %}
-      <div class="me-status">Not marked yet</div>
-      <div class="me-note">Scan at the gate when you arrive.</div>
+      <span class="me-live-badge not-marked"><span class="pulse-dot"></span> Not Marked</span>
+    {% endif %}
+    <span class="me-shift-time">Shift: {{ shift_start }} – {{ shift_end }}</span>
+  </div>
+
+  <div class="me-live-body">
+    {% if punched_in %}
+      <div class="me-live-status-txt">Checked in at {{ today_row.check_in | clock }}</div>
+      <div class="me-live-note">
+        {% if checkout_after %}
+          You can check out after <b>{{ checkout_after }}</b>.
+        {% else %}
+          Scan at the gate scanner again when you leave.
+        {% endif %}
+      </div>
+    {% elif today_row and today_row.check_out %}
+      <div class="me-live-status-txt">Checked out at {{ today_row.check_out | clock }}</div>
+      <div class="me-live-note">
+        Total worked: <b>{{ today_row.worked_minutes | duration }}</b>{% if today_row.status == 'half_day' %} · Half Day{% endif %}
+      </div>
+    {% elif today_row and today_row.status == 'leave' %}
+      <div class="me-live-status-txt">On Leave Today</div>
+      <div class="me-live-note">{{ LEAVE_LABELS.get(today_row.leave_type, 'Approved leave') }}</div>
+    {% elif kind == 'week_off' %}
+      <div class="me-live-status-txt">Weekly Off</div>
+      <div class="me-live-note">Enjoy your scheduled day off. No scanning required.</div>
+    {% elif kind == 'holiday' %}
+      <div class="me-live-status-txt">Company Holiday</div>
+      <div class="me-live-note">Office closed today. Happy holiday!</div>
+    {% else %}
+      <div class="me-live-status-txt">Ready for Check-In</div>
+      <div class="me-live-note">Scan your face at the entrance kiosk upon arrival.</div>
     {% endif %}
   </div>
 
-  <div class="me-punches">
-    <div><span>In</span><strong>{{ today_row.check_in | clock if today_row else '—' }}</strong></div>
-    <div><span>Out</span><strong>{{ today_row.check_out | clock if today_row else '—' }}</strong></div>
-    <div><span>Worked</span><strong>{{ today_row.worked_minutes | duration if today_row and today_row.worked_minutes else '—' }}</strong></div>
+  <!-- Dynamic Shift Progress Bar -->
+  <div class="me-shift-track-wrap">
+    <div class="me-shift-track">
+      {% set worked_pct = 0 %}
+      {% if today_row and today_row.worked_minutes %}
+        {% set worked_pct = [[((today_row.worked_minutes / 480) * 100) | round(1), 100] | min, 0] | max %}
+      {% elif punched_in %}
+        {% set worked_pct = 40 %}
+      {% endif %}
+      <div class="me-shift-fill" style="width: {{ worked_pct }}%;"></div>
+    </div>
+    <div class="me-shift-labels">
+      <span>Start ({{ shift_start }})</span>
+      <span>Worked: {{ today_row.worked_minutes | duration if (today_row and today_row.worked_minutes) else ('In progress' if punched_in else '0h 0m') }}</span>
+      <span>End ({{ shift_end }})</span>
+    </div>
+  </div>
+
+  <!-- 3-Pillar Punches Grid -->
+  <div class="me-punches-ios">
+    <div>
+      <span>IN</span>
+      <strong>{{ today_row.check_in | clock if today_row else '—' }}</strong>
+    </div>
+    <div>
+      <span>OUT</span>
+      <strong>{{ today_row.check_out | clock if (today_row and today_row.check_out) else '—' }}</strong>
+    </div>
+    <div>
+      <span>WORKED</span>
+      <strong>{{ today_row.worked_minutes | duration if (today_row and today_row.worked_minutes) else ('In progress' if punched_in else '—') }}</strong>
+    </div>
   </div>
 </section>
 
 {% if employee.remote_work_enabled %}
-  <a class="me-face-cta" href="/kiosk" style="border-color:var(--primary);background:linear-gradient(135deg, rgba(135,8,8,0.06), rgba(135,8,8,0.02));margin-bottom:1rem">
-    <span class="ico" style="background:var(--primary);color:#fff">{{ icon('scan') }}</span>
+  <a class="me-face-cta" href="/kiosk" style="border-color:var(--primary);background:linear-gradient(135deg, rgba(135,8,8,0.06), rgba(135,8,8,0.02));margin-bottom:.85rem;border-radius:var(--ios-radius-card)">
+    <span class="ico" style="background:var(--ios-maroon-gradient);color:#fff;border-radius:12px">{{ icon('scan') }}</span>
     <span class="grow">
-      <strong style="color:var(--primary)">Remote Attendance (Kiosk Scanner)</strong>
+      <strong style="color:var(--primary)">Remote Attendance Kiosk</strong>
       <span>Work from home enabled. Tap to scan your face and mark attendance.</span>
     </span>
     {{ icon('chevron-right') }}
@@ -71,43 +121,66 @@
 {% endif %}
 
 {% if not employee.face_id or face_pending %}
-  <a class="me-face-cta" href="/me/face">
-    <span class="ico">{{ icon('scan') }}</span>
+  <a class="me-face-cta" href="/me/face" style="border-radius:var(--ios-radius-card);margin-bottom:.85rem">
+    <span class="ico" style="background:var(--ios-orange-gradient);color:#fff;border-radius:12px">{{ icon('scan') }}</span>
     <span class="grow">
       {% if face_pending %}
-        <strong>Face photo sent</strong><span>Waiting for HR approval. Tap to send a new one.</span>
+        <strong>Face Photo Under Review</strong><span>Waiting for HR approval. Tap to submit a new photo.</span>
       {% else %}
-        <strong>Register your face</strong><span>Needed for the gate scanner. HR approves it first.</span>
+        <strong>Register Your Face</strong><span>Needed for the gate scanner. HR will review and approve.</span>
       {% endif %}
     </span>
     {{ icon('chevron-right') }}
   </a>
 {% endif %}
 
-<nav class="me-actions" aria-label="Quick actions">
-  {% if employee.remote_work_enabled %}
-    <a class="me-action" href="/kiosk" style="color:var(--primary)">
-      <span class="ico" style="background:var(--primary-soft);color:var(--primary)">{{ icon('scan') }}</span>Kiosk punch
+<!-- Apple Squircle Quick Actions Matrix -->
+<section class="me-app-section">
+  <div class="me-section-title">Quick Actions</div>
+  <nav class="me-app-grid" aria-label="Quick Apps">
+    <a class="me-app-item" href="/me/attendance">
+      <div class="me-app-icon bg-ios-attendance">{{ icon('calendar') }}</div>
+      <span class="me-app-label">Attendance</span>
     </a>
-  {% endif %}
-  <a class="me-action" href="/me/attendance"><span class="ico">{{ icon('calendar') }}</span>Attendance</a>
-  <a class="me-action" href="/me/leave"><span class="ico">{{ icon('leave') }}</span>Apply leave</a>
-  <a class="me-action" href="/me/payslips"><span class="ico">{{ icon('file') }}</span>Payslips</a>
-  <a class="me-action" href="/me/profile"><span class="ico">{{ icon('user') }}</span>Profile</a>
-  <a class="me-action" href="/me/tax"><span class="ico">{{ icon('calculator') }}</span>Income tax</a>
-  <a class="me-action" href="/me/expenses"><span class="ico">{{ icon('receipt') }}</span>Expenses</a>
-  <a class="me-action" href="/me/appraisal"><span class="ico">{{ icon('star') }}</span>Appraisal</a>
-  {% if self_punch and self_punch != 'disabled' %}
-    <a class="me-action" href="/me/field"><span class="ico">{{ icon('pin') }}</span>Field punch</a>
-  {% else %}
-    <a class="me-action" href="/me/assets"><span class="ico">{{ icon('laptop') }}</span>Assets</a>
-  {% endif %}
-</nav>
+    <a class="me-app-item" href="/me/leave">
+      <div class="me-app-icon bg-ios-leave">
+        {{ icon('leave') }}
+        {% if pending %}<span class="me-app-badge">{{ pending | length }}</span>{% endif %}
+      </div>
+      <span class="me-app-label">Apply Leave</span>
+    </a>
+    <a class="me-app-item" href="/me/payslips">
+      <div class="me-app-icon bg-ios-payslip">{{ icon('file') }}</div>
+      <span class="me-app-label">Payslips</span>
+    </a>
+    <a class="me-app-item" href="/me/loans">
+      <div class="me-app-icon bg-ios-loan">{{ icon('wallet') }}</div>
+      <span class="me-app-label">Loans</span>
+    </a>
+    <a class="me-app-item" href="/me/tax">
+      <div class="me-app-icon bg-ios-tax">{{ icon('calculator') }}</div>
+      <span class="me-app-label">Income Tax</span>
+    </a>
+    <a class="me-app-item" href="/me/expenses">
+      <div class="me-app-icon bg-ios-expense">{{ icon('receipt') }}</div>
+      <span class="me-app-label">Expenses</span>
+    </a>
+    <a class="me-app-item" href="/me/appraisal">
+      <div class="me-app-icon bg-ios-appraisal">{{ icon('star') }}</div>
+      <span class="me-app-label">Appraisal</span>
+    </a>
+    <a class="me-app-item" href="/me/profile">
+      <div class="me-app-icon bg-ios-profile">{{ icon('user') }}</div>
+      <span class="me-app-label">Profile</span>
+    </a>
+  </nav>
+</section>
 
 {% include "_announcements.html" %}
 
 <div class="grid grid-sidebar me-grid">
   <div class="me-col">
+    <!-- Month Summary Card -->
     <div class="card mb-3 me-order-1">
       <div class="card-head">
         <h2>{{ period_label }}</h2>
@@ -130,11 +203,12 @@
       </div>
     </div>
 
+    <!-- Recent Leave Requests -->
     <div class="card flush mb-3 me-order-4">
       <div class="card-head">
         <h2>My leave requests</h2>
         <span class="spacer"></span>
-        <a class="btn btn-sm btn-primary" href="/me/leave">Apply</a>
+        <a class="btn btn-sm btn-primary" href="/me/leave">+ Apply</a>
       </div>
       <div class="list">
         {% for item in recent_leave %}
@@ -158,42 +232,76 @@
   </div>
 
   <div class="me-col">
+    <!-- Apple Wallet Pass Payslip Card -->
+    <section class="me-wallet-pass me-order-3">
+      <div class="me-wallet-head">
+        <span class="me-wallet-tag">Latest Salary Slip</span>
+        <span class="me-wallet-period">{{ latest_slip.period if latest_slip else '—' }}</span>
+      </div>
+      {% if latest_slip %}
+        <div class="me-wallet-amount">{{ latest_slip.net_pay | money }}</div>
+        <div class="me-wallet-sub">
+          <span><strong>Net Pay</strong> (credited)</span>
+          <span>·</span>
+          <span>Monthly Gross: {{ latest_slip.monthly_gross | money }}</span>
+        </div>
+        <div class="me-wallet-actions">
+          <a class="btn btn-primary" href="/me/payslips/{{ latest_slip.id }}">Open Payslip</a>
+          {% if slips | length > 1 %}
+            <a class="btn btn-ghost" href="/me/payslips">All Slips ({{ slips | length }})</a>
+          {% else %}
+            <a class="btn btn-ghost" href="/me/tax">Tax Projection</a>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="empty-state" style="padding:1rem 0;text-align:left">
+          No payslip generated yet. Your salary statement will appear here once finalized by HR.
+        </div>
+      {% endif %}
+    </section>
+
+    <!-- Multi-Segment Leave Balance Meter -->
     <div class="card mb-3 me-order-2">
-      <div class="card-head"><h3>Leave balance</h3></div>
-      <div class="card-body">
-        <div class="me-big">{{ balance.total_available | number }}<small>days available</small></div>
-        <div class="progress">
-          {% set leave_pct = [[(balance.total_used / balance.total_allocated * 100) if balance.total_allocated else 0, 100] | min, 0] | max | round(1) %}
-          <span {{ ('style="width: ' ~ leave_pct ~ '%;"') | safe }}></span>
-        </div>
-        <div class="kv small">
-          <div><span class="k">Paid leave (PL)</span><span class="v">{{ balance.pl_available | number }} / {{ balance.accrued | number }}</span></div>
-          <div><span class="k">Sick leave (SL)</span><span class="v">{{ balance.sl_available | number }} / {{ balance.annual_sl | number }}</span></div>
-          <div><span class="k">Casual leave (CL)</span><span class="v">{{ balance.cl_available | number }} / {{ balance.annual_cl | number }}</span></div>
-          <div><span class="k">Pending approval</span><span class="v">{{ balance.pending | number }}</span></div>
-        </div>
+      <div class="card-head">
+        <h3>Leave Balance</h3>
+        <span class="spacer"></span>
+        <a class="small" href="/me/leave">History →</a>
       </div>
-    </div>
-
-    <div class="card mb-3 me-order-3">
-      <div class="card-head"><h3>My payslips</h3></div>
       <div class="card-body">
-        {% if latest_slip %}
-          <div class="small muted">{{ latest_slip.period }}</div>
-          <div class="me-big">{{ latest_slip.net_pay | money }}</div>
-          <div class="small muted">net pay · gross {{ latest_slip.monthly_gross | money }}</div>
-          <div class="me-card-actions">
-            <a class="btn btn-block" href="/me/payslips/{{ latest_slip.id }}">Open payslip</a>
-            {% if slips | length > 1 %}
-              <a class="btn btn-block btn-ghost" href="/me/payslips">All {{ slips | length }} payslips</a>
-            {% endif %}
+        <div class="me-big">{{ balance.total_available | number }} <small>days available</small></div>
+        
+        <!-- Multi-Segment Visual Meter -->
+        <div class="me-leave-segments">
+          {% set pl_pct = [[((balance.pl_available / (balance.total_allocated or 1)) * 100), 100] | min, 0] | max | round(1) %}
+          {% set sl_pct = [[((balance.sl_available / (balance.total_allocated or 1)) * 100), 100] | min, 0] | max | round(1) %}
+          {% set cl_pct = [[((balance.cl_available / (balance.total_allocated or 1)) * 100), 100] | min, 0] | max | round(1) %}
+          <div class="me-seg-pl" style="width: {{ pl_pct }}%" title="PL: {{ balance.pl_available }}"></div>
+          <div class="me-seg-sl" style="width: {{ sl_pct }}%" title="SL: {{ balance.sl_available }}"></div>
+          <div class="me-seg-cl" style="width: {{ cl_pct }}%" title="CL: {{ balance.cl_available }}"></div>
+        </div>
+
+        <div class="me-leave-legend">
+          <div class="me-leave-legend-item">
+            <span><span class="me-leave-dot dot-pl"></span>Paid (PL)</span>
+            <strong>{{ balance.pl_available | number }} / {{ balance.accrued | number }}</strong>
           </div>
-        {% else %}
-          <div class="empty-state" style="padding:1rem">No payslip yet — your first one appears when HR runs payroll.</div>
-        {% endif %}
+          <div class="me-leave-legend-item">
+            <span><span class="me-leave-dot dot-sl"></span>Sick (SL)</span>
+            <strong>{{ balance.sl_available | number }} / {{ balance.annual_sl | number }}</strong>
+          </div>
+          <div class="me-leave-legend-item">
+            <span><span class="me-leave-dot dot-cl"></span>Casual (CL)</span>
+            <strong>{{ balance.cl_available | number }} / {{ balance.annual_cl | number }}</strong>
+          </div>
+          <div class="me-leave-legend-item">
+            <span>Pending</span>
+            <strong style="color:var(--warning)">{{ balance.pending | number }}</strong>
+          </div>
+        </div>
       </div>
     </div>
 
+    <!-- Active Loan & Advances Card -->
     <div class="card mb-3 me-order-4">
       <div class="card-head">
         <h3>Loan &amp; Advances</h3>
@@ -205,8 +313,8 @@
           <div class="small muted mb-1">{{ active_loan.type_label or 'Salary Advance' }} · Disbursed {{ active_loan.disbursed_on | nice_date }}</div>
           <div class="me-big" style="color:var(--text)">{{ active_loan.remaining_balance | money }}</div>
           <div class="small muted mb-2">pending balance · {{ active_loan.principal_amount | money }} principal</div>
-          <div class="progress mb-2" style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-            <div style="width:{{ active_loan.repaid_pct }}%;height:100%;background:var(--primary);border-radius:3px"></div>
+          <div class="progress mb-2" style="height:7px;background:var(--ios-bg);border-radius:4px;overflow:hidden">
+            <div style="width:{{ active_loan.repaid_pct }}%;height:100%;background:var(--ios-indigo-gradient);border-radius:4px;transition:width .4s ease"></div>
           </div>
           <div class="kv small">
             <div><span class="k">Monthly EMI</span><span class="v" style="font-weight:700">{{ active_loan.monthly_emi | money }} / mo</span></div>
@@ -218,12 +326,13 @@
         {% else %}
           <div class="empty-state" style="padding:0.75rem 0.5rem;text-align:center">
             <div class="small muted mb-2">No active loan or advance.</div>
-            <a class="btn btn-sm btn-block" href="/me/loans">Apply for loan / advance</a>
+            <a class="btn btn-sm btn-block" href="/me/loans">+ Apply for loan / advance</a>
           </div>
         {% endif %}
       </div>
     </div>
 
+    <!-- My Details Card -->
     <div class="card me-order-5">
       <div class="card-head"><h3>My details</h3></div>
       <div class="card-body">

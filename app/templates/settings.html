@@ -12,14 +12,35 @@
 
 <div class="grid grid-sidebar">
   <div>
-    <form class="card mb-3" method="post" action="/settings/values">
+    {% set cat_map = {
+      'org_name': 'general', 'currency_symbol': 'general', 'company_notice_footer': 'general', 'notice_period_days': 'general',
+      'shift_start': 'shifts', 'shift_end': 'shifts', 'late_grace_minutes': 'shifts', 'half_day_min_minutes': 'shifts', 'standard_work_minutes': 'shifts', 'week_off_days': 'shifts', 'saturday_off_weeks': 'shifts',
+      'late_policy_mode': 'late', 'late_slab_1_minutes': 'late', 'late_slab_1_penalty': 'late', 'late_slab_2_minutes': 'late', 'late_slab_2_penalty': 'late', 'auto_half_day_late_minutes': 'late', 'late_marks_per_half_lop': 'late',
+      'pl_policy_mode': 'leaves', 'pl_accrual_per_month': 'leaves', 'pl_annual_quota': 'leaves', 'sl_annual_quota': 'leaves', 'cl_annual_quota': 'leaves', 'leave_carry_forward': 'leaves', 'leave_carry_forward_cycle': 'leaves', 'leave_max_carry_forward': 'leaves', 'annual_leave_types': 'leaves',
+      'payroll_basis_days': 'payroll', 'payroll_finalise_from_day': 'payroll',
+      'allow_employee_self_punch': 'kiosk', 'kiosk_scan_mode': 'kiosk', 'kiosk_confirmation': 'kiosk', 'geofence_radius_meters': 'kiosk',
+      'hr_whatsapp_phone': 'whatsapp', 'notify_whatsapp_attendance': 'whatsapp', 'notify_whatsapp_reminders': 'whatsapp',
+      'supabase_sync_enabled': 'supabase', 'supabase_db_url': 'supabase', 'supabase_sync_interval': 'supabase'
+    } %}
+    <form class="card mb-3" method="post" action="/settings/values" id="settings-form">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <div class="card-head"><h2>Attendance &amp; payroll rules</h2><span class="spacer"></span>
         <span class="small muted">applies to new calculations immediately</span></div>
+      <div class="settings-nav-tabs" id="settingsNavTabs">
+        <button type="button" class="settings-tab-btn active" data-cat="all">All Settings</button>
+        <button type="button" class="settings-tab-btn" data-cat="general">🏢 Organisation</button>
+        <button type="button" class="settings-tab-btn" data-cat="shifts">⏰ Shifts</button>
+        <button type="button" class="settings-tab-btn" data-cat="late">⚠️ Late Policy</button>
+        <button type="button" class="settings-tab-btn" data-cat="leaves">🏖️ Leaves</button>
+        <button type="button" class="settings-tab-btn" data-cat="payroll">💰 Payroll</button>
+        <button type="button" class="settings-tab-btn" data-cat="kiosk">📱 Kiosk</button>
+        <button type="button" class="settings-tab-btn" data-cat="whatsapp">💬 WhatsApp</button>
+        <button type="button" class="settings-tab-btn" data-cat="supabase">☁️ Supabase</button>
+      </div>
       <div class="card-body">
-        <div class="form-row cols-2">
+        <div class="form-row cols-2" id="settingsFieldsRow">
           {% for key, default, label, kind, help_text in defs %}
-            <div class="field" id="field-{{ key }}">
+            <div class="field" id="field-{{ key }}" data-category="{{ cat_map.get(key, 'general') }}">
               <label for="s-{{ key }}">{{ label }}</label>
               {% if kind.startswith('select:') %}
                 {% set options = kind.split(':', 1)[1].split('|') %}
@@ -816,6 +837,27 @@
           .catch(function() {});
       }, 3000);
       {% endif %}
+    })();
+
+    // Settings Segmented Category Switching
+    (function() {
+      var tabs = document.querySelectorAll('.settings-tab-btn');
+      var fields = document.querySelectorAll('#settingsFieldsRow .field[data-category]');
+      if (!tabs.length || !fields.length) return;
+      tabs.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          tabs.forEach(function(t) { t.classList.remove('active'); });
+          btn.classList.add('active');
+          var cat = btn.getAttribute('data-cat');
+          fields.forEach(function(f) {
+            if (cat === 'all' || f.getAttribute('data-category') === cat) {
+              f.style.display = '';
+            } else {
+              f.style.display = 'none';
+            }
+          });
+        });
+      });
     })();
   })();
 </script>

@@ -483,6 +483,126 @@
     });
   }
 
+  /* -------------------------------------------------- Zero Data Loss Autosave Engine */
+  function initAutoDraftSaver() {
+    var TARGET_FORMS = [
+      '#leave-apply-form',
+      '#loan-apply-dialog form',
+      '#loan-modal form',
+      '#request-correction form',
+      'form.attendance-edit-form',
+      'form[data-autosave]'
+    ];
+    var forms = $$(TARGET_FORMS.join(', '));
+    if (!forms.length) return;
+
+    function getStorageKey(form) {
+      var id = form.id || form.getAttribute('action') || 'form';
+      return 'hrms_draft_' + window.location.pathname.replace(/\/$/, '') + '_' + id;
+    }
+
+    function saveDraft(form) {
+      var key = getStorageKey(form);
+      var data = {};
+      var elements = form.elements;
+      var hasMeaningfulData = false;
+      for (var i = 0; i < elements.length; i++) {
+        var el = elements[i];
+        if (!el.name || el.type === 'hidden' || el.type === 'password' || el.type === 'file' || el.name === '_csrf') continue;
+        if (el.type === 'checkbox' || el.type === 'radio') {
+          if (el.checked) {
+            data[el.name] = el.value;
+            hasMeaningfulData = true;
+          }
+        } else if (el.value && el.value.trim().length > 0) {
+          data[el.name] = el.value;
+          hasMeaningfulData = true;
+        }
+      }
+      if (hasMeaningfulData) {
+        try {
+          localStorage.setItem(key, JSON.stringify({ ts: Date.now(), fields: data }));
+        } catch (e) {}
+      } else {
+        try { localStorage.removeItem(key); } catch (e) {}
+      }
+    }
+
+    function showToast(msg) {
+      var toast = document.createElement('div');
+      toast.className = 'ios-draft-toast';
+      toast.innerHTML = '<span class="pulse-dot"></span><span>' + msg + '</span><button type="button" aria-label="Dismiss">✕</button>';
+      document.body.appendChild(toast);
+      window.setTimeout(function() { toast.classList.add('visible'); }, 50);
+      var timer = window.setTimeout(function() {
+        toast.classList.remove('visible');
+        window.setTimeout(function() { toast.remove(); }, 300);
+      }, 4000);
+      toast.querySelector('button').addEventListener('click', function() {
+        clearTimeout(timer);
+        toast.classList.remove('visible');
+        window.setTimeout(function() { toast.remove(); }, 200);
+      });
+    }
+
+    function restoreDraft(form) {
+      var key = getStorageKey(form);
+      var raw;
+      try { raw = localStorage.getItem(key); } catch (e) { return; }
+      if (!raw) return;
+      try {
+        var payload = JSON.parse(raw);
+        if (!payload || !payload.fields) return;
+        // Expire drafts older than 7 days
+        if (Date.now() - (payload.ts || 0) > 7 * 86400 * 1000) {
+          localStorage.removeItem(key);
+          return;
+        }
+        var fields = payload.fields;
+        var restoredCount = 0;
+        for (var name in fields) {
+          if (!fields.hasOwnProperty(name)) continue;
+          var val = fields[name];
+          var el = form.elements[name];
+          if (!el) continue;
+          if (el.type === 'checkbox') {
+            if (!el.checked && (val === '1' || val === el.value || val === true)) {
+              el.checked = true;
+              restoredCount++;
+            }
+          } else if (el.type === 'radio') {
+            var radios = form.querySelectorAll('input[type=radio][name="' + name + '"]');
+            radios.forEach(function(r) {
+              if (r.value === val) { r.checked = true; restoredCount++; }
+            });
+          } else {
+            if (!el.value || el.value === el.defaultValue) {
+              el.value = val;
+              restoredCount++;
+            }
+          }
+        }
+        if (restoredCount > 0) {
+          showToast('Draft restored from your last visit');
+        }
+      } catch (e) {}
+    }
+
+    forms.forEach(function(form) {
+      restoreDraft(form);
+      var debounceTimer = null;
+      function onInput() {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function() { saveDraft(form); }, 350);
+      }
+      form.addEventListener('input', onInput);
+      form.addEventListener('change', onInput);
+      form.addEventListener('submit', function() {
+        try { localStorage.removeItem(getStorageKey(form)); } catch (e) {}
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     initDrawer();
     initAlerts();
@@ -492,6 +612,7 @@
     initAttendanceForms();
     initImageDownscale();
     initSubmitFeedback();
+    initAutoDraftSaver();
     initOfflineNotice();
     initFloatingButton();
     initPasswordHelpers();
