@@ -171,7 +171,7 @@
       <table class="data stack">
         <thead>
           <tr>
-            <th style="width: 32px; text-align: center;"><input type="checkbox" id="check-all-slips" onchange="toggleAllSlips(this)" title="Select all"></th>
+            <th class="check-cell" style="width: 32px; text-align: center;"><input type="checkbox" id="check-all-slips" onchange="toggleAllSlips(this)" title="Select all"></th>
             <th>Employee</th><th>Status</th><th class="num">Gross</th><th class="num">Present</th><th class="num">PL</th>
             <th class="num">LOP</th><th class="num">Earned</th><th class="num">Bonus</th><th class="num">TDS</th><th class="num">Deductions</th>
             <th class="num">Net pay</th><th></th>
@@ -180,7 +180,7 @@
         <tbody>
         {% for slip in slips %}
           <tr style="{{ 'background: #fffbeb;' if slip.status == 'on_hold' else '' }}">
-            <td style="text-align: center;">
+            <td class="check-cell" style="text-align: center;">
               <input type="checkbox" class="slip-checkbox" value="{{ slip.id }}" data-status="{{ slip.status or 'draft' }}" data-name="{{ slip.name }}" onchange="updateSlipSelection()">
             </td>
             <td data-label="Employee">

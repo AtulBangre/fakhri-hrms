@@ -503,7 +503,7 @@ table.data tr.detail-row:hover { background: var(--subtle); }
   .m-fill { width: 100%; max-width: 0; }
   .m-trunc { max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .person { gap: .45rem; }
-  .person img, .person .avatar { width: 26px; height: 26px; font-size: .62rem; }
+  .person img, .person .avatar { width: 32px; height: 32px; font-size: .72rem; }
   .person .who, .person .who a { display: block; overflow: hidden; }
   .person strong, .person .sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .m-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem .75rem; margin-bottom: .6rem; }
@@ -543,6 +543,9 @@ table.data tr.detail-row:hover { background: var(--subtle); }
   border-radius: 50%; background: var(--ios-green); border: 2.5px solid #fff;
   box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
 }
+.ios-avatar-wrap .live-indicator.is-duty { background: var(--ios-green); }
+.ios-avatar-wrap .live-indicator.is-completed { background: var(--ios-blue); }
+.ios-avatar-wrap .live-indicator.is-off { background: var(--faint); }
 .ios-avatar-wrap .live-indicator.pulse {
   animation: pulse-ring 2s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
 }
@@ -562,6 +565,27 @@ table.data tr.detail-row:hover { background: var(--subtle); }
   font-weight: 650; white-space: nowrap; background: var(--warning-soft); color: var(--warning);
   border: 1px solid var(--warning-border);
 }
+.ios-pill-badge.badge-on-duty {
+  background: rgba(52, 199, 89, 0.12); color: #15803d; border-color: rgba(52, 199, 89, 0.3);
+}
+
+.me-face-cta-remote {
+  border-color: var(--primary) !important;
+  background: linear-gradient(135deg, rgba(135,8,8,0.06), rgba(135,8,8,0.02)) !important;
+  margin-bottom: .85rem; border-radius: var(--ios-radius-card);
+}
+.me-face-cta-remote .ico {
+  background: var(--ios-maroon-gradient) !important; color: #fff !important; border-radius: 12px;
+}
+.me-face-cta-remote strong { color: var(--primary); }
+.me-face-cta-register {
+  border-radius: var(--ios-radius-card); margin-bottom: .85rem;
+}
+.me-face-cta-register .ico {
+  background: var(--ios-orange-gradient) !important; color: #fff !important; border-radius: 12px;
+}
+.loan-progress-bar { height: 7px; background: var(--ios-bg); border-radius: 4px; overflow: hidden; }
+.loan-progress-fill { height: 100%; background: var(--ios-indigo-gradient); border-radius: 4px; transition: width .4s ease; }
 
 /* iOS Live Activity Shift Card */
 .me-live-card {
@@ -670,6 +694,7 @@ table.data tr.detail-row:hover { background: var(--subtle); }
   display: grid; place-items: center; padding: 0 4px; border: 2px solid #fff;
 }
 .me-app-label {
+  display: block;
   font-size: .72rem; font-weight: 550; text-align: center; line-height: 1.2;
   color: var(--ink-soft); max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -1513,6 +1538,33 @@ input[type=file]::file-selector-button {
   content: ""; width: 12px; height: 12px; margin-left: .2rem; border-radius: 50%; flex: none;
   border: 2px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite;
 }
+/* Visibility Breakpoints */
+@media (max-width: 767px) {
+  .desktop-only { display: none !important; }
+}
+@media (min-width: 768px) {
+  .mobile-only { display: none !important; }
+}
+
+/* iOS Segmented Control */
+.ios-segmented-control {
+  display: flex; background: rgba(118, 118, 128, 0.12); border-radius: 9px;
+  padding: 2.5px; margin-bottom: 1rem; position: relative; user-select: none;
+}
+.ios-segmented-btn {
+  flex: 1; text-align: center; padding: 6px 12px; font-size: .8rem; font-weight: 600;
+  border-radius: 7px; border: none; background: transparent; color: var(--ink-soft);
+  cursor: pointer; transition: all 0.18s var(--ios-spring-easing); white-space: nowrap;
+}
+.ios-segmented-btn:active { transform: scale(0.96); }
+.ios-segmented-btn.active {
+  background: var(--card); color: var(--ink);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 0.5px 1px rgba(0, 0, 0, 0.08);
+}
+@media (min-width: 1024px) {
+  .ios-segmented-control.mobile-only { display: none; }
+}
+
 /* Settings Segmented Categories */
 .settings-nav-tabs {
   display: flex; gap: .4rem; overflow-x: auto; padding: .65rem .85rem;

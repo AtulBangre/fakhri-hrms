@@ -160,7 +160,7 @@
       <h2 style="margin:0;font-size:1.1rem;font-weight:700">Apply for Loan / Advance</h2>
       <button type="button" class="icon-btn" onclick="document.getElementById('loan-apply-dialog').close()" aria-label="Close">✕</button>
     </div>
-    <form method="post" action="/me/loans/apply" style="padding:1.25rem">
+    <form method="post" action="/me/loans/apply" id="loan-apply-form" data-autosave="1" style="padding:1.25rem">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <div class="field mb-3">
         <label for="l-type">Assistance Type</label>

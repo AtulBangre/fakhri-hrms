@@ -11,11 +11,11 @@
   <div class="page-actions"><a class="btn" href="/me">← My day</a></div>
 </div>
 
-<div class="btn-group mb-3" role="tablist">
-  <a class="btn {{ 'btn-dark' if tab == 'details' }}" role="tab" href="/me/profile" aria-selected="{{ 'true' if tab == 'details' else 'false' }}">Details</a>
-  <a class="btn {{ 'btn-dark' if tab == 'documents' }}" role="tab" href="/me/profile?tab=documents" aria-selected="{{ 'true' if tab == 'documents' else 'false' }}">
-    Documents{% if doc_summary.missing_required %} <span class="badge-count">{{ doc_summary.missing_required | length }}</span>{% endif %}</a>
-</div>
+<nav class="ios-segmented-control mb-3" role="tablist" style="max-width:360px">
+  <a class="ios-segmented-btn {{ 'active' if tab == 'details' }}" role="tab" href="/me/profile" aria-selected="{{ 'true' if tab == 'details' else 'false' }}">Details</a>
+  <a class="ios-segmented-btn {{ 'active' if tab == 'documents' }}" role="tab" href="/me/profile?tab=documents" aria-selected="{{ 'true' if tab == 'documents' else 'false' }}">
+    Documents{% if doc_summary.missing_required %} <span class="badge-count" style="margin-left:4px">{{ doc_summary.missing_required | length }}</span>{% endif %}</a>
+</nav>
 
 {% if tab == 'documents' %}
 {% include "_my_documents.html" %}
@@ -26,7 +26,7 @@
       <div class="card-head"><h2>Request a change</h2>
         <span class="spacer"></span><span class="chip chip-primary">HR approves</span></div>
       <div class="card-body">
-        <form method="post" action="/me/profile">
+        <form method="post" action="/me/profile" id="profile-change-form" data-autosave="1">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
 
           <div class="section-title">Contact</div>

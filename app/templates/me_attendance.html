@@ -22,7 +22,7 @@
   <div class="card-head"><h2>Request an attendance correction</h2><span class="spacer"></span>
     <button class="btn btn-sm btn-ghost" type="button" data-toggle-row="request-correction">{{ icon('x') }} Close</button></div>
   <div class="card-body">
-    <form method="post" action="/me/attendance/regularize">
+    <form method="post" action="/me/attendance/regularize" id="request-correction-form" data-autosave="1">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <div class="form-row cols-4">
         <div class="field"><label for="rc-date">Date</label>

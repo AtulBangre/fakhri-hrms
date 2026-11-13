@@ -19,19 +19,26 @@
   padding: 1px 6px;
   font-size: 0.7rem;
   font-weight: 700;
+  border-radius: var(--ios-radius-pill);
 }
-.quota-chip-pl { background: var(--primary-soft); border: 1px solid var(--primary-soft-border); color: var(--primary); }
-.quota-chip-sl { background: #F0FDFA; border: 1px solid #99F6E4; color: #0D9488; }
-.quota-chip-cl { background: #FFFBEB; border: 1px solid #FDE68A; color: #D97706; }
+.quota-chip-pl { background: rgba(0, 122, 255, 0.12); border: 1px solid rgba(0, 122, 255, 0.25); color: #007aff; }
+.quota-chip-sl { background: rgba(48, 176, 199, 0.12); border: 1px solid rgba(48, 176, 199, 0.25); color: #0284c7; }
+.quota-chip-cl { background: rgba(255, 149, 0, 0.12); border: 1px solid rgba(255, 149, 0, 0.25); color: #d97706; }
 
-.quota-bar-pl { background: var(--primary); }
-.quota-bar-sl { background: #0D9488; }
-.quota-bar-cl { background: #D97706; }
+.quota-bar-pl { background: var(--ios-blue-gradient); }
+.quota-bar-sl { background: var(--ios-teal-gradient); }
+.quota-bar-cl { background: var(--ios-orange-gradient); }
 </style>
+
+<nav class="ios-segmented-control mobile-only" id="leaveNavSegments" aria-label="Leave Views">
+  <button type="button" class="ios-segmented-btn active" data-target="sec-apply">Apply Leave</button>
+  <button type="button" class="ios-segmented-btn" data-target="sec-requests">My Requests ({{ leaves | length }})</button>
+  <button type="button" class="ios-segmented-btn" data-target="sec-balance">Balance &amp; Quotas</button>
+</nav>
 
 <div class="grid grid-sidebar">
   <div>
-    <div class="card mb-3">
+    <div class="card mb-3" id="sec-apply">
       <div class="card-head"><h2>Apply for leave</h2></div>
       <div class="card-body">
         <form method="post" action="/me/leave" enctype="multipart/form-data" id="leave-apply-form">
@@ -117,7 +124,7 @@
       </div>
     </div>
 
-    <div class="card flush">
+    <div class="card flush" id="sec-requests">
       <div class="card-head"><h2>My requests</h2></div>
       <div class="table-wrap">
         <table class="data stack">
@@ -165,7 +172,7 @@
     </div>
   </div>
 
-  <div>
+  <div id="sec-balance">
     <div class="card mb-3">
       <div class="card-head"><h3>Balance</h3></div>
       <div class="card-body">
@@ -350,6 +357,45 @@
     var pct = parseFloat(el.getAttribute('data-pct')) || 0;
     el.style.width = Math.min(Math.max(pct, 0), 100) + '%';
   });
+
+  // 4. Mobile Segmented Tab Switching
+  var segBtns = document.querySelectorAll('#leaveNavSegments .ios-segmented-btn');
+  if (segBtns.length) {
+    segBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        segBtns.forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var targetId = btn.getAttribute('data-target');
+        var applySec = document.getElementById('sec-apply');
+        var reqSec = document.getElementById('sec-requests');
+        var balSec = document.getElementById('sec-balance');
+        if (window.innerWidth < 1024) {
+          if (applySec) applySec.style.display = targetId === 'sec-apply' ? '' : 'none';
+          if (reqSec) reqSec.style.display = targetId === 'sec-requests' ? '' : 'none';
+          if (balSec) balSec.style.display = targetId === 'sec-balance' ? '' : 'none';
+        }
+      });
+    });
+    window.addEventListener('resize', function() {
+      if (window.innerWidth >= 1024) {
+        var applySec = document.getElementById('sec-apply');
+        var reqSec = document.getElementById('sec-requests');
+        var balSec = document.getElementById('sec-balance');
+        if (applySec) applySec.style.display = '';
+        if (reqSec) reqSec.style.display = '';
+        if (balSec) balSec.style.display = '';
+      } else {
+        var activeBtn = document.querySelector('#leaveNavSegments .ios-segmented-btn.active');
+        if (activeBtn) activeBtn.click();
+      }
+    });
+    if (window.innerWidth < 1024) {
+      var reqSec = document.getElementById('sec-requests');
+      var balSec = document.getElementById('sec-balance');
+      if (reqSec) reqSec.style.display = 'none';
+      if (balSec) balSec.style.display = 'none';
+    }
+  }
 })();
 </script>
 {% endblock %}

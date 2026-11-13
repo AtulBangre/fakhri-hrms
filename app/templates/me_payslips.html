@@ -13,7 +13,31 @@
   </div>
 </div>
 
-<div class="card flush">
+<div class="payslip-cards-grid mobile-only">
+  {% for slip in slips %}
+    <div class="card me-wallet-pass mb-3">
+      <div class="me-wallet-head">
+        <span class="me-wallet-tag">{{ 'Final' if slip.run_status != 'draft' else 'Draft' }}</span>
+        <span class="me-wallet-period">{{ slip.period }}</span>
+      </div>
+      <div class="me-wallet-amount">{{ slip.net_pay | money }}</div>
+      <div class="me-wallet-sub">
+        <span><strong>Net Pay</strong></span>
+        <span>·</span>
+        <span>Gross: {{ slip.monthly_gross | money }}</span>
+        {% if slip.total_deductions %}<span>·</span><span>Ded: {{ slip.total_deductions | money }}</span>{% endif %}
+      </div>
+      <div class="me-wallet-actions">
+        <a class="btn btn-primary" href="/me/payslips/{{ slip.id }}">Open Payslip</a>
+        <a class="btn btn-ghost" href="/me/payslips/{{ slip.id }}.pdf">Download PDF</a>
+      </div>
+    </div>
+  {% else %}
+    <div class="empty-state">No payslips yet — your first one appears as soon as HR runs payroll.</div>
+  {% endfor %}
+</div>
+
+<div class="card flush desktop-only">
   <div class="table-wrap">
     <table class="data stack">
       <thead>
