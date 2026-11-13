@@ -183,5 +183,33 @@ def test_loan_reject_enqueues_email_and_whatsapp(hr_client, storage):
     assert "rejected" in was[-1]["body"].lower()
 
 
+def test_attendance_reminders_enqueues_whatsapp_with_phone(storage, settings):
+    from app.services import employees as employees_service
+    from app.services import alerts as alerts_service
+    from app import auth
+    from datetime import datetime, timezone
+
+    emp_id = employees_service.create_employee(
+        storage,
+        {"name": "Rohan Verma", "email": "rohan@example.com", "phone": "9876500001", "joined_on": "2026-01-01"},
+    )
+    user = auth.create_user(
+        storage,
+        username="rohan",
+        password="secretpassword",
+        role="employee",
+        employee_id=emp_id,
+    )
+    storage.set_setting("notify_whatsapp_reminders", "1")
+    # Simulate morning reminder after shift start
+    now = datetime(2026, 11, 13, 10, 0, tzinfo=timezone.utc)
+    alerts_service._attendance_reminders(storage, settings, now)
+
+    was = storage.query("SELECT * FROM notifications WHERE channel = 'whatsapp' AND recipient LIKE '%9876500001'")
+    assert len(was) >= 1
+    assert "reminder" in was[-1]["body"].lower()
+
+
+
 
 

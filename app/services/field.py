@@ -217,7 +217,9 @@ def check_in(
         source="field",
     )
     notify.push_punch(storage, settings, employee, outcome)
-    if getattr(settings, "notify_whatsapp_attendance", True) and employee.get("phone") and outcome.action in ("check_in", "check_out"):
+    wa_att_val = storage.get_setting("notify_whatsapp_attendance")
+    wa_attendance_enabled = getattr(settings, "notify_whatsapp_attendance", True) if wa_att_val is None else (str(wa_att_val).strip() in ("1", "true", "True", "yes"))
+    if wa_attendance_enabled and employee.get("phone") and outcome.action in ("check_in", "check_out"):
         is_in = outcome.action == "check_in"
         template = "punch_in" if is_in else "check_out"
         ctx = {

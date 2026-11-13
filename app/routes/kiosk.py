@@ -594,7 +594,9 @@ def _notify_punch(storage, settings, employee: dict, outcome) -> None:
             storage, employee["email"], template, settings=settings,
             category=category, **ctx,
         )
-    if settings.notify_whatsapp_attendance and employee.get("phone"):
+    wa_att_val = storage.get_setting("notify_whatsapp_attendance")
+    wa_attendance_enabled = settings.notify_whatsapp_attendance if wa_att_val is None else (str(wa_att_val).strip() in ("1", "true", "True", "yes"))
+    if wa_attendance_enabled and employee.get("phone"):
         notify.queue_whatsapp(
             storage, employee["phone"], template, settings=settings, **ctx
         )

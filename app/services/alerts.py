@@ -141,7 +141,7 @@ def _attendance_reminders(storage: Storage, settings: Settings, now: datetime) -
         return
     clock = now.hour * 60 + now.minute
     people = storage.query(
-        "SELECT e.id, e.name, e.shift_id FROM employees e JOIN users u ON u.employee_id = e.id "
+        "SELECT e.id, e.name, e.shift_id, e.phone FROM employees e JOIN users u ON u.employee_id = e.id "
         "WHERE e.status = 'active' AND u.active = 1 AND e.joined_on <= ?",
         (today.isoformat(),),
     )
@@ -152,6 +152,9 @@ def _attendance_reminders(storage: Storage, settings: Settings, now: datetime) -
     groups: dict[Any, list[dict]] = {}
     for person in people:
         groups.setdefault(person["shift_id"] or "default", []).append(person)
+
+    wa_reminders_val = storage.get_setting("notify_whatsapp_reminders")
+    wa_reminders_enabled = getattr(settings, "notify_whatsapp_reminders", True) if wa_reminders_val is None else (str(wa_reminders_val).strip() in ("1", "true", "True", "yes"))
 
     for shift_key, members in groups.items():
         shift = orgtime.shift_for(storage, members[0], shifts)
@@ -165,7 +168,7 @@ def _attendance_reminders(storage: Storage, settings: Settings, now: datetime) -
                     notify.push_employee(storage, settings, person["id"], "You have not checked in yet",
                                          f"Your shift started at {shift['start_time']}. Scan at the gate when you arrive.",
                                          "/me", category="attendance_reminder")
-                    if getattr(settings, "notify_whatsapp_reminders", True) and person.get("phone"):
+                    if wa_reminders_enabled and person.get("phone"):
                         notify.queue_whatsapp(
                             storage, person["phone"], "attendance_reminder", settings=settings,
                             message=f"Reminder: Your shift started at {shift['start_time']}. Please mark your attendance.",
@@ -178,7 +181,7 @@ def _attendance_reminders(storage: Storage, settings: Settings, now: datetime) -
                     notify.push_employee(storage, settings, person["id"], "Don't forget to check out",
                                          f"Your shift ended at {shift['end_time']}. Scan at the gate before you leave.",
                                          "/me", category="attendance_reminder")
-                    if getattr(settings, "notify_whatsapp_reminders", True) and person.get("phone"):
+                    if wa_reminders_enabled and person.get("phone"):
                         notify.queue_whatsapp(
                             storage, person["phone"], "attendance_reminder", settings=settings,
                             message=f"Reminder: Your shift ended at {shift['end_time']}. Please mark check-out before leaving.",
@@ -200,7 +203,9 @@ def _hr_summary(storage: Storage, settings: Settings, now: datetime) -> None:
                    f"{counts['leave']} on leave, {counts['not_marked']} not marked yet.",
                    "/attendance", category="attendance_summary")
     hr_phone = storage.get_setting("hr_whatsapp_phone", getattr(settings, "hr_whatsapp_phone", ""))
-    if hr_phone and getattr(settings, "notify_whatsapp_attendance", True):
+    wa_att_val = storage.get_setting("notify_whatsapp_attendance")
+    wa_attendance_enabled = getattr(settings, "notify_whatsapp_attendance", True) if wa_att_val is None else (str(wa_att_val).strip() in ("1", "true", "True", "yes"))
+    if hr_phone and wa_attendance_enabled:
         notify.queue_whatsapp(
             storage, hr_phone, "hr_attendance_summary", settings=settings,
             date=orgtime.human_date(today),
