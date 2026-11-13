@@ -580,23 +580,29 @@ def _notify_punch(storage, settings, employee: dict, outcome) -> None:
         "shift_start": orgtime.shift_for(storage, employee)["start_time"],
         "worked": orgtime.format_minutes(outcome.worked_minutes),
     }
-    # Decide whether to email: send on check-out, on normal punch-in (if enabled),
-    # or on late punch-in (if either punch-in or late notifications are enabled).
-    should_email = False
-    if is_in:
-        should_email = settings.notify_punch_in or (bool(outcome.late_minutes) and settings.notify_late)
-    else:
-        should_email = settings.notify_punch_out
-
-    if settings.notify_email_enabled and employee.get("email") and should_email:
-        category = "late_alert" if (is_in and outcome.late_minutes) else f"attendance_{template}"
-        notify.queue_email(
-            storage, employee["email"], template, settings=settings,
-            category=category, **ctx,
-        )
     wa_att_val = storage.get_setting("notify_whatsapp_attendance")
     wa_attendance_enabled = settings.notify_whatsapp_attendance if wa_att_val is None else (str(wa_att_val).strip() in ("1", "true", "True", "yes"))
+    whatsapp_sent = False
     if wa_attendance_enabled and employee.get("phone"):
         notify.queue_whatsapp(
             storage, employee["phone"], template, settings=settings, **ctx
         )
+        whatsapp_sent = True
+
+    # Decide whether to email: send on check-out, on normal punch-in (if enabled),
+    # or on late punch-in (if either punch-in or late notifications are enabled).
+    # When WhatsApp attendance notification is active and sent to employee,
+    # skip sending email as requested ("jab whatsapp me checkin checkout ka notification employee ko ja rha hai to iske liye email mat bhejo").
+    should_email = False
+    if not whatsapp_sent:
+        if is_in:
+            should_email = settings.notify_punch_in or (bool(outcome.late_minutes) and settings.notify_late)
+        else:
+            should_email = settings.notify_punch_out
+
+        if settings.notify_email_enabled and employee.get("email") and should_email:
+            category = "late_alert" if (is_in and outcome.late_minutes) else f"attendance_{template}"
+            notify.queue_email(
+                storage, employee["email"], template, settings=settings,
+                category=category, **ctx,
+            )

@@ -155,6 +155,37 @@ def test_kiosk_check_in_queues_a_confirmation_email(
     assert "CHECK IN" in email["subject"].upper() or "IN at" in email["subject"]
 
 
+def test_kiosk_check_in_sends_whatsapp_and_suppresses_email_when_whatsapp_active(
+    client: TestClient, storage, settings, staff, fake_face, assets, hr_user, kiosk_user
+):
+    from app.face import IdentificationResult
+
+    employees_service.update_employee(storage, staff[0]["id"], {"email": "aarav@example.com", "phone": "+919876543210"})
+    storage.set_setting("shift_start", "23:00")
+    storage.set_setting("notify_whatsapp_attendance", "1")
+    settings.notify_whatsapp_attendance = True
+    fake_face.identify_result = IdentificationResult(
+        matched=True, external_id=staff[0]["code"], similarity=0.9, face_id="f1",
+        threshold=0.363, faces_in_probe=1,
+    )
+    client.post("/login", data={"username": "gate", "password": "gatepass123"})
+    token = csrf_of(client, "/kiosk")
+    response = client.post(
+        "/api/kiosk/scan", data={"_csrf": token},
+        files={"image": ("scan.jpg", assets["person_a_1"], "image/jpeg")},
+    )
+    assert response.status_code == 200, response.text
+
+    # WhatsApp must be queued
+    wa_queued = storage.query("SELECT * FROM notifications WHERE channel='whatsapp'")
+    assert len(wa_queued) >= 1
+    assert wa_queued[-1]["recipient"] == "+919876543210"
+
+    # Email for attendance punch in MUST NOT be queued
+    email_queued = storage.query("SELECT * FROM notifications WHERE category='attendance_punch_in' AND channel='email'")
+    assert len(email_queued) == 0
+
+
 def test_attendance_notifications_can_be_switched_off(
     client: TestClient, storage, settings, staff, fake_face, assets, hr_user, kiosk_user
 ):
