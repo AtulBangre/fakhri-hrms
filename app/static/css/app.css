@@ -233,17 +233,63 @@ svg.i { width: 16px; height: 16px; flex: none; vertical-align: -3px; }
 }
 
 .drawer-backdrop {
-  position: fixed; inset: 0; background: rgba(24, 24, 27, .4);
+  position: fixed; inset: 0; background: rgba(15, 23, 42, .45);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   opacity: 0; pointer-events: none; transition: opacity .16s ease; z-index: 60;
+  cursor: pointer;
 }
 .drawer {
-  position: fixed; top: 0; bottom: 0; left: 0; width: 82%; max-width: 300px;
-  background: var(--card); z-index: 70; padding: .75rem .6rem;
-  transform: translateX(-102%); transition: transform .2s ease;
-  overflow-y: auto;
+  position: fixed; top: 0; bottom: 0; left: 0; width: 84%; max-width: 320px;
+  background: var(--card); z-index: 70; padding: .85rem .75rem;
+  transform: translateX(-102%); transition: transform .22s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow-y: auto; display: flex; flex-direction: column;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
 }
 body.drawer-open .drawer { transform: none; }
 body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
+
+/* Drawer header with profile + cross button */
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  padding-bottom: .75rem; margin-bottom: .6rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.drawer-user-info {
+  display: flex; align-items: center; gap: .6rem; min-width: 0; flex: 1;
+}
+.drawer-user-info .avatar {
+  width: 36px; height: 36px; border-radius: 50%; font-size: .82rem; flex: none;
+}
+.drawer-user-meta {
+  display: flex; flex-direction: column; min-width: 0;
+}
+.drawer-user-meta strong {
+  font-size: .88rem; font-weight: 600; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.drawer-user-meta small {
+  font-size: .7rem; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.drawer-close-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--subtle);
+  display: grid; place-items: center; color: var(--muted);
+  cursor: pointer; flex-shrink: 0;
+  transition: all .15s ease;
+}
+.drawer-close-btn:hover {
+  background: var(--hover); color: var(--ink);
+  transform: scale(1.05);
+}
+.drawer-close-btn:active {
+  transform: scale(0.95);
+}
+.drawer-close-btn svg.i {
+  width: 18px; height: 18px;
+}
+.drawer .nav-section:first-child { margin-top: .15rem; }
 
 .content {
   flex: 1; min-width: 0;
@@ -707,7 +753,7 @@ table.data tr.detail-row:hover { background: var(--subtle); }
 .bg-ios-tax        { background: var(--ios-teal-gradient); }
 .bg-ios-expense    { background: var(--ios-pink-gradient); }
 .bg-ios-appraisal  { background: var(--ios-yellow-gradient); color: #78350f !important; }
-.bg-ios-profile    { background: var(--ios-slate-gradient); }
+.bg-ios-profile    { background: var(--ios-purple-gradient); }
 .bg-ios-kiosk      { background: var(--ios-maroon-gradient); }
 
 /* Apple Wallet Pass Payslip Card */

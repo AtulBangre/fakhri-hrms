@@ -13,25 +13,40 @@
 
   /* ------------------------------------------------------------- navigation */
   function initDrawer() {
-    var toggle = $("#menuToggle");
-    var backdrop = $("#drawerBackdrop");
-    if (!toggle) return;
     function setOpen(open) {
       document.body.classList.toggle("drawer-open", open);
-      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      var toggle = $("#menuToggle");
+      if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
     }
     function close() { setOpen(false); }
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.addEventListener("click", function () {
-      setOpen(!document.body.classList.contains("drawer-open"));
-    });
-    if (backdrop) backdrop.addEventListener("click", close);
-    $$("[data-open-drawer]").forEach(function (link) {
-      link.addEventListener("click", function (event) {
+
+    document.addEventListener("click", function (event) {
+      if (event.target.closest("#drawerBackdrop") || event.target.closest("[data-close-drawer]")) {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.target.closest("#menuToggle")) {
+        event.preventDefault();
+        setOpen(!document.body.classList.contains("drawer-open"));
+        return;
+      }
+      if (event.target.closest("[data-open-drawer]")) {
         event.preventDefault();
         setOpen(true);
-      });
+        return;
+      }
+      if (event.target.closest("aside.drawer nav.nav a, aside.drawer a")) {
+        close();
+      }
     });
+
+    document.addEventListener("touchstart", function (event) {
+      if (event.target.closest("#drawerBackdrop") || event.target.closest("[data-close-drawer]")) {
+        close();
+      }
+    }, { passive: true });
+
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape") close();
     });

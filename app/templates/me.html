@@ -113,7 +113,7 @@
   <a class="me-face-cta me-face-cta-remote" href="/kiosk">
     <span class="ico">{{ icon('scan') }}</span>
     <span class="grow">
-      <strong>Remote Attendance Kiosk</strong>
+      <strong>Remote Attendance (Kiosk Scanner)</strong>
       <span>Work from home enabled. Tap to scan your face and mark attendance.</span>
     </span>
     {{ icon('chevron-right') }}
@@ -125,9 +125,9 @@
     <span class="ico">{{ icon('scan') }}</span>
     <span class="grow">
       {% if face_pending %}
-        <strong>Face Photo Under Review</strong><span>Waiting for HR approval. Tap to submit a new photo.</span>
+        <strong>Face photo sent</strong> · <span>Waiting for HR approval. Tap to submit a new photo.</span>
       {% else %}
-        <strong>Register Your Face</strong><span>Needed for the gate scanner. HR will review and approve.</span>
+        <strong>Register your face</strong> · <span>Needed for the gate scanner. HR will review and approve.</span>
       {% endif %}
     </span>
     {{ icon('chevron-right') }}

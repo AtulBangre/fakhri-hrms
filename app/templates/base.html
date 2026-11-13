@@ -5,7 +5,7 @@
 {%- endmacro %}
 {% macro navlinks() -%}
   {% if user and user.is_employee %}
-    <div class="nav-section">My space</div>
+    <div class="nav-section">Overview</div>
     {{ navlink('/me', 'me', 'home', 'My day') }}
     {{ navlink('/me/attendance', 'me-attendance', 'calendar', 'Attendance') }}
     {{ navlink('/me/leave', 'me-leave', 'leave', 'Leave') }}
@@ -131,12 +131,20 @@
 
   <div class="drawer-backdrop" id="drawerBackdrop"></div>
   <aside class="drawer no-print" id="drawer" aria-label="Navigation">
-    {% if user %}
-      <div class="sidebar-user">
-        <span class="avatar">{{ user | initials }}</span>
-        <div><strong>{{ user.display_name }}</strong><span>{{ user.role|upper }}{% if user.device_label %} · {{ user.device_label }}{% endif %}</span></div>
-      </div>
-    {% endif %}
+    <div class="drawer-header">
+      {% if user %}
+        <div class="drawer-user-info">
+          <span class="avatar">{{ user | initials }}</span>
+          <div class="drawer-user-meta">
+            <strong>{{ user.display_name }}</strong>
+            <small>{{ user.role|upper }}{% if user.device_label %} · {{ user.device_label }}{% endif %}</small>
+          </div>
+        </div>
+      {% endif %}
+      <button type="button" class="drawer-close-btn" data-close-drawer aria-label="Close navigation menu">
+        {{ icon('x') }}
+      </button>
+    </div>
     <nav class="nav">{{ navlinks() }}</nav>
   </aside>
 
