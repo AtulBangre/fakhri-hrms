@@ -295,48 +295,85 @@
             </div>
           </div>
         </div>
+      {% endif %}
 
-        <div class="card mb-3">
-          <div class="card-head">
-            <h2>Salary structure</h2>
-            <span class="spacer"></span>
-            <span class="chip chip-primary">monthly, in ₹</span>
+      <div class="card mb-3">
+        <div class="card-head">
+          <h2>Salary structure</h2>
+          <span class="spacer"></span>
+          <span class="chip chip-primary">monthly, in ₹</span>
+        </div>
+        <div class="card-body">
+          <div class="form-row cols-2">
+            <div class="field">
+              <label for="monthly_gross" id="gross_label">Monthly gross (CTC) *</label>
+              <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="any" value="{{ f.get('monthly_gross') or '' }}" placeholder="45000">
+              <div class="hint" id="gross_hint">This is what payroll pays before deductions and LOP.</div>
+            </div>
+            <div class="field">
+              <label for="basic">Basic</label>
+              <input id="basic" name="basic" type="number" min="0" step="any" value="{{ f.get('basic') or '' }}">
+            </div>
           </div>
-          <div class="card-body">
+          <div class="form-row cols-3">
+            <div class="field"><label for="hra">HRA</label>
+              <input id="hra" name="hra" type="number" min="0" step="any" value="{{ f.get('hra') or '' }}"></div>
+            <div class="field"><label for="other_allowances">Other allowances</label>
+              <input id="other_allowances" name="other_allowances" type="number" min="0" step="any" value="{{ f.get('other_allowances') or '' }}"></div>
+            <div class="field"><label for="pf">PF (monthly)</label>
+              <input id="pf" name="pf" type="number" min="0" step="any" value="{{ f.get('pf') or '' }}"></div>
+          </div>
+          <div class="form-row cols-3">
+            <div class="field"><label for="esi">ESI (monthly)</label>
+              <input id="esi" name="esi" type="number" min="0" step="any" value="{{ f.get('esi') or '' }}"></div>
+            <div class="field"><label for="professional_tax">Professional tax</label>
+              <input id="professional_tax" name="professional_tax" type="number" min="0" step="any" value="{{ f.get('professional_tax') if (f.get('professional_tax') is not none and f.get('professional_tax') != '') else '0' }}" placeholder="0"></div>
+            <div class="field"><label for="statutory_mode">PF / ESI</label>
+              <select id="statutory_mode" name="statutory_mode">
+                <option value="auto" {{ 'selected' if (f.get('statutory_mode') or 'auto') == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
+                <option value="fixed" {{ 'selected' if (f.get('statutory_mode') or 'auto') != 'auto' }}>Use the amounts above</option>
+              </select>
+              <div class="hint">Either way PF/ESI are reduced in loss-of-pay months.</div></div>
+          </div>
+
+          {% if employee %}
+          <div style="border-top:1px dashed var(--border-color, #e2e8f0);margin-top:1.25rem;padding-top:1.25rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">
+              <div>
+                <strong style="font-size:0.95rem;color:var(--text, #1e293b);display:block;">Salary Revision Applicability</strong>
+                <span class="small muted">Select which payroll cycle / month this salary change applies from:</span>
+              </div>
+              <div class="btn-group" style="display:flex;gap:0.35rem;flex-wrap:wrap;">
+                <button type="button" class="btn btn-sm btn-outline" id="btn-form-cur" onclick="setFormEffectiveMonth('{{ month_presets.cur_month_iso }}', 'Current cycle ({{ month_presets.cur_month_label }}): Applies to current payroll calculations.')">
+                  Current Month ({{ month_presets.cur_month_label }})
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btn-form-next" onclick="setFormEffectiveMonth('{{ month_presets.next_month_iso }}', 'Upcoming cycle ({{ month_presets.next_month_label }}): Stays scheduled; current month payroll is untouched.')">
+                  Next Month ({{ month_presets.next_month_label }})
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btn-form-prev" onclick="setFormEffectiveMonth('{{ month_presets.prev_month_iso }}', 'Retroactive ({{ month_presets.prev_month_label }}): Applies retroactively to previous month calculations.')">
+                  Previous Month ({{ month_presets.prev_month_label }})
+                </button>
+              </div>
+            </div>
+
             <div class="form-row cols-2">
               <div class="field">
-                <label for="monthly_gross" id="gross_label">Monthly gross (CTC) *</label>
-                <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="any" value="{{ f.get('monthly_gross') or '' }}" placeholder="45000">
-                <div class="hint" id="gross_hint">This is what payroll pays before deductions and LOP.</div>
+                <label for="effective_from">Effective date (1st of month or custom mid-month) *</label>
+                <input id="effective_from" name="effective_from" type="date" value="{{ f.get('effective_from') or month_presets.cur_month_iso }}" onchange="onFormDateChange(this.value)">
+                <div class="hint" id="form_eff_hint" style="color:var(--color-primary, #b91c1c);font-weight:500;">
+                  Selected cycle: Applies from {{ f.get('effective_from') or month_presets.cur_month_iso }}.
+                </div>
               </div>
               <div class="field">
-                <label for="basic">Basic</label>
-                <input id="basic" name="basic" type="number" min="0" step="any" value="{{ f.get('basic') or '' }}">
+                <label for="salary_note">Revision reason / Note</label>
+                <input id="salary_note" name="salary_note" type="text" value="{{ f.get('salary_note') or '' }}" placeholder="e.g. Annual Appraisal, Promotion, Increment">
+                <div class="hint">Saved in employee revision timeline and audit trail.</div>
               </div>
             </div>
-            <div class="form-row cols-3">
-              <div class="field"><label for="hra">HRA</label>
-                <input id="hra" name="hra" type="number" min="0" step="any" value="{{ f.get('hra') or '' }}"></div>
-              <div class="field"><label for="other_allowances">Other allowances</label>
-                <input id="other_allowances" name="other_allowances" type="number" min="0" step="any" value="{{ f.get('other_allowances') or '' }}"></div>
-              <div class="field"><label for="pf">PF (monthly)</label>
-                <input id="pf" name="pf" type="number" min="0" step="any" value="{{ f.get('pf') or '' }}"></div>
-            </div>
-            <div class="form-row cols-3">
-              <div class="field"><label for="esi">ESI (monthly)</label>
-                <input id="esi" name="esi" type="number" min="0" step="any" value="{{ f.get('esi') or '' }}"></div>
-              <div class="field"><label for="professional_tax">Professional tax</label>
-                <input id="professional_tax" name="professional_tax" type="number" min="0" step="any" value="{{ f.get('professional_tax') or '200' }}"></div>
-              <div class="field"><label for="statutory_mode">PF / ESI</label>
-                <select id="statutory_mode" name="statutory_mode">
-                  <option value="auto" {{ 'selected' if (f.get('statutory_mode') or 'auto') == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
-                  <option value="fixed" {{ 'selected' if (f.get('statutory_mode') or 'auto') != 'auto' }}>Use the amounts above</option>
-                </select>
-                <div class="hint">Either way PF/ESI are reduced in loss-of-pay months.</div></div>
-            </div>
           </div>
+          {% endif %}
         </div>
-      {% endif %}
+      </div>
 
       <div class="card sticky-save">
         <div class="card-body">
@@ -407,5 +444,28 @@
   }
   updateTraineeUI();
 })();
+
+function setFormEffectiveMonth(isoDate, hintText) {
+  var inp = document.getElementById('effective_from');
+  if (inp) inp.value = isoDate;
+  var hint = document.getElementById('form_eff_hint');
+  if (hint) hint.textContent = hintText;
+
+  ['btn-form-cur', 'btn-form-next', 'btn-form-prev'].forEach(function(id) {
+    var btn = document.getElementById(id);
+    if (btn) btn.classList.add('btn-outline');
+  });
+}
+
+function onFormDateChange(val) {
+  var hint = document.getElementById('form_eff_hint');
+  if (!val || !hint) return;
+  var d = new Date(val);
+  if (d.getDate() === 1) {
+    hint.textContent = "Effective from 1st of month: applies for the entire calendar payroll cycle (" + val + ").";
+  } else {
+    hint.textContent = "Mid-month date: Payroll will automatically split and blend pro-rata pay for " + val + ".";
+  }
+}
 </script>
 {% endblock %}

@@ -28,6 +28,26 @@ def _set_password_link(storage, portal_user: dict) -> str:
     return f"/set-password?token={auth.issue_password_link(storage, portal_user['id'])}"
 
 
+def _month_presets(today: date) -> dict[str, str]:
+    cur_first = today.replace(day=1)
+    if today.month == 12:
+        next_first = today.replace(year=today.year + 1, month=1, day=1)
+    else:
+        next_first = today.replace(month=today.month + 1, day=1)
+    if today.month == 1:
+        prev_first = today.replace(year=today.year - 1, month=12, day=1)
+    else:
+        prev_first = today.replace(month=today.month - 1, day=1)
+    return {
+        "cur_month_iso": cur_first.isoformat(),
+        "cur_month_label": cur_first.strftime("%b %Y"),
+        "next_month_iso": next_first.isoformat(),
+        "next_month_label": next_first.strftime("%b %Y"),
+        "prev_month_iso": prev_first.isoformat(),
+        "prev_month_label": prev_first.strftime("%b %Y"),
+    }
+
+
 router = APIRouter(prefix="/employees", tags=["employees"])
 
 ALLOWED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp", "image/bmp")
@@ -276,7 +296,10 @@ def new_page(
     if joined_on: prefill["joined_on"] = joined_on
     if from_letter_id and "from_letter_id" not in prefill:
         prefill["from_letter_id"] = str(from_letter_id)
+    if "professional_tax" not in prefill:
+        prefill["professional_tax"] = "0"
 
+    today = orgtime.today(storage.settings)
     return render(
         request,
         "employee_form.html",
@@ -293,6 +316,7 @@ def new_page(
         pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
         pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
         pl_accrual_default=storage.get_float("pl_accrual_per_month", 0.5),
+        month_presets=_month_presets(today),
     )
 
 
@@ -486,6 +510,20 @@ def edit_page(
     employee = employees_service.get_employee(storage, employee_id)
     if employee is None:
         return redirect("/employees", err="Employee not found.")
+    today = orgtime.today(storage.settings)
+    history = employees_service.salary_history(storage, employee_id)
+    latest_salary = history[0] if history else {}
+    salary_form = {
+        "monthly_gross": str(employee.get("monthly_gross") or ""),
+        "basic": str(latest_salary.get("basic") or ""),
+        "hra": str(latest_salary.get("hra") or ""),
+        "other_allowances": str(latest_salary.get("other_allowances") or ""),
+        "pf": str(latest_salary.get("pf") or ""),
+        "esi": str(latest_salary.get("esi") or ""),
+        "professional_tax": str(latest_salary.get("professional_tax") if latest_salary.get("professional_tax") is not None else "0"),
+        "statutory_mode": latest_salary.get("statutory_mode") or "auto",
+        "effective_from": _month_presets(today)["cur_month_iso"],
+    }
     return render(
         request,
         "employee_form.html",
@@ -498,13 +536,14 @@ def edit_page(
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
         managers=storage.query("SELECT id, code, name, designation, department, email FROM employees WHERE status = 'active' AND id != ? ORDER BY name", (employee_id,)),
-        form={},
+        form=salary_form,
         masked_aadhaar=employees_service.masked_aadhaar(employee.get("aadhaar_last4")),
         self_punch_labels=employees_service.SELF_PUNCH_LABELS,
         company_punch_mode=storage.get_setting("allow_employee_self_punch", "disabled"),
         pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
         pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
         pl_accrual_default=storage.get_float("pl_accrual_per_month", 0.5),
+        month_presets=_month_presets(today),
     )
 
 
@@ -533,9 +572,43 @@ def detail(
         "other_allowances": latest.get("other_allowances", 0) or 0,
         "pf": latest.get("pf", 0) or 0,
         "esi": latest.get("esi", 0) or 0,
-        "professional_tax": latest.get("professional_tax", 0) or 0,
-        "statutory_mode": latest.get("statutory_mode") or "fixed",
+        "professional_tax": latest.get("professional_tax") if latest.get("professional_tax") is not None else 0,
+        "statutory_mode": latest.get("statutory_mode") or "auto",
     }
+    today_iso = today.isoformat()
+    active_rev_id = None
+    for rev in history:
+        if rev["effective_from"] <= today_iso:
+            active_rev_id = rev["id"]
+            break
+
+    annotated_history = []
+    for i, rev in enumerate(history):
+        item = dict(rev)
+        is_upcoming = rev["effective_from"] > today_iso
+        is_active = (rev["id"] == active_rev_id)
+        if is_upcoming:
+            item["status_badge"] = "upcoming"
+            item["status_label"] = "Upcoming"
+        elif is_active:
+            item["status_badge"] = "active"
+            item["status_label"] = "Active"
+        else:
+            item["status_badge"] = "past"
+            item["status_label"] = "Past"
+
+        prev_rev = history[i + 1] if i + 1 < len(history) else None
+        if prev_rev and float(prev_rev.get("monthly_gross") or 0) > 0:
+            diff = float(rev.get("monthly_gross") or 0) - float(prev_rev.get("monthly_gross") or 0)
+            pct = (diff / float(prev_rev["monthly_gross"])) * 100
+            item["diff_amount"] = diff
+            item["diff_pct"] = pct
+        else:
+            item["diff_amount"] = 0.0
+            item["diff_pct"] = 0.0
+        annotated_history.append(item)
+
+    month_presets = _month_presets(today)
     emp_shift = (
         storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee.get("shift_id"),))
         if employee.get("shift_id")
@@ -555,8 +628,9 @@ def detail(
         period_label=orgtime.month_label(period),
         summary=summary,
         balance=leave_service.balance(storage, settings, employee_id),
-        salaries=history,
+        salaries=annotated_history,
         salary_defaults=salary_defaults,
+        month_presets=month_presets,
         leaves=leave_service.list_leave(storage, employee_id=employee_id, limit=25),
         exit_record=exits_service.latest_for(storage, employee_id),
         appraisals=appraisal_service.for_employee(storage, employee_id)[:1],
@@ -613,6 +687,16 @@ def update(
     remote_work_enabled: str = Form("0"),
     uan: str = Form(""),
     esic_ip: str = Form(""),
+    monthly_gross: str = Form(""),
+    basic: str = Form("0"),
+    hra: str = Form("0"),
+    other_allowances: str = Form("0"),
+    pf: str = Form("0"),
+    esi: str = Form("0"),
+    professional_tax: str = Form("0"),
+    statutory_mode: str = Form("auto"),
+    effective_from: str = Form(""),
+    salary_note: str = Form(""),
 ):
     from ..auth import verify_form_csrf
 
@@ -650,6 +734,38 @@ def update(
                 portal = auth.get_user_for_employee(storage, employee_id)
                 if portal:
                     auth.set_user_active(storage, portal["id"], True)
+
+        # Update salary structure if provided and changed
+        if monthly_gross.strip():
+            new_gross = _as_float(monthly_gross)
+            if new_gross > 0:
+                history = employees_service.salary_history(storage, employee_id)
+                latest = history[0] if history else {}
+                gross_changed = abs(float(latest.get("monthly_gross") or 0) - new_gross) > 0.01
+                structure_changed = (
+                    abs(float(latest.get("basic") or 0) - _as_float(basic)) > 0.01
+                    or abs(float(latest.get("hra") or 0) - _as_float(hra)) > 0.01
+                    or abs(float(latest.get("other_allowances") or 0) - _as_float(other_allowances)) > 0.01
+                    or abs(float(latest.get("pf") or 0) - _as_float(pf)) > 0.01
+                    or abs(float(latest.get("esi") or 0) - _as_float(esi)) > 0.01
+                    or abs(float(latest.get("professional_tax") or 0) - _as_float(professional_tax)) > 0.01
+                )
+                if (gross_changed or structure_changed) or not history:
+                    employees_service.set_salary(
+                        storage,
+                        employee_id,
+                        monthly_gross=new_gross,
+                        basic=_as_float(basic),
+                        hra=_as_float(hra),
+                        other_allowances=_as_float(other_allowances),
+                        pf=_as_float(pf),
+                        esi=_as_float(esi),
+                        professional_tax=_as_float(professional_tax),
+                        statutory_mode=statutory_mode or "auto",
+                        effective_from=effective_from or None,
+                        note=salary_note.strip() or "Updated via Edit Employee profile",
+                        actor=user.username,
+                    )
     except employees_service.ValidationError as exc:
         return redirect(f"/employees/{employee_id}/edit", err=str(exc))
     return redirect(f"/employees/{employee_id}", ok="Employee details updated.")
@@ -697,16 +813,17 @@ def set_salary(
 
     verify_form_csrf(user, csrf)
     try:
-        employees_service.set_salary(
+        rev = employees_service.set_salary(
             storage, employee_id, monthly_gross=_as_float(monthly_gross), basic=_as_float(basic),
             hra=_as_float(hra), other_allowances=_as_float(other_allowances), pf=_as_float(pf),
             esi=_as_float(esi), professional_tax=_as_float(professional_tax),
             effective_from=effective_from or None, note=note or None, actor=user.username,
             statutory_mode=statutory_mode,
         )
+        eff_nice = orgtime.human_date(rev["effective_from"])
     except employees_service.ValidationError as exc:
         return redirect(f"/employees/{employee_id}", err=str(exc))
-    return redirect(f"/employees/{employee_id}", ok="Salary updated — previous structure kept in history.")
+    return redirect(f"/employees/{employee_id}", ok=f"Salary structure updated — effective from {eff_nice}.")
 
 
 @router.post("/{employee_id}/face")

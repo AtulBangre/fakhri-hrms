@@ -522,9 +522,17 @@ def set_salary(
         (employee_id, monthly_gross, basic, hra, other_allowances, pf, esi, professional_tax,
          effective_from, note, None, now, statutory_mode),
     )
+    # Update employee's active monthly gross: only if this revision is active as of today
+    today_str = orgtime.today_str(storage.settings)
+    active_rev = storage.query_one(
+        "SELECT monthly_gross FROM salary_revisions WHERE employee_id = ? AND effective_from <= ? "
+        "ORDER BY effective_from DESC, id DESC LIMIT 1",
+        (employee_id, today_str),
+    )
+    current_gross = float(active_rev["monthly_gross"]) if active_rev else monthly_gross
     storage.execute(
         "UPDATE employees SET monthly_gross = ?, updated_at = ? WHERE id = ?",
-        (monthly_gross, now, employee_id),
+        (current_gross, now, employee_id),
     )
     storage.audit(
         actor=actor, action="set_salary", entity="employee", entity_id=employee_id,

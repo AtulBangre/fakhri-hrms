@@ -47,33 +47,58 @@
       <div class="stat"><div class="label">Worked hours</div><div class="value">{{ (summary.worked_minutes / 60) | round(0) | int }}h</div><div class="foot">{{ period_label }}</div></div>
     </div>
 
+    {% set upcoming_list = (salaries | selectattr('status_badge', 'equalto', 'upcoming') | list) if salaries else [] %}
+    {% set upcoming_rev = upcoming_list[0] if upcoming_list else none %}
     <details class="card mb-3 disclosure">
       <summary class="card-head" style="cursor:pointer;list-style:none;display:flex;align-items:center;user-select:none">
         <h2 style="margin:0;display:flex;align-items:center;gap:.5rem">
-          <span>Salary structure</span>
-          <span class="small muted" style="font-weight:normal;font-size:.82rem">(click to view / edit)</span>
+          <span>Salary structure &amp; revisions</span>
+          <span class="small muted" style="font-weight:normal;font-size:.82rem">(click to view / revise)</span>
         </h2>
         <span class="spacer"></span>
-        <span class="chip chip-primary">current: {{ employee.monthly_gross | money }}/month</span>
+        <span class="chip chip-primary">current active: {{ employee.monthly_gross | money }}/month</span>
+        {% if upcoming_rev %}
+          <span class="chip chip-info" style="margin-left: 0.5rem;">Upcoming: {{ upcoming_rev.monthly_gross | money }} from {{ upcoming_rev.effective_from | nice_date }}</span>
+        {% endif %}
         <span style="font-size:.85rem;margin-left:.75rem;color:var(--muted)">▼</span>
       </summary>
       <div class="card-body">
         <form method="post" action="/employees/{{ employee.id }}/salary">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-          <div class="form-row cols-3">
+          <div class="form-row cols-2">
             <div class="field">
-              <label for="monthly_gross">Monthly gross</label>
-              <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="any" value="{{ employee.monthly_gross | round(0) | int }}" required>
+              <label for="monthly_gross" style="font-weight:600">Revised Monthly gross (CTC) *</label>
+              <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="any" value="{{ employee.monthly_gross | round(0) | int }}" required style="font-size:1.1rem;font-weight:600">
             </div>
             <div class="field">
-              <label for="effective_from">Effective from</label>
-              <input id="effective_from" name="effective_from" type="date" value="{{ today.isoformat() }}">
-            </div>
-            <div class="field">
-              <label for="note">Reason</label>
-              <input id="note" name="note" type="text" placeholder="annual raise / correction">
+              <label for="note">Reason for revision / Note</label>
+              <input id="note" name="note" type="text" placeholder="e.g. Annual raise, Appraisal, Promotion, Correction">
             </div>
           </div>
+
+          <!-- Salary Applicability Month Selector -->
+          <div class="field mb-3" style="background:var(--bg-hover, #f8f9fa);border:1px dashed var(--border);border-radius:var(--radius);padding:0.85rem 1rem;">
+            <label style="font-weight:600;display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+              <span>Applicable From (Effective Month) *</span>
+              <span class="small muted" id="detail_eff_hint">Full {{ month_presets.cur_month_label }} payroll will use this new salary.</span>
+            </label>
+            <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+              <button type="button" class="btn btn-sm" id="btn-eff-cur" onclick="setSalaryEffectiveMonth('{{ month_presets.cur_month_iso }}', 'Full {{ month_presets.cur_month_label }} payroll will use this new salary.')">
+                Current Month ({{ month_presets.cur_month_label }})
+              </button>
+              <button type="button" class="btn btn-sm btn-outline" id="btn-eff-next" onclick="setSalaryEffectiveMonth('{{ month_presets.next_month_iso }}', 'Upcoming increment: Current month unchanged; new rate starts in {{ month_presets.next_month_label }}.')">
+                Next Month ({{ month_presets.next_month_label }})
+              </button>
+              <button type="button" class="btn btn-sm btn-outline" id="btn-eff-prev" onclick="setSalaryEffectiveMonth('{{ month_presets.prev_month_iso }}', 'Retroactive revision: Applies to {{ month_presets.prev_month_label }} and onwards.')">
+                Previous Month ({{ month_presets.prev_month_label }})
+              </button>
+            </div>
+            <div style="display:flex;gap:0.75rem;align-items:center;">
+              <input id="effective_from" name="effective_from" type="date" value="{{ month_presets.cur_month_iso }}" onchange="onCustomDateInput(this.value)" required style="max-width:180px;">
+              <span class="small muted" id="detail_eff_subtext">Effective starting 1st of {{ month_presets.cur_month_label }}.</span>
+            </div>
+          </div>
+
           <div class="form-row cols-3">
             <div class="field"><label for="basic">Basic</label><input id="basic" name="basic" type="number" min="0" step="any" value="{{ salary_defaults.basic | plain }}"></div>
             <div class="field"><label for="hra">HRA</label><input id="hra" name="hra" type="number" min="0" step="any" value="{{ salary_defaults.hra | plain }}"></div>
@@ -82,35 +107,72 @@
           <div class="form-row cols-3">
             <div class="field"><label for="pf">PF</label><input id="pf" name="pf" type="number" min="0" step="any" value="{{ salary_defaults.pf | plain }}"></div>
             <div class="field"><label for="esi">ESI</label><input id="esi" name="esi" type="number" min="0" step="any" value="{{ salary_defaults.esi | plain }}"></div>
-            <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="any" value="{{ salary_defaults.professional_tax | plain }}"></div>
-            <div class="field"><label for="statutory_mode">PF / ESI</label>
+            <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="any" value="{{ salary_defaults.professional_tax if salary_defaults.professional_tax is not none else '0' }}" placeholder="0"></div>
+          </div>
+          <div class="form-row cols-2">
+            <div class="field"><label for="statutory_mode">PF / ESI Mode</label>
                 <select id="statutory_mode" name="statutory_mode">
                   <option value="auto" {{ 'selected' if salary_defaults.statutory_mode == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
-                  <option value="fixed" {{ 'selected' if salary_defaults.statutory_mode != 'auto' }}>Use the amounts above</option>
+                  <option value="fixed" {{ 'selected' if salary_defaults.statutory_mode != 'auto' }}>Use the exact amounts above</option>
                 </select>
                 <div class="hint">Either way PF/ESI are reduced in loss-of-pay months.</div></div>
           </div>
-          <button class="btn btn-primary" type="submit">Save new structure</button>
-          <span class="small muted">Old structures stay in history and are used for past payroll months.</span>
+          <div style="display:flex;gap:1rem;align-items:center;margin-top:0.75rem;">
+            <button class="btn btn-primary" type="submit">Save new structure</button>
+            <span class="small muted">Past payroll months remain safe with their historical salary structures.</span>
+          </div>
         </form>
       </div>
     </details>
 
     <div class="card flush mb-3">
-      <div class="card-head"><h2>Salary history</h2></div>
+      <div class="card-head">
+        <h2>Salary revision history</h2>
+        <span class="spacer"></span>
+        <span class="small muted">Complete timeline with payroll applicability</span>
+      </div>
       <div class="table-wrap">
         <table class="data m-table">
-          <thead><tr><th>Effective</th><th class="num">Gross</th><th class="num">Deductions</th><th>Note</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Applicable From</th>
+              <th class="num">Monthly Gross</th>
+              <th class="num">Change</th>
+              <th class="num">Approx Take-Home</th>
+              <th>Reason / Note</th>
+              <th>Recorded On</th>
+            </tr>
+          </thead>
           <tbody>
           {% for item in salaries %}
             <tr>
-              <td data-label="Effective from" class="nowrap">{{ item.effective_from | nice_date }}</td>
-              <td data-label="Gross" class="num">{{ item.monthly_gross | money }}</td>
-              <td data-label="Deductions" class="num">{{ (item.pf + item.esi + item.professional_tax) | money }}</td>
-              <td data-label="Note">{{ item.note or '—' }}</td>
+              <td data-label="Status">
+                {% if item.status_badge == 'active' %}
+                  <span class="chip chip-success" style="font-size:0.75rem;">Active</span>
+                {% elif item.status_badge == 'upcoming' %}
+                  <span class="chip chip-info" style="font-size:0.75rem;">Upcoming ({{ item.effective_from | nice_date }})</span>
+                {% else %}
+                  <span class="chip" style="font-size:0.75rem;color:var(--muted);background:var(--bg-hover);">Superseded</span>
+                {% endif %}
+              </td>
+              <td data-label="Applicable From" class="nowrap"><strong>{{ item.effective_from | nice_date }}</strong></td>
+              <td data-label="Monthly Gross" class="num font-bold">{{ item.monthly_gross | money }}</td>
+              <td data-label="Change" class="num">
+                {% if item.diff_amount > 0 %}
+                  <span style="color:var(--color-success, #16a34a);font-weight:600;">+{{ item.diff_amount | money }} (+{{ '%.1f'|format(item.diff_pct) }}%)</span>
+                {% elif item.diff_amount < 0 %}
+                  <span style="color:var(--color-danger, #dc2626);font-weight:600;">{{ item.diff_amount | money }} ({{ '%.1f'|format(item.diff_pct) }}%)</span>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+              <td data-label="Approx Take-Home" class="num">{{ (item.monthly_gross - item.pf - item.esi - item.professional_tax) | money }}</td>
+              <td data-label="Reason">{{ item.note or 'Initial structure' }}</td>
+              <td data-label="Recorded" class="small muted">{{ item.created_at[:10] if item.created_at else '—' }}</td>
             </tr>
           {% else %}
-            <tr><td colspan="4" class="empty-state">No salary recorded yet.</td></tr>
+            <tr><td colspan="7" class="empty-state">No salary recorded yet.</td></tr>
           {% endfor %}
           </tbody>
         </table>
@@ -522,6 +584,35 @@
 
 {% block scripts %}
 <script>
+  function setSalaryEffectiveMonth(isoDate, hintText) {
+    var input = document.getElementById('effective_from');
+    if (input) input.value = isoDate;
+    var hint = document.getElementById('detail_eff_hint');
+    if (hint) hint.textContent = hintText;
+    var sub = document.getElementById('detail_eff_subtext');
+    if (sub) sub.textContent = "Effective from " + isoDate + " in payroll calculations.";
+
+    // toggle active styling on buttons
+    ['btn-eff-cur', 'btn-eff-next', 'btn-eff-prev'].forEach(function(id) {
+      var btn = document.getElementById(id);
+      if (btn) btn.classList.add('btn-outline');
+    });
+  }
+
+  function onCustomDateInput(val) {
+    var hint = document.getElementById('detail_eff_hint');
+    var sub = document.getElementById('detail_eff_subtext');
+    if (!val) return;
+    var d = new Date(val);
+    var day = d.getDate();
+    if (day === 1) {
+      if (hint) hint.textContent = "Applies from the 1st of the month for the full payroll cycle.";
+    } else {
+      if (hint) hint.textContent = "Mid-month effective date: Payroll will automatically split and blend pro-rata pay for the month.";
+    }
+    if (sub) sub.textContent = "Selected effective date: " + val;
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     FakhriHRMS.initFaceEnrolment({
       endpoint: "/employees/{{ employee.id }}/face",
