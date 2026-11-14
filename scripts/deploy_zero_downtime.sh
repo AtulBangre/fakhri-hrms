@@ -68,7 +68,7 @@ docker run -d \
     -e HRMS_WHATSAPP_PROVIDER=waha \
     -e HRMS_DATA_DIR=/app/data \
     -e PORT=8100 \
-    -e WORKERS=2 \
+    -e WORKERS=1 \
     -v fakhri-hrms_hrms-data:/app/data \
     fakhri-hrms:latest
 
