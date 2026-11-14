@@ -34,31 +34,107 @@
     resignation alerts are not being sent. Add one under <a href="/settings">Settings → Logins → Manage</a>.</div></div>
 {% endif %}
 
-{% if celebrations %}
-  <div class="card flush mb-3 celebrate-card">
-    <div class="card-head">
-      <h2 style="display:flex;align-items:center;gap:.4rem">{{ icon('gift') }} Coming up</h2>
-      <span class="spacer"></span>
-      <a href="/celebrations" class="small muted" style="text-decoration:underline">View all celebrations →</a>
+<div class="grid {{ 'grid-2' if celebrations else '' }} mb-3" style="align-items:stretch;gap:1rem;">
+  {% if celebrations %}
+    <div class="card flush mb-0 celebrate-card" style="display:flex;flex-direction:column;">
+      <div class="card-head" style="padding:0.75rem 1.15rem;">
+        <h2 style="display:flex;align-items:center;gap:.4rem;font-size:1.05rem;">{{ icon('gift') }} Coming up</h2>
+        <span class="spacer"></span>
+        <a href="/celebrations" class="small muted" style="text-decoration:underline">View all celebrations →</a>
+      </div>
+      <div class="list" style="flex-grow:1;">
+        {% for item in celebrations %}
+          <a class="list-row celebrate-row {{ 'is-today' if item.in_days == 0 }}" href="/employees/{{ item.employee.id }}" style="padding:0.65rem 1.15rem;">
+            {% if item.employee.photo_filename %}
+              <img class="avatar" src="/employees/{{ item.employee.id }}/avatar" alt="" style="object-fit:cover;width:38px;height:38px;">
+            {% else %}
+              <span class="avatar" style="width:38px;height:38px;font-size:0.95rem;">{{ item.employee.name | initials }}</span>
+            {% endif %}
+            <span class="grow">
+              <strong>{{ item.employee.name }}</strong>
+              <span style="font-size:0.8rem;">{{ item.label }}{% if item.kind == 'work' %} · {{ item.years }} year{{ '' if item.years == 1 else 's' }}{% endif %} · {{ item.date.strftime('%d %b') }}</span>
+            </span>
+            <span class="chip {{ 'chip-primary' if item.in_days == 0 else ('chip-warn' if item.in_days == 1 else 'chip-info') }}" style="font-size:0.75rem;padding:2px 8px;">{{ item.when_label }}</span>
+          </a>
+        {% endfor %}
+      </div>
     </div>
-    <div class="list">
-      {% for item in celebrations %}
-        <a class="list-row celebrate-row {{ 'is-today' if item.in_days == 0 }}" href="/employees/{{ item.employee.id }}">
-          {% if item.employee.photo_filename %}
-            <img class="avatar" src="/employees/{{ item.employee.id }}/avatar" alt="" style="object-fit:cover">
-          {% else %}
-            <span class="avatar">{{ item.employee.name | initials }}</span>
-          {% endif %}
-          <span class="grow">
-            <strong>{{ item.employee.name }}</strong>
-            <span>{{ item.label }}{% if item.kind == 'work' %} · {{ item.years }} year{{ '' if item.years == 1 else 's' }}{% endif %} · {{ item.date.strftime('%d %b') }}</span>
+  {% endif %}
+
+  <!-- Compact Employee of the Month Card (Leader Spotlight) -->
+  <div class="card mb-0" id="recognitionCard" style="border-top:3.5px solid #d97706;display:flex;flex-direction:column;justify-content:space-between;">
+    <div class="card-head" style="padding:0.75rem 1.15rem;display:flex;align-items:center;flex-wrap:wrap;gap:0.4rem;">
+      <div style="display:flex;align-items:center;gap:0.4rem;">
+        <span style="font-size:1.25rem;line-height:1;">🏆</span>
+        <h2 style="margin:0;font-size:1.05rem;display:flex;align-items:center;gap:0.4rem;">
+          <span id="recogCardTitle">{{ 'Employee of the Month' if not recognition.is_live else 'Live Contenders' }}</span>
+          <span id="recogStatusChip" class="chip {{ 'chip-info' if recognition.is_live else 'chip-success' }}" style="font-size:0.7rem;padding:1px 6px;">
+            {{ 'Live' if recognition.is_live else 'Final' }}
           </span>
-          <span class="chip {{ 'chip-primary' if item.in_days == 0 else ('chip-warn' if item.in_days == 1 else 'chip-info') }}">{{ item.when_label }}</span>
-        </a>
-      {% endfor %}
+        </h2>
+      </div>
+      <span class="spacer"></span>
+      <!-- Month Switcher -->
+      <div style="display:flex;align-items:center;gap:0.25rem;">
+        <button type="button" class="btn btn-sm btn-outline" id="recogPrevBtn" onclick="shiftRecognitionMonth(-1)" title="Previous month" style="padding:0.15rem 0.45rem;font-size:0.75rem;">
+          ◀
+        </button>
+        <select id="recogPeriodSelect" class="form-select form-select-sm" style="font-weight:600;padding:0.2rem 0.5rem;border-radius:6px;font-size:0.8rem;" onchange="loadRecognitionPeriod(this.value)">
+          {% for p in recognition.available_periods %}
+            <option value="{{ p.period }}" {{ 'selected' if p.period == recognition.period }}>{{ p.label }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" class="btn btn-sm btn-outline" id="recogNextBtn" onclick="shiftRecognitionMonth(1)" title="Next month" style="padding:0.15rem 0.45rem;font-size:0.75rem;">
+          ▶
+        </button>
+      </div>
+    </div>
+
+    <div class="card-body" id="recogCardBody" style="padding:0.85rem 1.15rem;flex-grow:1;display:flex;flex-direction:column;justify-content:center;">
+      {% if recognition.top3 %}
+        {% set leader = recognition.top3[0] %}
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;">
+          <div style="display:flex;align-items:center;gap:0.75rem;min-width:0;overflow:hidden;">
+            {% if leader.employee.photo_filename %}
+              <img class="avatar" src="/employees/{{ leader.employee.id }}/avatar" alt="" style="width:46px;height:46px;border-radius:50%;object-fit:cover;border:2.5px solid #f59e0b;flex-shrink:0;">
+            {% else %}
+              <span class="avatar" style="width:46px;height:46px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid #f59e0b;background:var(--bg-hover);flex-shrink:0;">{{ leader.employee.name | initials }}</span>
+            {% endif %}
+            <div style="min-width:0;overflow:hidden;">
+              <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                <a href="/employees/{{ leader.employee.id }}" style="font-size:1.02rem;font-weight:700;color:inherit;text-decoration:none;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">
+                  {{ leader.employee.name }}
+                </a>
+                <span class="chip" style="font-size:0.7rem;font-weight:700;padding:1px 6px;color:#b45309;background:rgba(251,191,36,0.25);">
+                  👑 #1 Leader
+                </span>
+              </div>
+              <div class="small muted" style="white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:0.8rem;">
+                {{ leader.employee.code }} · {{ leader.employee.designation }} · {{ leader.employee.department }}
+              </div>
+              <div class="small" style="margin-top:2px;color:var(--text);font-weight:500;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:0.78rem;">
+                ✓ {{ leader.reasons[0] if leader.reasons else 'Top attendance & punctuality record' }}
+              </div>
+            </div>
+          </div>
+
+          <div style="text-align:right;flex-shrink:0;">
+            <div class="badge-count" style="font-size:0.95rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 8px;border:1px solid rgba(0,0,0,0.1);display:inline-block;" title="Composite HRMS Performance Score">
+              ⭐ {{ leader.score }}<span class="small muted" style="font-size:0.72rem;font-weight:500;">/100</span>
+            </div>
+            <div style="margin-top:5px;">
+              <button type="button" class="btn btn-sm btn-primary" style="font-size:0.75rem;padding:3px 9px;" onclick="openTop3Modal()">
+                View Top 3 🏆
+              </button>
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <div class="small muted text-center" style="padding:1rem 0;">No attendance records for this month yet.</div>
+      {% endif %}
     </div>
   </div>
-{% endif %}
+</div>
 
 {% include "_announcements.html" %}
 
@@ -89,116 +165,37 @@
   </div>
 </div>
 
-<!-- Employee of the Month & Star Performers Card -->
-<div class="card mb-3" id="recognitionCard" style="border-top:3.5px solid #d97706;box-shadow:0 2px 8px rgba(0,0,0,0.04);">
-  <div class="card-head" style="display:flex;align-items:center;flex-wrap:wrap;gap:0.75rem;padding:0.85rem 1.25rem;">
-    <div style="display:flex;align-items:center;gap:0.6rem;">
-      <span style="font-size:1.5rem;line-height:1;">🏆</span>
-      <div>
-        <h2 style="margin:0;font-size:1.15rem;display:flex;align-items:center;gap:0.5rem;">
-          <span id="recogCardTitle">{{ 'Employee of the Month (Live Contenders)' if recognition.is_live else 'Employee of the Month' }}</span>
-          <span id="recogStatusChip" class="chip {{ 'chip-info' if recognition.is_live else 'chip-success' }}" style="font-size:0.75rem;padding:2px 8px;">
-            {{ 'Live Race' if recognition.is_live else 'Finalized' }}
-          </span>
-        </h2>
-        <div class="small muted" id="recogCardSub" style="margin-top:2px;">
-          {{ 'Top contenders leading this month based on attendance, punctuality & diligence' if recognition.is_live else 'Official monthly honor based on verified HRMS records' }}
+<!-- View Top 3 Modal Dialog -->
+<div id="top3ModalOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:9998;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:var(--card-bg, #fff);border-radius:12px;max-width:940px;width:100%;box-shadow:0 12px 30px rgba(0,0,0,0.25);overflow:hidden;border:1px solid var(--border-color, #e2e8f0);max-height:90vh;display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border-color, #e2e8f0);background:var(--bg-hover, #f8fafc);">
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <span style="font-size:1.5rem;">🏆</span>
+        <div>
+          <h3 id="top3ModalTitle" style="margin:0;font-size:1.15rem;font-weight:700;">Top 3 Performers & Contenders</h3>
+          <span id="top3ModalSub" class="small muted">Rank #1, #2 and #3 based on verified HRMS metrics ({{ recognition.label }})</span>
         </div>
       </div>
+      <button type="button" onclick="closeTop3Modal()" style="background:none;border:none;font-size:1.75rem;line-height:1;cursor:pointer;color:var(--muted);">&times;</button>
     </div>
-    <span class="spacer"></span>
 
-    <!-- Single-Card Month Switcher -->
-    <div style="display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;">
-      <button type="button" class="btn btn-sm btn-outline" id="recogPrevBtn" onclick="shiftRecognitionMonth(-1)" title="Previous month" style="padding:0.25rem 0.55rem;">
-        ◀ Prev
-      </button>
-      <select id="recogPeriodSelect" class="form-select form-select-sm" style="font-weight:600;padding:0.25rem 0.65rem;border-radius:6px;font-size:0.85rem;" onchange="loadRecognitionPeriod(this.value)">
-        {% for p in recognition.available_periods %}
-          <option value="{{ p.period }}" {{ 'selected' if p.period == recognition.period }}>{{ p.label }}</option>
-        {% endfor %}
-      </select>
-      <button type="button" class="btn btn-sm btn-outline" id="recogNextBtn" onclick="shiftRecognitionMonth(1)" title="Next month" style="padding:0.25rem 0.55rem;">
-        Next ▶
-      </button>
+    <div style="padding:1.25rem;overflow-y:auto;flex-grow:1;" id="top3ModalCards">
+      <!-- Injected via JavaScript from currentRecognitionData.top3 -->
     </div>
-  </div>
 
-  <div class="card-body" id="recogCardBody" style="padding:1.25rem;">
-    {% if recognition.top3 %}
-      <div class="recognition-podium" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1.25rem;">
-        {% for cand in recognition.top3 %}
-          <div class="recog-performer-card" style="display:flex;flex-direction:column;border-radius:10px;padding:1.15rem;border:1px solid {{ '#f59e0b' if cand.rank == 1 else ('#94a3b8' if cand.rank == 2 else '#d97706') }};background:{{ 'linear-gradient(135deg, rgba(254, 240, 138, 0.12), rgba(253, 230, 138, 0.03))' if cand.rank == 1 else ('linear-gradient(135deg, rgba(241, 245, 249, 0.7), rgba(248, 250, 252, 0.4))' if cand.rank == 2 else 'linear-gradient(135deg, rgba(254, 215, 170, 0.12), rgba(255, 237, 213, 0.03))') }};position:relative;">
-            
-            <!-- Rank Tag & Score -->
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
-              <span class="chip" style="font-size:0.78rem;font-weight:700;color:{{ '#b45309' if cand.rank == 1 else ('#475569' if cand.rank == 2 else '#c2410c') }};background:{{ 'rgba(251, 191, 36, 0.25)' if cand.rank == 1 else ('rgba(203, 213, 225, 0.45)' if cand.rank == 2 else 'rgba(253, 186, 116, 0.25)') }};">
-                {{ '👑 Rank #1 · ' ~ cand.badge_title if cand.rank == 1 else ('🥈 Rank #2 · ' ~ cand.badge_title if cand.rank == 2 else '🥉 Rank #3 · ' ~ cand.badge_title) }}
-              </span>
-              <span class="badge-count" style="font-size:0.9rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 9px;border:1px solid rgba(0,0,0,0.1);color:var(--text, #1e293b);" title="Composite HRMS Performance Score">
-                ⭐ {{ cand.score }}<span class="small muted" style="font-size:0.75rem;font-weight:500;">/100</span>
-              </span>
-            </div>
-
-            <!-- Profile Info -->
-            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.85rem;">
-              {% if cand.employee.photo_filename %}
-                <img class="avatar" src="/employees/{{ cand.employee.id }}/avatar" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2.5px solid {{ '#f59e0b' if cand.rank == 1 else '#94a3b8' }};">
-              {% else %}
-                <span class="avatar" style="width:48px;height:48px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid {{ '#f59e0b' if cand.rank == 1 else '#94a3b8' }};background:var(--bg-hover);">{{ cand.employee.name | initials }}</span>
-              {% endif %}
-              <div style="overflow:hidden;">
-                <a href="/employees/{{ cand.employee.id }}" style="font-size:1.05rem;font-weight:700;color:inherit;text-decoration:none;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">
-                  {{ cand.employee.name }}
-                </a>
-                <div class="small muted" style="white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">
-                  {{ cand.employee.code }} · {{ cand.employee.designation }}
-                </div>
-                <div class="small muted" style="font-size:0.75rem;">
-                  Dept: {{ cand.employee.department }}
-                </div>
-              </div>
-            </div>
-
-            <!-- Highlights & Reasons -->
-            <div style="flex-grow:1;border-top:1px dashed var(--border-color, #e2e8f0);padding-top:0.65rem;margin-bottom:0.75rem;">
-              <div class="small font-bold" style="margin-bottom:0.35rem;color:var(--muted);">Key HRMS Highlights:</div>
-              <ul style="margin:0;padding-left:1.1rem;font-size:0.82rem;line-height:1.45;color:var(--text, #334155);">
-                {% for r in cand.reasons %}
-                  <li style="margin-bottom:2px;">{{ r }}</li>
-                {% endfor %}
-              </ul>
-            </div>
-
-            <!-- Chance / Margin Subtext & Breakdown Trigger -->
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.06);">
-              <span class="small" style="font-weight:600;color:{{ 'var(--color-primary, #b91c1c)' if cand.rank == 1 else 'var(--muted)' }};font-size:0.78rem;">
-                {{ cand.chance_label }}
-              </span>
-              <button type="button" class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:2px 8px;" onclick='showScorecardModal({{ cand | tojson }})'>
-                Scorecard 🔍
-              </button>
-            </div>
-
-          </div>
-        {% endfor %}
-      </div>
-    {% else %}
-      <div class="empty-state" style="padding:2rem 1rem;text-align:center;">
-        <span style="font-size:2rem;display:block;margin-bottom:0.5rem;">📊</span>
-        <strong>No attendance data recorded yet for {{ recognition.label }}.</strong>
-        <p class="small muted mb-0" style="margin-top:0.25rem;">As employees check in at the gate or through the portal, live rankings will appear here automatically.</p>
-      </div>
-    {% endif %}
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1.25rem;background:var(--bg-hover, #f8fafc);border-top:1px solid var(--border-color, #e2e8f0);">
+      <span class="small muted">Automated 100-pt scoring: Attendance (35), Punctuality (25), Hours (20), Leaves (15), Kiosk (5)</span>
+      <button type="button" class="btn btn-sm btn-primary" onclick="closeTop3Modal()">Close</button>
+    </div>
   </div>
 </div>
 
 <!-- Scorecard Breakdown Modal -->
-<div id="scorecardModalOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;padding:1rem;">
-  <div style="background:var(--card-bg, #fff);border-radius:12px;max-width:540px;width:100%;box-shadow:0 10px 25px rgba(0,0,0,0.2);overflow:hidden;border:1px solid var(--border-color, #e2e8f0);">
+<div id="scorecardModalOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);z-index:9999;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:var(--card-bg, #fff);border-radius:12px;max-width:540px;width:100%;box-shadow:0 12px 30px rgba(0,0,0,0.3);overflow:hidden;border:1px solid var(--border-color, #e2e8f0);">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border-color, #e2e8f0);background:var(--bg-hover, #f8fafc);">
       <div>
-        <h3 id="scModalName" style="margin:0;font-size:1.15rem;font-weight:700;">Employee Scorecard</h3>
+        <h3 id="scModalName" style="margin:0;font-size:1.1rem;font-weight:700;">Employee Scorecard</h3>
         <span id="scModalSub" class="small muted">HRMS Multi-dimensional Performance Audit</span>
       </div>
       <button type="button" onclick="closeScorecardModal()" style="background:none;border:none;font-size:1.5rem;line-height:1;cursor:pointer;color:var(--muted);">&times;</button>
@@ -375,12 +372,14 @@
   })();
 
   // -------------------------------------------------------------
-  // Employee of the Month & Recognition Switcher & Modal
+  // Employee of the Month & Recognition Switcher & Modals
   // -------------------------------------------------------------
+  var currentRecognitionData = {{ recognition | tojson }};
+
   function shiftRecognitionMonth(delta) {
     var select = document.getElementById("recogPeriodSelect");
     if (!select) return;
-    var newIdx = select.selectedIndex - delta; // note: index 0 is newest (live), index 1 is prev
+    var newIdx = select.selectedIndex - delta;
     if (newIdx >= 0 && newIdx < select.options.length) {
       select.selectedIndex = newIdx;
       loadRecognitionPeriod(select.value);
@@ -402,88 +401,152 @@
         body.style.pointerEvents = "auto";
         if (!data) return;
 
+        currentRecognitionData = data;
+
         // update header texts
         var title = document.getElementById("recogCardTitle");
-        if (title) title.textContent = data.is_live ? "Employee of the Month (Live Contenders)" : "Employee of the Month";
+        if (title) title.textContent = data.is_live ? "Live Contenders" : "Employee of the Month";
 
         var chip = document.getElementById("recogStatusChip");
         if (chip) {
           chip.className = "chip " + (data.is_live ? "chip-info" : "chip-success");
-          chip.textContent = data.is_live ? "Live Race" : "Finalized";
-        }
-
-        var sub = document.getElementById("recogCardSub");
-        if (sub) {
-          sub.textContent = data.is_live
-            ? "Top contenders leading this month based on attendance, punctuality & diligence"
-            : "Official monthly honor based on verified HRMS records (" + data.label + ")";
+          chip.textContent = data.is_live ? "Live" : "Final";
         }
 
         if (select && select.value !== data.period) {
           select.value = data.period;
         }
 
-        // render body
+        // render compact leader spotlight
         if (!data.top3 || data.top3.length === 0) {
-          body.innerHTML = '<div class="empty-state" style="padding:2rem 1rem;text-align:center;">' +
-            '<span style="font-size:2rem;display:block;margin-bottom:0.5rem;">📊</span>' +
-            '<strong>No attendance data recorded yet for ' + (data.label || period) + '.</strong>' +
-            '<p class="small muted mb-0" style="margin-top:0.25rem;">As employees check in, rankings appear here automatically.</p>' +
-            '</div>';
+          body.innerHTML = '<div class="small muted text-center" style="padding:1rem 0;">No attendance records for ' + (data.label || period) + ' yet.</div>';
           return;
         }
 
-        var html = '<div class="recognition-podium" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1.25rem;">';
-        data.top3.forEach(function(cand) {
-          var isR1 = (cand.rank === 1);
-          var isR2 = (cand.rank === 2);
-          var borderCol = isR1 ? '#f59e0b' : (isR2 ? '#94a3b8' : '#d97706');
-          var bgGrad = isR1 ? 'linear-gradient(135deg, rgba(254, 240, 138, 0.12), rgba(253, 230, 138, 0.03))' : (isR2 ? 'linear-gradient(135deg, rgba(241, 245, 249, 0.7), rgba(248, 250, 252, 0.4))' : 'linear-gradient(135deg, rgba(254, 215, 170, 0.12), rgba(255, 237, 213, 0.03))');
-          var tagColor = isR1 ? '#b45309' : (isR2 ? '#475569' : '#c2410c');
-          var tagBg = isR1 ? 'rgba(251, 191, 36, 0.25)' : (isR2 ? 'rgba(203, 213, 225, 0.45)' : 'rgba(253, 186, 116, 0.25)');
-          var rankLabel = (isR1 ? '👑 Rank #1 · ' : (isR2 ? '🥈 Rank #2 · ' : '🥉 Rank #3 · ')) + (cand.badge_title || '');
+        var leader = data.top3[0];
+        var avatarHtml = leader.employee.photo_filename
+          ? '<img class="avatar" src="/employees/' + leader.employee.id + '/avatar" alt="" style="width:46px;height:46px;border-radius:50%;object-fit:cover;border:2.5px solid #f59e0b;flex-shrink:0;">'
+          : '<span class="avatar" style="width:46px;height:46px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid #f59e0b;background:var(--bg-hover);flex-shrink:0;">' + (leader.employee.name ? leader.employee.name.charAt(0) : 'E') + '</span>';
 
-          var avatarHtml = cand.employee.photo_filename
-            ? '<img class="avatar" src="/employees/' + cand.employee.id + '/avatar" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2.5px solid ' + borderCol + ';">'
-            : '<span class="avatar" style="width:48px;height:48px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid ' + borderCol + ';background:var(--bg-hover);">' + (cand.employee.name ? cand.employee.name.charAt(0) : 'E') + '</span>';
+        var highlightReason = (leader.reasons && leader.reasons.length > 0) ? leader.reasons[0] : 'Top attendance & punctuality record';
 
-          var reasonsHtml = '';
-          (cand.reasons || []).forEach(function(r) {
-            reasonsHtml += '<li style="margin-bottom:2px;">' + r + '</li>';
-          });
-
-          var candJson = JSON.stringify(cand).replace(/"/g, '&quot;');
-
-          html += '<div class="recog-performer-card" style="display:flex;flex-direction:column;border-radius:10px;padding:1.15rem;border:1px solid ' + borderCol + ';background:' + bgGrad + ';position:relative;">' +
-            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">' +
-              '<span class="chip" style="font-size:0.78rem;font-weight:700;color:' + tagColor + ';background:' + tagBg + ';">' + rankLabel + '</span>' +
-              '<span class="badge-count" style="font-size:0.9rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 9px;border:1px solid rgba(0,0,0,0.1);color:var(--text, #1e293b);" title="Composite HRMS Performance Score">⭐ ' + cand.score + '<span class="small muted" style="font-size:0.75rem;font-weight:500;">/100</span></span>' +
-            '</div>' +
-            '<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.85rem;">' +
-              avatarHtml +
-              '<div style="overflow:hidden;">' +
-                '<a href="/employees/' + cand.employee.id + '" style="font-size:1.05rem;font-weight:700;color:inherit;text-decoration:none;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' + (cand.employee.name || '') + '</a>' +
-                '<div class="small muted" style="white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' + (cand.employee.code || '') + ' · ' + (cand.employee.designation || '') + '</div>' +
-                '<div class="small muted" style="font-size:0.75rem;">Dept: ' + (cand.employee.department || 'General') + '</div>' +
+        body.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;">' +
+          '<div style="display:flex;align-items:center;gap:0.75rem;min-width:0;overflow:hidden;">' +
+            avatarHtml +
+            '<div style="min-width:0;overflow:hidden;">' +
+              '<div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">' +
+                '<a href="/employees/' + leader.employee.id + '" style="font-size:1.02rem;font-weight:700;color:inherit;text-decoration:none;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' +
+                  (leader.employee.name || '') +
+                '</a>' +
+                '<span class="chip" style="font-size:0.7rem;font-weight:700;padding:1px 6px;color:#b45309;background:rgba(251,191,36,0.25);">' +
+                  '👑 #1 Leader' +
+                '</span>' +
+              '</div>' +
+              '<div class="small muted" style="white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:0.8rem;">' +
+                (leader.employee.code || '') + ' · ' + (leader.employee.designation || '') + ' · ' + (leader.employee.department || '') +
+              '</div>' +
+              '<div class="small" style="margin-top:2px;color:var(--text);font-weight:500;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:0.78rem;">' +
+                '✓ ' + highlightReason +
               '</div>' +
             '</div>' +
-            '<div style="flex-grow:1;border-top:1px dashed var(--border-color, #e2e8f0);padding-top:0.65rem;margin-bottom:0.75rem;">' +
-              '<div class="small font-bold" style="margin-bottom:0.35rem;color:var(--muted);">Key HRMS Highlights:</div>' +
-              '<ul style="margin:0;padding-left:1.1rem;font-size:0.82rem;line-height:1.45;color:var(--text, #334155);">' + reasonsHtml + '</ul>' +
+          '</div>' +
+          '<div style="text-align:right;flex-shrink:0;">' +
+            '<div class="badge-count" style="font-size:0.95rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 8px;border:1px solid rgba(0,0,0,0.1);display:inline-block;" title="Composite HRMS Performance Score">' +
+              '⭐ ' + leader.score + '<span class="small muted" style="font-size:0.72rem;font-weight:500;">/100</span>' +
             '</div>' +
-            '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.06);">' +
-              '<span class="small" style="font-weight:600;color:' + (isR1 ? 'var(--color-primary, #b91c1c)' : 'var(--muted)') + ';font-size:0.78rem;">' + (cand.chance_label || '') + '</span>' +
-              '<button type="button" class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:2px 8px;" onclick="showScorecardModal(' + candJson + ')">Scorecard 🔍</button>' +
+            '<div style="margin-top:5px;">' +
+              '<button type="button" class="btn btn-sm btn-primary" style="font-size:0.75rem;padding:3px 9px;" onclick="openTop3Modal()">' +
+                'View Top 3 🏆' +
+              '</button>' +
             '</div>' +
-          '</div>';
-        });
-        html += '</div>';
-        body.innerHTML = html;
+          '</div>' +
+        '</div>';
+
+        // If top 3 modal is open, re-render it too
+        var top3Overlay = document.getElementById("top3ModalOverlay");
+        if (top3Overlay && top3Overlay.style.display === "flex") {
+          renderTop3ModalContent();
+        }
       })
       .catch(function(err) {
         body.style.opacity = "1";
         body.style.pointerEvents = "auto";
       });
+  }
+
+  function openTop3Modal() {
+    var overlay = document.getElementById("top3ModalOverlay");
+    if (!overlay) return;
+    renderTop3ModalContent();
+    overlay.style.display = "flex";
+  }
+
+  function closeTop3Modal() {
+    var overlay = document.getElementById("top3ModalOverlay");
+    if (overlay) overlay.style.display = "none";
+  }
+
+  function renderTop3ModalContent() {
+    var title = document.getElementById("top3ModalTitle");
+    var sub = document.getElementById("top3ModalSub");
+    var container = document.getElementById("top3ModalCards");
+    if (!container || !currentRecognitionData) return;
+
+    var data = currentRecognitionData;
+    if (title) title.textContent = "🏆 " + (data.is_live ? "Live Contenders Race" : "Official Top Performers") + " (" + (data.label || data.period) + ")";
+    if (sub) sub.textContent = "Top 3 employees evaluated across Attendance, Punctuality, Shift Hours & Leave Discipline";
+
+    if (!data.top3 || data.top3.length === 0) {
+      container.innerHTML = '<div class="empty-state" style="padding:2rem;text-align:center;">No records available for this month.</div>';
+      return;
+    }
+
+    var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:1rem;">';
+    data.top3.forEach(function(cand) {
+      var isR1 = (cand.rank === 1);
+      var isR2 = (cand.rank === 2);
+      var borderCol = isR1 ? '#f59e0b' : (isR2 ? '#94a3b8' : '#d97706');
+      var bgGrad = isR1 ? 'linear-gradient(135deg, rgba(254, 240, 138, 0.12), rgba(253, 230, 138, 0.03))' : (isR2 ? 'linear-gradient(135deg, rgba(241, 245, 249, 0.7), rgba(248, 250, 252, 0.4))' : 'linear-gradient(135deg, rgba(254, 215, 170, 0.12), rgba(255, 237, 213, 0.03))');
+      var tagColor = isR1 ? '#b45309' : (isR2 ? '#475569' : '#c2410c');
+      var tagBg = isR1 ? 'rgba(251, 191, 36, 0.25)' : (isR2 ? 'rgba(203, 213, 225, 0.45)' : 'rgba(253, 186, 116, 0.25)');
+      var rankLabel = (isR1 ? '👑 Rank #1 · ' : (isR2 ? '🥈 Rank #2 · ' : '🥉 Rank #3 · ')) + (cand.badge_title || '');
+
+      var avatarHtml = cand.employee.photo_filename
+        ? '<img class="avatar" src="/employees/' + cand.employee.id + '/avatar" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2.5px solid ' + borderCol + ';">'
+        : '<span class="avatar" style="width:48px;height:48px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid ' + borderCol + ';background:var(--bg-hover);">' + (cand.employee.name ? cand.employee.name.charAt(0) : 'E') + '</span>';
+
+      var reasonsHtml = '';
+      (cand.reasons || []).forEach(function(r) {
+        reasonsHtml += '<li style="margin-bottom:2px;">' + r + '</li>';
+      });
+
+      var candJson = JSON.stringify(cand).replace(/"/g, '&quot;');
+
+      html += '<div style="display:flex;flex-direction:column;border-radius:10px;padding:1.15rem;border:1px solid ' + borderCol + ';background:' + bgGrad + ';position:relative;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">' +
+          '<span class="chip" style="font-size:0.78rem;font-weight:700;color:' + tagColor + ';background:' + tagBg + ';">' + rankLabel + '</span>' +
+          '<span class="badge-count" style="font-size:0.9rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 9px;border:1px solid rgba(0,0,0,0.1);color:var(--text, #1e293b);" title="Composite HRMS Performance Score">⭐ ' + cand.score + '<span class="small muted" style="font-size:0.75rem;font-weight:500;">/100</span></span>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.85rem;">' +
+          avatarHtml +
+          '<div style="overflow:hidden;">' +
+            '<a href="/employees/' + cand.employee.id + '" style="font-size:1.05rem;font-weight:700;color:inherit;text-decoration:none;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' + (cand.employee.name || '') + '</a>' +
+            '<div class="small muted" style="white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' + (cand.employee.code || '') + ' · ' + (cand.employee.designation || '') + '</div>' +
+            '<div class="small muted" style="font-size:0.75rem;">Dept: ' + (cand.employee.department || 'General') + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="flex-grow:1;border-top:1px dashed var(--border-color, #e2e8f0);padding-top:0.65rem;margin-bottom:0.75rem;">' +
+          '<div class="small font-bold" style="margin-bottom:0.35rem;color:var(--muted);">Key HRMS Highlights:</div>' +
+          '<ul style="margin:0;padding-left:1.1rem;font-size:0.82rem;line-height:1.45;color:var(--text, #334155);">' + reasonsHtml + '</ul>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.06);">' +
+          '<span class="small" style="font-weight:600;color:' + (isR1 ? 'var(--color-primary, #b91c1c)' : 'var(--muted)') + ';font-size:0.78rem;">' + (cand.chance_label || '') + '</span>' +
+          '<button type="button" class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:2px 8px;" onclick="showScorecardModal(' + candJson + ')">Scorecard 🔍</button>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
   }
 
   function showScorecardModal(cand) {
@@ -525,14 +588,29 @@
     if (overlay) overlay.style.display = "none";
   }
 
-  // close modal on escape or background click
+  // close modals on escape or background click
   document.addEventListener("keydown", function(e) {
-    if (e.key === "Escape") closeScorecardModal();
+    if (e.key === "Escape") {
+      var scModal = document.getElementById("scorecardModalOverlay");
+      if (scModal && scModal.style.display === "flex") {
+        closeScorecardModal();
+      } else {
+        closeTop3Modal();
+      }
+    }
   });
-  var modalOverlay = document.getElementById("scorecardModalOverlay");
-  if (modalOverlay) {
-    modalOverlay.addEventListener("click", function(e) {
-      if (e.target === modalOverlay) closeScorecardModal();
+
+  var top3ModalOverlay = document.getElementById("top3ModalOverlay");
+  if (top3ModalOverlay) {
+    top3ModalOverlay.addEventListener("click", function(e) {
+      if (e.target === top3ModalOverlay) closeTop3Modal();
+    });
+  }
+
+  var scModalOverlay = document.getElementById("scorecardModalOverlay");
+  if (scModalOverlay) {
+    scModalOverlay.addEventListener("click", function(e) {
+      if (e.target === scModalOverlay) closeScorecardModal();
     });
   }
 </script>
