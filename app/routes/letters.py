@@ -14,16 +14,33 @@ from ..services import letters as letters_service
 router = APIRouter(prefix="/letters", tags=["letters"])
 
 
+def _safe_int(val: Any) -> int | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    return int(s) if s.isdigit() else None
+
+
+def _safe_float(val: Any) -> float:
+    if val is None:
+        return 0.0
+    try:
+        return float(str(val).replace(",", "").strip() or 0.0)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 @router.get("")
 def letters_index(
     request: Request,
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
-    employee_id: int | None = None,
+    employee_id: str | None = None,
 ):
     storage._seed_letter_templates()
+    emp_id = _safe_int(employee_id)
     templates = letters_service.list_templates(storage)
-    history = letters_service.list_generated_letters(storage, employee_id=employee_id, limit=100)
+    history = letters_service.list_generated_letters(storage, employee_id=emp_id, limit=100)
     employees = employees_service.list_employees(storage, status="all", limit=500)
     return render(
         request,
@@ -33,7 +50,7 @@ def letters_index(
         templates=templates,
         history=history,
         employees=employees,
-        selected_employee_id=employee_id,
+        selected_employee_id=emp_id,
     )
 
 
@@ -42,13 +59,13 @@ def generate_page(
     request: Request,
     slug: str = "offer",
     target_type: str = "",
-    employee_id: int | None = None,
+    employee_id: str | None = None,
     candidate_name: str = "",
     candidate_email: str = "",
     candidate_phone: str = "",
     candidate_role: str = "",
     candidate_dept: str = "",
-    candidate_gross: float = 0.0,
+    candidate_gross: str | None = None,
     candidate_joining: str = "",
     probation_months: str = "3",
     notice_period: str = "30",
@@ -60,6 +77,8 @@ def generate_page(
     if not template:
         return redirect("/letters", err=f"Template '{slug}' not found.")
     
+    emp_id = _safe_int(employee_id)
+    cand_gross = _safe_float(candidate_gross)
     employees = employees_service.list_employees(storage, status="all", limit=500)
     templates = letters_service.list_templates(storage)
     
@@ -78,7 +97,7 @@ def generate_page(
                 candidate_name=candidate_name,
                 designation=candidate_role or "Associate",
                 department=candidate_dept or "General",
-                monthly_gross=candidate_gross or 0.0,
+                monthly_gross=cand_gross,
                 joined_on=candidate_joining or None,
                 probation_months=probation_months or "3",
                 notice_period=notice_period or "30",
@@ -87,21 +106,11 @@ def generate_page(
             rendered_subject = letters_service.render_tokens(template["subject"] or "", context)
             rendered_body = letters_service.render_tokens(template["body_text"] or "", context)
         else:
-            # Pre-render with smart placeholders so user sees live preview template
-            preview_ctx = letters_service.build_candidate_context(
-                storage,
-                candidate_name="[Candidate Name]",
-                designation="[Designation]",
-                department="[Department]",
-                monthly_gross=0.0,
-                probation_months=probation_months or "3",
-                notice_period=notice_period or "30",
-            )
             rendered_subject = template["subject"] or ""
             rendered_body = template["body_text"] or ""
-    elif target_type == "employee" and employee_id:
+    elif target_type == "employee" and emp_id:
         try:
-            context = letters_service.build_employee_context(storage, employee_id)
+            context = letters_service.build_employee_context(storage, emp_id)
             rendered_subject = letters_service.render_tokens(template["subject"] or "", context)
             rendered_body = letters_service.render_tokens(template["body_text"] or "", context)
         except Exception:
@@ -115,14 +124,14 @@ def generate_page(
         letter_template=template,
         templates=templates,
         employees=employees,
-        employee_id=employee_id,
+        employee_id=emp_id,
         target_type=target_type,
         candidate_name=candidate_name,
         candidate_email=candidate_email,
         candidate_phone=candidate_phone,
         candidate_role=candidate_role,
         candidate_dept=candidate_dept,
-        candidate_gross=candidate_gross,
+        candidate_gross=cand_gross,
         candidate_joining=candidate_joining,
         probation_months=probation_months,
         notice_period=notice_period,
@@ -137,13 +146,13 @@ def download_letter(
     request: Request,
     slug: str = Form(...),
     target_type: str = Form("employee"),
-    employee_id: int | None = Form(None),
+    employee_id: str | None = Form(None),
     candidate_name: str = Form(""),
     candidate_email: str = Form(""),
     candidate_phone: str = Form(""),
     candidate_role: str = Form(""),
     candidate_dept: str = Form(""),
-    candidate_gross: float = Form(0.0),
+    candidate_gross: str | None = Form(None),
     candidate_joining: str = Form(""),
     probation_months: str = Form("3"),
     notice_period: str = Form("30"),
@@ -160,6 +169,8 @@ def download_letter(
     title = template["title"] if template else slug.title()
     letter_date = date.today().strftime("%d %b %Y")
     cur_year = date.today().year
+    emp_id = _safe_int(employee_id)
+    cand_gross = _safe_float(candidate_gross)
 
     if target_type == "candidate":
         cand_name_clean = candidate_name.strip()
@@ -176,7 +187,7 @@ def download_letter(
             "phone": candidate_phone.strip(),
             "designation": candidate_role.strip(),
             "department": candidate_dept.strip(),
-            "monthly_gross": candidate_gross,
+            "monthly_gross": cand_gross,
             "joined_on": candidate_joining.strip(),
             "probation_months": probation_months.strip(),
             "notice_period": notice_period.strip(),
@@ -213,9 +224,9 @@ def download_letter(
             detail=f"{title} generated for prospective candidate {cand_name_clean}",
         )
     else:
-        if not employee_id:
+        if not emp_id:
             return redirect(f"/letters/generate?slug={slug}&target_type=employee", err="Please select an employee.")
-        emp = employees_service.require_employee(storage, employee_id)
+        emp = employees_service.require_employee(storage, emp_id)
         ref_no = f"FITS/HR/{slug.upper()}/{cur_year}/{emp['code']}"
         filename = f"{emp['code']}_{slug}_{date.today().isoformat()}.pdf"
 
@@ -229,7 +240,7 @@ def download_letter(
 
         letters_service.record_generated_letter(
             storage,
-            employee_id=employee_id,
+            employee_id=emp_id,
             template_slug=slug,
             title=title,
             subject=subject,
@@ -242,9 +253,15 @@ def download_letter(
             actor=user.username,
             action="generate_letter",
             entity="letter",
-            entity_id=employee_id,
+            entity_id=emp_id,
             detail=f"{title} generated for {emp['name']} ({emp['code']})",
         )
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
     return Response(
         content=pdf_bytes,

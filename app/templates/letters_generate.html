@@ -47,7 +47,7 @@
             <!-- Employee Dropdown (shown only when mode is employee) -->
             <div class="field" id="box-employee-select" style="{{ 'display: none;' if target_type == 'candidate' else '' }}">
               <label for="employee_id">Select Employee</label>
-              <select id="employee_id" name="employee_id" onchange="this.form.submit()">
+              <select id="employee_id" name="employee_id" onchange="this.form.submit()" {{ 'disabled' if target_type == 'candidate' else '' }}>
                 <option value="">-- Choose Employee --</option>
                 {% for emp in employees %}
                   <option value="{{ emp.id }}" {{ 'selected' if employee_id == emp.id }}>
@@ -111,51 +111,50 @@
           </div>
         </div>
 
-        {% if target_type == 'employee' and not employee_id %}
-          <div class="alert alert-info">
-            <strong>Select an employee above</strong> to automatically populate their name, code, designation, CTC, joining date, and company details into the letter.
+        <!-- Alert shown only in Employee mode when no employee is selected -->
+        <div id="alert-select-emp" class="alert alert-info" style="{{ 'display: none;' if (target_type == 'candidate' or employee_id) else '' }}">
+          <strong>Select an employee above</strong> to automatically populate their name, code, designation, CTC, joining date, and company details into the letter.
+        </div>
+
+        <!-- Main Submission Form (Letter Editor) -->
+        <form method="post" action="/letters/download" id="download-form" style="{{ 'display: none;' if (target_type == 'employee' and not employee_id) else '' }}" onsubmit="return validateBeforeSubmit();">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+          <input type="hidden" name="slug" value="{{ letter_template.slug }}">
+          <input type="hidden" name="target_type" id="submit_target_type" value="{{ target_type }}">
+          <input type="hidden" name="employee_id" id="submit_employee_id" value="{{ employee_id or '' }}">
+          <input type="hidden" name="candidate_name" id="submit_candidate_name" value="{{ candidate_name }}">
+          <input type="hidden" name="candidate_email" id="submit_candidate_email" value="{{ candidate_email }}">
+          <input type="hidden" name="candidate_phone" id="submit_candidate_phone" value="{{ candidate_phone }}">
+          <input type="hidden" name="candidate_role" id="submit_candidate_role" value="{{ candidate_role }}">
+          <input type="hidden" name="candidate_dept" id="submit_candidate_dept" value="{{ candidate_dept }}">
+          <input type="hidden" name="candidate_gross" id="submit_candidate_gross" value="{{ candidate_gross }}">
+          <input type="hidden" name="candidate_joining" id="submit_candidate_joining" value="{{ candidate_joining }}">
+          <input type="hidden" name="probation_months" id="submit_probation_months" value="{{ probation_months }}">
+          <input type="hidden" name="notice_period" id="submit_notice_period" value="{{ notice_period }}">
+
+          <div class="field">
+            <label for="subject">Subject Line</label>
+            <input id="subject" name="subject" type="text" value="{{ rendered_subject }}" required>
           </div>
-        {% else %}
-          <!-- Main Submission Form -->
-          <form method="post" action="/letters/download" id="download-form" onsubmit="return validateBeforeSubmit();">
-            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-            <input type="hidden" name="slug" value="{{ letter_template.slug }}">
-            <input type="hidden" name="target_type" id="submit_target_type" value="{{ target_type }}">
-            <input type="hidden" name="employee_id" id="submit_employee_id" value="{{ employee_id or '' }}">
-            <input type="hidden" name="candidate_name" id="submit_candidate_name" value="{{ candidate_name }}">
-            <input type="hidden" name="candidate_email" id="submit_candidate_email" value="{{ candidate_email }}">
-            <input type="hidden" name="candidate_phone" id="submit_candidate_phone" value="{{ candidate_phone }}">
-            <input type="hidden" name="candidate_role" id="submit_candidate_role" value="{{ candidate_role }}">
-            <input type="hidden" name="candidate_dept" id="submit_candidate_dept" value="{{ candidate_dept }}">
-            <input type="hidden" name="candidate_gross" id="submit_candidate_gross" value="{{ candidate_gross }}">
-            <input type="hidden" name="candidate_joining" id="submit_candidate_joining" value="{{ candidate_joining }}">
-            <input type="hidden" name="probation_months" id="submit_probation_months" value="{{ probation_months }}">
-            <input type="hidden" name="notice_period" id="submit_notice_period" value="{{ notice_period }}">
 
-            <div class="field">
-              <label for="subject">Subject Line</label>
-              <input id="subject" name="subject" type="text" value="{{ rendered_subject }}" required>
-            </div>
-
-            <div class="field">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-                <label for="body_text">Letter Content (Editable)</label>
-                <button type="button" class="btn btn-sm" onclick="resetToRawTemplate()" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">
-                  Reset to Original Template
-                </button>
-              </div>
-              <textarea id="body_text" name="body_text" rows="18" style="font-family: inherit; font-size: 0.95rem; line-height: 1.6;" required>{{ rendered_body }}</textarea>
-              <div class="hint">Paragraphs are formatted automatically in the official PDF letterhead.</div>
-            </div>
-
-            <div style="display: flex; gap: 1rem; align-items: center; margin-top: 1rem;">
-              <button class="btn btn-primary" type="submit" style="padding: 0.6rem 1.4rem; font-size: 1rem;">
-                {{ icon('download') }} Download Branded PDF Letter
+          <div class="field">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+              <label for="body_text">Letter Content (Editable)</label>
+              <button type="button" class="btn btn-sm" onclick="resetToRawTemplate()" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">
+                Reset to Original Template
               </button>
-              <span class="small muted">Generates A4 PDF with official {{ org_name }} Maroon Header Bar &amp; Signatory</span>
             </div>
-          </form>
-        {% endif %}
+            <textarea id="body_text" name="body_text" rows="18" style="font-family: inherit; font-size: 0.95rem; line-height: 1.6;" required>{{ rendered_body }}</textarea>
+            <div class="hint">Paragraphs are formatted automatically in the official PDF letterhead.</div>
+          </div>
+
+          <div style="display: flex; gap: 1rem; align-items: center; margin-top: 1rem;">
+            <button class="btn btn-primary" type="submit" style="padding: 0.6rem 1.4rem; font-size: 1rem;">
+              {{ icon('download') }} Download Branded PDF Letter
+            </button>
+            <span class="small muted">Generates A4 PDF with official {{ org_name }} Maroon Header Bar &amp; Signatory</span>
+          </div>
+        </form>
       </div>
     </div>
   </div>
@@ -166,7 +165,7 @@
         <h3>How It Works</h3>
       </div>
       <div class="card-body small" style="line-height: 1.6;">
-        <p><strong>Candidate Mode:</strong> Use this for prospective hires who don't exist in the system yet. Once they accept the offer and join, click <em>"Onboard as Employee"</em> in the letters history to auto-fill their employee record and link this document!</p>
+        <p><strong>Candidate Mode:</strong> Use this for prospective hires who don't exist in the system yet. Once they accept the offer and join, click <em>"Onboard"</em> in the letters history to auto-fill their employee record and link this document!</p>
         <p><strong>Employee Mode:</strong> Use this for existing staff for increment letters, confirmation certificates, or relieving certificates.</p>
       </div>
     </div>
@@ -201,9 +200,43 @@ const rawTemplateBody = {{ letter_template.body_text|tojson }};
 const orgName = {{ org_name|tojson }};
 
 function switchMode(mode) {
-  const inputMode = document.getElementById('input_target_type');
-  inputMode.value = mode;
-  document.getElementById('config-form').submit();
+  const btnCandidate = document.getElementById('btn-mode-candidate');
+  const btnEmployee = document.getElementById('btn-mode-employee');
+  const boxCandidate = document.getElementById('box-candidate-fields');
+  const boxEmployee = document.getElementById('box-employee-select');
+  const empSelect = document.getElementById('employee_id');
+  const targetTypeInput = document.getElementById('input_target_type');
+  const submitTargetType = document.getElementById('submit_target_type');
+  const alertNoEmp = document.getElementById('alert-select-emp');
+  const formEditor = document.getElementById('download-form');
+
+  if (mode === 'candidate') {
+    btnCandidate.classList.add('btn-primary');
+    btnEmployee.classList.remove('btn-primary');
+    boxCandidate.style.display = 'block';
+    boxEmployee.style.display = 'none';
+    if (empSelect) empSelect.disabled = true;
+    targetTypeInput.value = 'candidate';
+    submitTargetType.value = 'candidate';
+    if (alertNoEmp) alertNoEmp.style.display = 'none';
+    if (formEditor) formEditor.style.display = 'block';
+    applyCandidateToText();
+  } else {
+    btnCandidate.classList.remove('btn-primary');
+    btnEmployee.classList.add('btn-primary');
+    boxCandidate.style.display = 'none';
+    boxEmployee.style.display = 'block';
+    if (empSelect) empSelect.disabled = false;
+    targetTypeInput.value = 'employee';
+    submitTargetType.value = 'employee';
+    if (!empSelect || !empSelect.value) {
+      if (alertNoEmp) alertNoEmp.style.display = 'block';
+      if (formEditor) formEditor.style.display = 'none';
+    } else {
+      if (alertNoEmp) alertNoEmp.style.display = 'none';
+      if (formEditor) formEditor.style.display = 'block';
+    }
+  }
 }
 
 function resetToRawTemplate() {
@@ -217,7 +250,6 @@ function resetToRawTemplate() {
 }
 
 function markCandidateDirty() {
-  // Sync hidden fields with form inputs
   const name = document.getElementById('cand_name').value.trim();
   const role = document.getElementById('cand_role').value.trim();
   const dept = document.getElementById('cand_dept').value.trim();
@@ -296,5 +328,13 @@ function validateBeforeSubmit() {
   }
   return true;
 }
+
+// On initial load: disable employee_id if in candidate mode
+document.addEventListener('DOMContentLoaded', function() {
+  if (document.getElementById('input_target_type').value === 'candidate') {
+    const empSelect = document.getElementById('employee_id');
+    if (empSelect) empSelect.disabled = true;
+  }
+});
 </script>
 {% endblock %}

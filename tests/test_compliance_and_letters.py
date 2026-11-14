@@ -307,4 +307,9 @@ def test_candidate_offer_letter_and_onboarding_flow(storage, hr_client):
     assert offer_doc is not None
     assert "Offer Letter" in offer_doc["title"]
 
+    # 8. Regression test: empty employee_id query param must not throw 422
+    res_empty_emp = hr_client.get("/letters/generate?target_type=candidate&slug=appointment&employee_id=")
+    assert res_empty_emp.status_code == 200
+    assert "Letter Configuration" in res_empty_emp.text
+
 
