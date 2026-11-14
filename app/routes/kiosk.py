@@ -126,6 +126,7 @@ def kiosk_screen(
         active_challenge=settings.kiosk_active_challenge,
         offline_enabled=settings.kiosk_offline,
         shift_start=storage.get_setting("shift_start", "09:30"),
+        shift_end=storage.get_setting("shift_end", "18:30"),
         debounce_seconds=settings.kiosk_debounce_seconds,
         server_time=orgtime.local_now(settings).strftime("%H:%M:%S"),
         today_label=orgtime.human_day(orgtime.today(settings)),

@@ -45,8 +45,41 @@
   var cardMeta = $("cardMeta");
   var cardWhen = $("cardWhen");
   var cardLate = $("cardLate");
-  // A head-turn prompt needs someone ready for it, so it always starts from a tap.
-  var tapMode = cfg.scanMode !== "continuous" || !!cfg.activeChallenge;
+
+  function isRushHour() {
+    if (!cfg.shiftStart && !cfg.shiftEnd) return false;
+    var now = new Date();
+    var curMinutes = now.getHours() * 60 + now.getMinutes();
+
+    function parseMin(t) {
+      if (!t) return null;
+      var p = t.split(":");
+      if (p.length < 2) return null;
+      return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+    }
+
+    var startMin = parseMin(cfg.shiftStart);
+    var endMin = parseMin(cfg.shiftEnd);
+
+    // Morning Rush: from shift_start to +20 min (e.g. 09:30 to 09:50)
+    if (startMin !== null && curMinutes >= startMin && curMinutes <= (startMin + 20)) {
+      return true;
+    }
+    // Evening Rush: from shift_end to +30 min (e.g. 18:30 to 19:00)
+    if (endMin !== null && curMinutes >= endMin && curMinutes <= (endMin + 30)) {
+      return true;
+    }
+    return false;
+  }
+
+  function computeTapMode() {
+    if (cfg.activeChallenge) return true;
+    if (isRushHour()) return false; // continuous auto-scan in rush hour
+    return cfg.scanMode !== "continuous";
+  }
+
+  // Evaluated dynamically: during rush hours auto-scan is continuous, else respects tap settings.
+  var tapMode = computeTapMode();
   var session = false;   // a tap-mode scan is in progress
   var cardTimer = null;
   var startLabel = startBtn.querySelector("strong").textContent;
@@ -65,13 +98,13 @@
   var wakeLock = null;
   var flashTimer = null;
 
-  var SCAN_INTERVAL_MS = 1400;
-  var HOLD_SUCCESS_MS = 2600;
-  var HOLD_NOTICE_MS = 1700;
-  var HOLD_ERROR_MS = 2200;
-  var HOLD_CARD_MS = 3500;
-  var TAP_WARMUP_MS = 700;      // let exposure settle before the first frame
-  var TAP_RETRY_MS = 900;
+  var SCAN_INTERVAL_MS = 800;   // was 1400: fast continuous scan
+  var HOLD_SUCCESS_MS = 1600;   // was 2600
+  var HOLD_NOTICE_MS = 1400;    // was 1700
+  var HOLD_ERROR_MS = 1800;     // was 2200
+  var HOLD_CARD_MS = 1800;      // was 3500: queue clears quickly
+  var TAP_WARMUP_MS = 250;      // was 700: rapid shutter response
+  var TAP_RETRY_MS = 600;       // was 900
   var TAP_ATTEMPTS = 3;
   var CHALLENGE_FRAMES = 5;
   var CHALLENGE_FRAME_GAP_MS = 400;
@@ -464,7 +497,12 @@
     startBtn.querySelector("small").textContent = "allow the camera when asked";
 
     navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 960 } },
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: 720 },
+        height: { ideal: 1280 },
+        aspectRatio: { ideal: 9 / 16 }
+      },
       audio: false
     }).then(function (mediaStream) {
       if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
@@ -623,6 +661,21 @@
     pollTimer = window.setInterval(poll, 20000);
     clockTimer = window.setInterval(function () {
       clock.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      var newMode = computeTapMode();
+      if (newMode !== tapMode) {
+        tapMode = newMode;
+        if (!tapMode) {
+          // Switched to continuous auto-scan during rush hour
+          if (!running) startCamera();
+        } else {
+          // Switched to battery-saving tap mode
+          if (loopTimer) {
+            window.clearInterval(loopTimer);
+            loopTimer = null;
+          }
+          stopCamera();
+        }
+      }
     }, 1000);
 
     window.addEventListener("beforeunload", function () {

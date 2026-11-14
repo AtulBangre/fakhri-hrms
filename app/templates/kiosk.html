@@ -112,6 +112,8 @@
       csrf: "{{ csrf_token }}",
       showName: {{ 'true' if show_name else 'false' }},
       scanMode: "{{ 'continuous' if scan_mode == 'continuous' else 'tap' }}",
+      shiftStart: "{{ shift_start }}",
+      shiftEnd: "{{ shift_end }}",
       faceHealthy: {{ 'true' if health and health.ok else 'false' }},
       faceRequired: {{ 'true' if settings and settings.face_required_for_kiosk else 'false' }}
     };

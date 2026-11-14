@@ -1093,6 +1093,7 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
 .kiosk-cam video {
   width: 100%; height: 100%;
   object-fit: cover;
+  object-position: center 30%;
   display: block;
   background: #000;
 }
@@ -1102,20 +1103,56 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
 .kiosk-cam.warn { box-shadow: inset 0 0 0 5px #f59e0b; }
 .kiosk-cam.bad  { box-shadow: inset 0 0 0 5px #ef4444; }
 
-/* the oval the person lines up with */
+/* Modern PagarBook-style flexible target viewport */
 .kiosk-guide {
-  position: absolute; top: 44%; left: 50%;
+  position: absolute; top: 40%; left: 50%;
   transform: translate(-50%, -50%);
-  width: min(64%, 280px);
-  aspect-ratio: 3 / 4;
-  border: 3px dashed rgba(255, 255, 255, .55);
-  border-radius: 50% / 42%;
-  transition: border-color .18s ease, border-style .18s ease, width .18s ease;
+  width: min(76%, 310px);
+  aspect-ratio: 4 / 5;
+  border-radius: 28px;
+  border: 2px solid rgba(255, 255, 255, .4);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .32);
+  transition: border-color .18s ease, box-shadow .18s ease;
   pointer-events: none;
 }
-.kiosk-guide.ok   { border-color: #34d399; border-style: solid; }
-.kiosk-guide.warn { border-color: #fbbf24; border-style: solid; }
-.kiosk-guide.bad  { border-color: #f87171; border-style: solid; }
+.kiosk-guide::before,
+.kiosk-guide::after {
+  content: "";
+  position: absolute;
+  width: 26px; height: 26px;
+  border-color: #fff;
+  border-style: solid;
+  pointer-events: none;
+  transition: border-color .18s ease;
+}
+.kiosk-guide::before {
+  top: -2px; left: -2px;
+  border-width: 4px 0 0 4px;
+  border-top-left-radius: 28px;
+}
+.kiosk-guide::after {
+  bottom: -2px; right: -2px;
+  border-width: 0 4px 4px 0;
+  border-bottom-right-radius: 28px;
+}
+.kiosk-guide.ok {
+  border-color: #34d399;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .22), 0 0 24px rgba(52, 211, 153, .45);
+}
+.kiosk-guide.ok::before,
+.kiosk-guide.ok::after { border-color: #34d399; }
+.kiosk-guide.warn {
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .22), 0 0 20px rgba(251, 191, 36, .35);
+}
+.kiosk-guide.warn::before,
+.kiosk-guide.warn::after { border-color: #fbbf24; }
+.kiosk-guide.bad {
+  border-color: #f87171;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .22), 0 0 20px rgba(248, 113, 113, .35);
+}
+.kiosk-guide.bad::before,
+.kiosk-guide.bad::after { border-color: #f87171; }
 
 /* -- anonymous result flash ------------------------------------------------- */
 .kiosk-flash {
@@ -1290,7 +1327,7 @@ table.register tfoot td { font-weight: 600; background: var(--subtle); }
 @media (min-width: 720px) {
   /* Tablet on a stand: keep the camera centred and the dock compact. */
   .kiosk-cam { max-height: none; }
-  .kiosk-guide { width: min(46%, 340px); top: 44%; }
+  .kiosk-guide { width: min(48%, 340px); top: 40%; }
   .kiosk-flash .flash-ico { width: 88px; height: 88px; font-size: 2.9rem; }
   .kiosk-flash .flash-txt { font-size: 2.8rem; }
 }
