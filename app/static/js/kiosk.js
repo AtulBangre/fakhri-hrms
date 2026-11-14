@@ -499,9 +499,8 @@
     navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: facing },
-        width: { ideal: 720 },
-        height: { ideal: 1280 },
-        aspectRatio: { ideal: 9 / 16 }
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
       },
       audio: false
     }).then(function (mediaStream) {
