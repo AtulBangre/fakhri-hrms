@@ -63,7 +63,7 @@ services:
       HRMS_WHATSAPP_PROVIDER: "waha"
       HRMS_DATA_DIR: /app/data
       PORT: "8100"
-      WORKERS: "2"
+      WORKERS: "1"
     ports:
       - "${HOST_PORT:-8100}:8100"
     volumes:
