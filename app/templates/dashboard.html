@@ -119,8 +119,8 @@
           </div>
 
           <div style="text-align:right;flex-shrink:0;">
-            <div class="badge-count" style="font-size:0.95rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 8px;border:1px solid rgba(0,0,0,0.1);display:inline-block;" title="Composite HRMS Performance Score">
-              ⭐ {{ leader.score }}<span class="small muted" style="font-size:0.72rem;font-weight:500;">/100</span>
+            <div style="font-size:0.95rem;font-weight:800;color:#92400e;background:#fef3c7;padding:3px 9px;border-radius:999px;border:1px solid #fde68a;display:inline-flex;align-items:center;gap:3px;box-shadow:0 1px 2px rgba(0,0,0,0.05);" title="Composite HRMS Performance Score">
+              <span>⭐ {{ leader.score }}</span><span style="font-size:0.72rem;font-weight:600;color:#b45309;">/100</span>
             </div>
             <div style="margin-top:5px;">
               <button type="button" class="btn btn-sm btn-primary" style="font-size:0.75rem;padding:3px 9px;" onclick="openTop3Modal()">
@@ -166,46 +166,53 @@
 </div>
 
 <!-- View Top 3 Modal Dialog -->
-<div id="top3ModalOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:9998;align-items:center;justify-content:center;padding:1rem;">
-  <div style="background:var(--card-bg, #fff);border-radius:12px;max-width:940px;width:100%;box-shadow:0 12px 30px rgba(0,0,0,0.25);overflow:hidden;border:1px solid var(--border-color, #e2e8f0);max-height:90vh;display:flex;flex-direction:column;">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border-color, #e2e8f0);background:var(--bg-hover, #f8fafc);">
-      <div style="display:flex;align-items:center;gap:0.5rem;">
-        <span style="font-size:1.5rem;">🏆</span>
+<div id="top3ModalOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.65);backdrop-filter:blur(4px);z-index:9998;align-items:center;justify-content:center;padding:1.25rem;">
+  <div style="background:var(--card-bg, #fff);border-radius:16px;max-width:1040px;width:100%;box-shadow:0 24px 50px -12px rgba(15,23,42,0.35);overflow:hidden;border:1px solid var(--border-color, #e2e8f0);max-height:92vh;display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:1.15rem 1.5rem;border-bottom:1px solid var(--border-color, #e2e8f0);background:var(--bg-hover, #f8fafc);">
+      <div style="display:flex;align-items:center;gap:0.75rem;">
+        <span style="font-size:1.6rem;line-height:1;">🏆</span>
         <div>
-          <h3 id="top3ModalTitle" style="margin:0;font-size:1.15rem;font-weight:700;">Top 3 Performers & Contenders</h3>
-          <span id="top3ModalSub" class="small muted">Rank #1, #2 and #3 based on verified HRMS metrics ({{ recognition.label }})</span>
+          <h3 id="top3ModalTitle" style="margin:0;font-size:1.2rem;font-weight:700;display:flex;align-items:center;gap:8px;">Top 3 Performers & Contenders</h3>
+          <span id="top3ModalSub" class="small muted" style="font-size:0.8rem;">Evaluated across Attendance, Punctuality, Shift Hours & Leave Discipline</span>
         </div>
       </div>
-      <button type="button" onclick="closeTop3Modal()" style="background:none;border:none;font-size:1.75rem;line-height:1;cursor:pointer;color:var(--muted);">&times;</button>
+      <button type="button" onclick="closeTop3Modal()" aria-label="Close" style="background:var(--bg, #f1f5f9);border:1px solid var(--border-color, #e2e8f0);width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.1rem;line-height:1;cursor:pointer;color:var(--muted);transition:all 0.15s;">✕</button>
     </div>
 
-    <div style="padding:1.25rem;overflow-y:auto;flex-grow:1;" id="top3ModalCards">
+    <div style="padding:1.5rem;overflow-y:auto;flex-grow:1;" id="top3ModalCards">
       <!-- Injected via JavaScript from currentRecognitionData.top3 -->
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1.25rem;background:var(--bg-hover, #f8fafc);border-top:1px solid var(--border-color, #e2e8f0);">
-      <span class="small muted">Automated 100-pt scoring: Attendance (35), Punctuality (25), Hours (20), Leaves (15), Kiosk (5)</span>
-      <button type="button" class="btn btn-sm btn-primary" onclick="closeTop3Modal()">Close</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;padding:0.9rem 1.5rem;background:var(--bg-hover, #f8fafc);border-top:1px solid var(--border-color, #e2e8f0);">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:0.75rem;color:var(--muted);">
+        <strong style="color:var(--ink);">Scoring Criteria:</strong>
+        <span class="chip" style="font-size:0.7rem;padding:2px 7px;background:#e0f2fe;color:#0369a1;border:none;">Attendance 35p</span>
+        <span class="chip" style="font-size:0.7rem;padding:2px 7px;background:#fef3c7;color:#92400e;border:none;">Punctuality 25p</span>
+        <span class="chip" style="font-size:0.7rem;padding:2px 7px;background:#f0fdf4;color:#166534;border:none;">Hours 20p</span>
+        <span class="chip" style="font-size:0.7rem;padding:2px 7px;background:#f3e8ff;color:#6b21a8;border:none;">Leaves 15p</span>
+        <span class="chip" style="font-size:0.7rem;padding:2px 7px;background:#f1f5f9;color:#475569;border:none;">Kiosk 5p</span>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline" onclick="closeTop3Modal()" style="font-weight:600;padding:4px 14px;">Close</button>
     </div>
   </div>
 </div>
 
 <!-- Scorecard Breakdown Modal -->
-<div id="scorecardModalOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);z-index:9999;align-items:center;justify-content:center;padding:1rem;">
-  <div style="background:var(--card-bg, #fff);border-radius:12px;max-width:540px;width:100%;box-shadow:0 12px 30px rgba(0,0,0,0.3);overflow:hidden;border:1px solid var(--border-color, #e2e8f0);">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border-color, #e2e8f0);background:var(--bg-hover, #f8fafc);">
+<div id="scorecardModalOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.7);backdrop-filter:blur(4px);z-index:9999;align-items:center;justify-content:center;padding:1.25rem;">
+  <div style="background:var(--card-bg, #fff);border-radius:16px;max-width:560px;width:100%;box-shadow:0 24px 50px -12px rgba(15,23,42,0.4);overflow:hidden;border:1px solid var(--border-color, #e2e8f0);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:1.15rem 1.4rem;border-bottom:1px solid var(--border-color, #e2e8f0);background:var(--bg-hover, #f8fafc);">
       <div>
-        <h3 id="scModalName" style="margin:0;font-size:1.1rem;font-weight:700;">Employee Scorecard</h3>
-        <span id="scModalSub" class="small muted">HRMS Multi-dimensional Performance Audit</span>
+        <h3 id="scModalName" style="margin:0;font-size:1.15rem;font-weight:700;">Employee Scorecard</h3>
+        <span id="scModalSub" class="small muted" style="font-size:0.8rem;">HRMS Multi-dimensional Performance Audit</span>
       </div>
-      <button type="button" onclick="closeScorecardModal()" style="background:none;border:none;font-size:1.5rem;line-height:1;cursor:pointer;color:var(--muted);">&times;</button>
+      <button type="button" onclick="closeScorecardModal()" aria-label="Close" style="background:var(--bg, #f1f5f9);border:1px solid var(--border-color, #e2e8f0);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.1rem;line-height:1;cursor:pointer;color:var(--muted);transition:all 0.15s;">✕</button>
     </div>
     <div style="padding:1.25rem;" id="scModalContent">
       <!-- Injected via JavaScript -->
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1.25rem;background:var(--bg-hover, #f8fafc);border-top:1px solid var(--border-color, #e2e8f0);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem 1.4rem;background:var(--bg-hover, #f8fafc);border-top:1px solid var(--border-color, #e2e8f0);">
       <span class="small muted">Total possible score: 100 points</span>
-      <button type="button" class="btn btn-sm btn-primary" onclick="closeScorecardModal()">Close</button>
+      <button type="button" class="btn btn-sm btn-primary" onclick="closeScorecardModal()" style="padding:4px 14px;">Done</button>
     </div>
   </div>
 </div>
@@ -451,8 +458,8 @@
             '</div>' +
           '</div>' +
           '<div style="text-align:right;flex-shrink:0;">' +
-            '<div class="badge-count" style="font-size:0.95rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 8px;border:1px solid rgba(0,0,0,0.1);display:inline-block;" title="Composite HRMS Performance Score">' +
-              '⭐ ' + leader.score + '<span class="small muted" style="font-size:0.72rem;font-weight:500;">/100</span>' +
+            '<div style="font-size:0.95rem;font-weight:800;color:#92400e;background:#fef3c7;padding:3px 9px;border-radius:999px;border:1px solid #fde68a;display:inline-flex;align-items:center;gap:3px;box-shadow:0 1px 2px rgba(0,0,0,0.05);" title="Composite HRMS Performance Score">' +
+              '<span>⭐ ' + leader.score + '</span><span style="font-size:0.72rem;font-weight:600;color:#b45309;">/100</span>' +
             '</div>' +
             '<div style="margin-top:5px;">' +
               '<button type="button" class="btn btn-sm btn-primary" style="font-size:0.75rem;padding:3px 9px;" onclick="openTop3Modal()">' +
@@ -493,55 +500,71 @@
     if (!container || !currentRecognitionData) return;
 
     var data = currentRecognitionData;
-    if (title) title.textContent = "🏆 " + (data.is_live ? "Live Contenders Race" : "Official Top Performers") + " (" + (data.label || data.period) + ")";
-    if (sub) sub.textContent = "Top 3 employees evaluated across Attendance, Punctuality, Shift Hours & Leave Discipline";
+    var rawLabel = (data.label || data.period || '').replace(/\s*\((Live)\)\s*$/i, '').trim();
+    if (title) {
+      title.innerHTML = '<span>🏆 ' + (data.is_live ? 'Live Contenders Race' : 'Top Performers') + ' · ' + rawLabel + '</span>' +
+        (data.is_live ? '<span class="chip" style="font-size:0.68rem;background:#fee2e2;color:#991b1b;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid #fecaca;">LIVE RACE</span>' : '<span class="chip" style="font-size:0.68rem;background:#ecfdf5;color:#065f46;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid #a7f3d0;">FINAL</span>');
+    }
+    if (sub) {
+      sub.textContent = "Top 3 employees evaluated across Attendance, Punctuality, Shift Hours & Leave Discipline";
+    }
 
     if (!data.top3 || data.top3.length === 0) {
-      container.innerHTML = '<div class="empty-state" style="padding:2rem;text-align:center;">No records available for this month.</div>';
+      container.innerHTML = '<div class="empty-state" style="padding:2.5rem;text-align:center;color:var(--muted);">No attendance records available for this month.</div>';
       return;
     }
 
-    var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:1rem;">';
+    var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));gap:1.25rem;">';
     data.top3.forEach(function(cand) {
       var isR1 = (cand.rank === 1);
       var isR2 = (cand.rank === 2);
-      var borderCol = isR1 ? '#f59e0b' : (isR2 ? '#94a3b8' : '#d97706');
-      var bgGrad = isR1 ? 'linear-gradient(135deg, rgba(254, 240, 138, 0.12), rgba(253, 230, 138, 0.03))' : (isR2 ? 'linear-gradient(135deg, rgba(241, 245, 249, 0.7), rgba(248, 250, 252, 0.4))' : 'linear-gradient(135deg, rgba(254, 215, 170, 0.12), rgba(255, 237, 213, 0.03))');
-      var tagColor = isR1 ? '#b45309' : (isR2 ? '#475569' : '#c2410c');
-      var tagBg = isR1 ? 'rgba(251, 191, 36, 0.25)' : (isR2 ? 'rgba(203, 213, 225, 0.45)' : 'rgba(253, 186, 116, 0.25)');
-      var rankLabel = (isR1 ? '👑 Rank #1 · ' : (isR2 ? '🥈 Rank #2 · ' : '🥉 Rank #3 · ')) + (cand.badge_title || '');
+      var borderCol = isR1 ? '#f59e0b' : (isR2 ? '#94a3b8' : '#ea580c');
+      var cardBg = isR1 ? 'linear-gradient(180deg, #fffef7 0%, #ffffff 100%)' : (isR2 ? 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)' : 'linear-gradient(180deg, #fffaf5 0%, #ffffff 100%)');
+      var shadow = isR1 ? '0 6px 18px rgba(245, 158, 11, 0.14)' : (isR2 ? '0 3px 12px rgba(100, 116, 139, 0.08)' : '0 3px 12px rgba(234, 88, 12, 0.08)');
+      var tagColor = isR1 ? '#b45309' : (isR2 ? '#334155' : '#c2410c');
+      var tagBg = isR1 ? '#fef3c7' : (isR2 ? '#e2e8f0' : '#ffedd5');
+      var tagBorder = isR1 ? '#fde68a' : (isR2 ? '#cbd5e1' : '#fed7aa');
+      var rankBadge = isR1 ? '👑 Rank #1 · Leading Contender' : (isR2 ? '🥈 Rank #2 · 2nd Place' : '🥉 Rank #3 · 3rd Place');
 
       var avatarHtml = cand.employee.photo_filename
-        ? '<img class="avatar" src="/employees/' + cand.employee.id + '/avatar" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2.5px solid ' + borderCol + ';">'
-        : '<span class="avatar" style="width:48px;height:48px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid ' + borderCol + ';background:var(--bg-hover);">' + (cand.employee.name ? cand.employee.name.charAt(0) : 'E') + '</span>';
+        ? '<img class="avatar" src="/employees/' + cand.employee.id + '/avatar" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:2.5px solid ' + borderCol + ';flex-shrink:0;">'
+        : '<span class="avatar" style="width:52px;height:52px;font-size:1.2rem;font-weight:700;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid ' + borderCol + ';background:var(--bg-hover,#f1f5f9);color:var(--ink);flex-shrink:0;">' + (cand.employee.name ? cand.employee.name.charAt(0) : 'E') + '</span>';
 
-      var reasonsHtml = '';
+      var reasonsListHtml = '';
       (cand.reasons || []).forEach(function(r) {
-        reasonsHtml += '<li style="margin-bottom:2px;">' + r + '</li>';
+        reasonsListHtml += '<div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px;font-size:0.82rem;line-height:1.35;color:var(--text, #334155);">' +
+          '<span style="color:#16a34a;font-weight:800;font-size:0.85rem;line-height:1.2;flex-shrink:0;">✓</span>' +
+          '<span>' + r + '</span>' +
+        '</div>';
       });
 
       var candJson = JSON.stringify(cand).replace(/"/g, '&quot;');
 
-      html += '<div style="display:flex;flex-direction:column;border-radius:10px;padding:1.15rem;border:1px solid ' + borderCol + ';background:' + bgGrad + ';position:relative;">' +
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">' +
-          '<span class="chip" style="font-size:0.78rem;font-weight:700;color:' + tagColor + ';background:' + tagBg + ';">' + rankLabel + '</span>' +
-          '<span class="badge-count" style="font-size:0.9rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 9px;border:1px solid rgba(0,0,0,0.1);color:var(--text, #1e293b);" title="Composite HRMS Performance Score">⭐ ' + cand.score + '<span class="small muted" style="font-size:0.75rem;font-weight:500;">/100</span></span>' +
-        '</div>' +
-        '<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.85rem;">' +
-          avatarHtml +
-          '<div style="overflow:hidden;">' +
-            '<a href="/employees/' + cand.employee.id + '" style="font-size:1.05rem;font-weight:700;color:inherit;text-decoration:none;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' + (cand.employee.name || '') + '</a>' +
-            '<div class="small muted" style="white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' + (cand.employee.code || '') + ' · ' + (cand.employee.designation || '') + '</div>' +
-            '<div class="small muted" style="font-size:0.75rem;">Dept: ' + (cand.employee.department || 'General') + '</div>' +
+      html += '<div style="display:flex;flex-direction:column;border-radius:12px;padding:1.25rem;border:1.5px solid ' + borderCol + ';background:' + cardBg + ';box-shadow:' + shadow + ';position:relative;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.9rem;">' +
+          '<span style="font-size:0.75rem;font-weight:700;color:' + tagColor + ';background:' + tagBg + ';border:1px solid ' + tagBorder + ';padding:3px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;">' + rankBadge + '</span>' +
+          '<div style="font-size:0.92rem;font-weight:800;color:#92400e;background:#fef3c7;padding:3px 9px;border-radius:999px;border:1px solid #fde68a;display:inline-flex;align-items:center;gap:3px;box-shadow:0 1px 2px rgba(0,0,0,0.05);" title="Composite HRMS Performance Score">' +
+            '<span>⭐ ' + cand.score + '</span><span style="font-size:0.72rem;font-weight:600;color:#b45309;">/100</span>' +
           '</div>' +
         '</div>' +
-        '<div style="flex-grow:1;border-top:1px dashed var(--border-color, #e2e8f0);padding-top:0.65rem;margin-bottom:0.75rem;">' +
-          '<div class="small font-bold" style="margin-bottom:0.35rem;color:var(--muted);">Key HRMS Highlights:</div>' +
-          '<ul style="margin:0;padding-left:1.1rem;font-size:0.82rem;line-height:1.45;color:var(--text, #334155);">' + reasonsHtml + '</ul>' +
+        '<div style="display:flex;align-items:center;gap:0.85rem;margin-bottom:1rem;">' +
+          avatarHtml +
+          '<div style="overflow:hidden;flex-grow:1;">' +
+            '<a href="/employees/' + cand.employee.id + '" style="font-size:1.05rem;font-weight:700;color:var(--ink, #0f172a);text-decoration:none;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;" title="' + (cand.employee.name || '') + '">' + (cand.employee.name || '') + '</a>' +
+            '<div style="font-size:0.82rem;color:var(--text, #334155);font-weight:500;margin-top:2px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;" title="' + (cand.employee.designation || '') + '">' + (cand.employee.designation || 'Staff') + '</div>' +
+            '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">' +
+              '<span style="font-size:0.7rem;background:var(--bg-hover,#f1f5f9);padding:1px 6px;border-radius:4px;color:var(--muted);font-weight:600;">' + (cand.employee.code || '') + '</span>' +
+              '<span style="font-size:0.7rem;background:var(--bg-hover,#f1f5f9);padding:1px 6px;border-radius:4px;color:var(--muted);">' + (cand.employee.department || 'General') + '</span>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
-        '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.06);">' +
-          '<span class="small" style="font-weight:600;color:' + (isR1 ? 'var(--color-primary, #b91c1c)' : 'var(--muted)') + ';font-size:0.78rem;">' + (cand.chance_label || '') + '</span>' +
-          '<button type="button" class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:2px 8px;" onclick="showScorecardModal(' + candJson + ')">Scorecard 🔍</button>' +
+        '<div style="flex-grow:1;border-top:1px dashed var(--border-color, #e2e8f0);padding-top:0.85rem;margin-bottom:0.85rem;">' +
+          '<div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--muted);margin-bottom:0.5rem;">Key Performance Highlights</div>' +
+          reasonsListHtml +
+        '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-top:0.75rem;border-top:1px solid rgba(0,0,0,0.06);margin-top:auto;">' +
+          '<span style="font-size:0.75rem;font-weight:700;padding:2px 7px;border-radius:4px;' + (isR1 ? 'background:#fef2f2;color:#991b1b;' : 'background:var(--bg-hover,#f1f5f9);color:var(--muted);') + '">' + (cand.chance_label || cand.badge_title || '') + '</span>' +
+          '<button type="button" class="btn btn-sm" style="font-size:0.75rem;padding:3px 9px;border-radius:6px;background:var(--bg-hover,#f8fafc);border:1px solid var(--border-color,#cbd5e1);color:var(--ink);font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" onclick="showScorecardModal(' + candJson + ')">Scorecard 🔍</button>' +
         '</div>' +
       '</div>';
     });
