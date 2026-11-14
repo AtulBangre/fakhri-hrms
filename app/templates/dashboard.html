@@ -89,6 +89,130 @@
   </div>
 </div>
 
+<!-- Employee of the Month & Star Performers Card -->
+<div class="card mb-3" id="recognitionCard" style="border-top:3.5px solid #d97706;box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+  <div class="card-head" style="display:flex;align-items:center;flex-wrap:wrap;gap:0.75rem;padding:0.85rem 1.25rem;">
+    <div style="display:flex;align-items:center;gap:0.6rem;">
+      <span style="font-size:1.5rem;line-height:1;">🏆</span>
+      <div>
+        <h2 style="margin:0;font-size:1.15rem;display:flex;align-items:center;gap:0.5rem;">
+          <span id="recogCardTitle">{{ 'Employee of the Month (Live Contenders)' if recognition.is_live else 'Employee of the Month' }}</span>
+          <span id="recogStatusChip" class="chip {{ 'chip-info' if recognition.is_live else 'chip-success' }}" style="font-size:0.75rem;padding:2px 8px;">
+            {{ 'Live Race' if recognition.is_live else 'Finalized' }}
+          </span>
+        </h2>
+        <div class="small muted" id="recogCardSub" style="margin-top:2px;">
+          {{ 'Top contenders leading this month based on attendance, punctuality & diligence' if recognition.is_live else 'Official monthly honor based on verified HRMS records' }}
+        </div>
+      </div>
+    </div>
+    <span class="spacer"></span>
+
+    <!-- Single-Card Month Switcher -->
+    <div style="display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;">
+      <button type="button" class="btn btn-sm btn-outline" id="recogPrevBtn" onclick="shiftRecognitionMonth(-1)" title="Previous month" style="padding:0.25rem 0.55rem;">
+        ◀ Prev
+      </button>
+      <select id="recogPeriodSelect" class="form-select form-select-sm" style="font-weight:600;padding:0.25rem 0.65rem;border-radius:6px;font-size:0.85rem;" onchange="loadRecognitionPeriod(this.value)">
+        {% for p in recognition.available_periods %}
+          <option value="{{ p.period }}" {{ 'selected' if p.period == recognition.period }}>{{ p.label }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-sm btn-outline" id="recogNextBtn" onclick="shiftRecognitionMonth(1)" title="Next month" style="padding:0.25rem 0.55rem;">
+        Next ▶
+      </button>
+    </div>
+  </div>
+
+  <div class="card-body" id="recogCardBody" style="padding:1.25rem;">
+    {% if recognition.top3 %}
+      <div class="recognition-podium" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1.25rem;">
+        {% for cand in recognition.top3 %}
+          <div class="recog-performer-card" style="display:flex;flex-direction:column;border-radius:10px;padding:1.15rem;border:1px solid {{ '#f59e0b' if cand.rank == 1 else ('#94a3b8' if cand.rank == 2 else '#d97706') }};background:{{ 'linear-gradient(135deg, rgba(254, 240, 138, 0.12), rgba(253, 230, 138, 0.03))' if cand.rank == 1 else ('linear-gradient(135deg, rgba(241, 245, 249, 0.7), rgba(248, 250, 252, 0.4))' if cand.rank == 2 else 'linear-gradient(135deg, rgba(254, 215, 170, 0.12), rgba(255, 237, 213, 0.03))') }};position:relative;">
+            
+            <!-- Rank Tag & Score -->
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+              <span class="chip" style="font-size:0.78rem;font-weight:700;color:{{ '#b45309' if cand.rank == 1 else ('#475569' if cand.rank == 2 else '#c2410c') }};background:{{ 'rgba(251, 191, 36, 0.25)' if cand.rank == 1 else ('rgba(203, 213, 225, 0.45)' if cand.rank == 2 else 'rgba(253, 186, 116, 0.25)') }};">
+                {{ '👑 Rank #1 · ' ~ cand.badge_title if cand.rank == 1 else ('🥈 Rank #2 · ' ~ cand.badge_title if cand.rank == 2 else '🥉 Rank #3 · ' ~ cand.badge_title) }}
+              </span>
+              <span class="badge-count" style="font-size:0.9rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 9px;border:1px solid rgba(0,0,0,0.1);color:var(--text, #1e293b);" title="Composite HRMS Performance Score">
+                ⭐ {{ cand.score }}<span class="small muted" style="font-size:0.75rem;font-weight:500;">/100</span>
+              </span>
+            </div>
+
+            <!-- Profile Info -->
+            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.85rem;">
+              {% if cand.employee.photo_filename %}
+                <img class="avatar" src="/employees/{{ cand.employee.id }}/avatar" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2.5px solid {{ '#f59e0b' if cand.rank == 1 else '#94a3b8' }};">
+              {% else %}
+                <span class="avatar" style="width:48px;height:48px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid {{ '#f59e0b' if cand.rank == 1 else '#94a3b8' }};background:var(--bg-hover);">{{ cand.employee.name | initials }}</span>
+              {% endif %}
+              <div style="overflow:hidden;">
+                <a href="/employees/{{ cand.employee.id }}" style="font-size:1.05rem;font-weight:700;color:inherit;text-decoration:none;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">
+                  {{ cand.employee.name }}
+                </a>
+                <div class="small muted" style="white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">
+                  {{ cand.employee.code }} · {{ cand.employee.designation }}
+                </div>
+                <div class="small muted" style="font-size:0.75rem;">
+                  Dept: {{ cand.employee.department }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Highlights & Reasons -->
+            <div style="flex-grow:1;border-top:1px dashed var(--border-color, #e2e8f0);padding-top:0.65rem;margin-bottom:0.75rem;">
+              <div class="small font-bold" style="margin-bottom:0.35rem;color:var(--muted);">Key HRMS Highlights:</div>
+              <ul style="margin:0;padding-left:1.1rem;font-size:0.82rem;line-height:1.45;color:var(--text, #334155);">
+                {% for r in cand.reasons %}
+                  <li style="margin-bottom:2px;">{{ r }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+
+            <!-- Chance / Margin Subtext & Breakdown Trigger -->
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.06);">
+              <span class="small" style="font-weight:600;color:{{ 'var(--color-primary, #b91c1c)' if cand.rank == 1 else 'var(--muted)' }};font-size:0.78rem;">
+                {{ cand.chance_label }}
+              </span>
+              <button type="button" class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:2px 8px;" onclick='showScorecardModal({{ cand | tojson }})'>
+                Scorecard 🔍
+              </button>
+            </div>
+
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state" style="padding:2rem 1rem;text-align:center;">
+        <span style="font-size:2rem;display:block;margin-bottom:0.5rem;">📊</span>
+        <strong>No attendance data recorded yet for {{ recognition.label }}.</strong>
+        <p class="small muted mb-0" style="margin-top:0.25rem;">As employees check in at the gate or through the portal, live rankings will appear here automatically.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Scorecard Breakdown Modal -->
+<div id="scorecardModalOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:var(--card-bg, #fff);border-radius:12px;max-width:540px;width:100%;box-shadow:0 10px 25px rgba(0,0,0,0.2);overflow:hidden;border:1px solid var(--border-color, #e2e8f0);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1px solid var(--border-color, #e2e8f0);background:var(--bg-hover, #f8fafc);">
+      <div>
+        <h3 id="scModalName" style="margin:0;font-size:1.15rem;font-weight:700;">Employee Scorecard</h3>
+        <span id="scModalSub" class="small muted">HRMS Multi-dimensional Performance Audit</span>
+      </div>
+      <button type="button" onclick="closeScorecardModal()" style="background:none;border:none;font-size:1.5rem;line-height:1;cursor:pointer;color:var(--muted);">&times;</button>
+    </div>
+    <div style="padding:1.25rem;" id="scModalContent">
+      <!-- Injected via JavaScript -->
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1.25rem;background:var(--bg-hover, #f8fafc);border-top:1px solid var(--border-color, #e2e8f0);">
+      <span class="small muted">Total possible score: 100 points</span>
+      <button type="button" class="btn btn-sm btn-primary" onclick="closeScorecardModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="grid grid-sidebar">
   <div>
     <div class="card mb-3">
@@ -249,5 +373,167 @@
 
     setInterval(pollScans, 10000);
   })();
+
+  // -------------------------------------------------------------
+  // Employee of the Month & Recognition Switcher & Modal
+  // -------------------------------------------------------------
+  function shiftRecognitionMonth(delta) {
+    var select = document.getElementById("recogPeriodSelect");
+    if (!select) return;
+    var newIdx = select.selectedIndex - delta; // note: index 0 is newest (live), index 1 is prev
+    if (newIdx >= 0 && newIdx < select.options.length) {
+      select.selectedIndex = newIdx;
+      loadRecognitionPeriod(select.value);
+    }
+  }
+
+  function loadRecognitionPeriod(period) {
+    var body = document.getElementById("recogCardBody");
+    var select = document.getElementById("recogPeriodSelect");
+    if (!body || !period) return;
+
+    body.style.opacity = "0.5";
+    body.style.pointerEvents = "none";
+
+    fetch("/api/dashboard/recognition?period=" + encodeURIComponent(period))
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        body.style.opacity = "1";
+        body.style.pointerEvents = "auto";
+        if (!data) return;
+
+        // update header texts
+        var title = document.getElementById("recogCardTitle");
+        if (title) title.textContent = data.is_live ? "Employee of the Month (Live Contenders)" : "Employee of the Month";
+
+        var chip = document.getElementById("recogStatusChip");
+        if (chip) {
+          chip.className = "chip " + (data.is_live ? "chip-info" : "chip-success");
+          chip.textContent = data.is_live ? "Live Race" : "Finalized";
+        }
+
+        var sub = document.getElementById("recogCardSub");
+        if (sub) {
+          sub.textContent = data.is_live
+            ? "Top contenders leading this month based on attendance, punctuality & diligence"
+            : "Official monthly honor based on verified HRMS records (" + data.label + ")";
+        }
+
+        if (select && select.value !== data.period) {
+          select.value = data.period;
+        }
+
+        // render body
+        if (!data.top3 || data.top3.length === 0) {
+          body.innerHTML = '<div class="empty-state" style="padding:2rem 1rem;text-align:center;">' +
+            '<span style="font-size:2rem;display:block;margin-bottom:0.5rem;">📊</span>' +
+            '<strong>No attendance data recorded yet for ' + (data.label || period) + '.</strong>' +
+            '<p class="small muted mb-0" style="margin-top:0.25rem;">As employees check in, rankings appear here automatically.</p>' +
+            '</div>';
+          return;
+        }
+
+        var html = '<div class="recognition-podium" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1.25rem;">';
+        data.top3.forEach(function(cand) {
+          var isR1 = (cand.rank === 1);
+          var isR2 = (cand.rank === 2);
+          var borderCol = isR1 ? '#f59e0b' : (isR2 ? '#94a3b8' : '#d97706');
+          var bgGrad = isR1 ? 'linear-gradient(135deg, rgba(254, 240, 138, 0.12), rgba(253, 230, 138, 0.03))' : (isR2 ? 'linear-gradient(135deg, rgba(241, 245, 249, 0.7), rgba(248, 250, 252, 0.4))' : 'linear-gradient(135deg, rgba(254, 215, 170, 0.12), rgba(255, 237, 213, 0.03))');
+          var tagColor = isR1 ? '#b45309' : (isR2 ? '#475569' : '#c2410c');
+          var tagBg = isR1 ? 'rgba(251, 191, 36, 0.25)' : (isR2 ? 'rgba(203, 213, 225, 0.45)' : 'rgba(253, 186, 116, 0.25)');
+          var rankLabel = (isR1 ? '👑 Rank #1 · ' : (isR2 ? '🥈 Rank #2 · ' : '🥉 Rank #3 · ')) + (cand.badge_title || '');
+
+          var avatarHtml = cand.employee.photo_filename
+            ? '<img class="avatar" src="/employees/' + cand.employee.id + '/avatar" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2.5px solid ' + borderCol + ';">'
+            : '<span class="avatar" style="width:48px;height:48px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid ' + borderCol + ';background:var(--bg-hover);">' + (cand.employee.name ? cand.employee.name.charAt(0) : 'E') + '</span>';
+
+          var reasonsHtml = '';
+          (cand.reasons || []).forEach(function(r) {
+            reasonsHtml += '<li style="margin-bottom:2px;">' + r + '</li>';
+          });
+
+          var candJson = JSON.stringify(cand).replace(/"/g, '&quot;');
+
+          html += '<div class="recog-performer-card" style="display:flex;flex-direction:column;border-radius:10px;padding:1.15rem;border:1px solid ' + borderCol + ';background:' + bgGrad + ';position:relative;">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">' +
+              '<span class="chip" style="font-size:0.78rem;font-weight:700;color:' + tagColor + ';background:' + tagBg + ';">' + rankLabel + '</span>' +
+              '<span class="badge-count" style="font-size:0.9rem;font-weight:800;background:var(--card-bg, #fff);padding:3px 9px;border:1px solid rgba(0,0,0,0.1);color:var(--text, #1e293b);" title="Composite HRMS Performance Score">⭐ ' + cand.score + '<span class="small muted" style="font-size:0.75rem;font-weight:500;">/100</span></span>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.85rem;">' +
+              avatarHtml +
+              '<div style="overflow:hidden;">' +
+                '<a href="/employees/' + cand.employee.id + '" style="font-size:1.05rem;font-weight:700;color:inherit;text-decoration:none;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' + (cand.employee.name || '') + '</a>' +
+                '<div class="small muted" style="white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' + (cand.employee.code || '') + ' · ' + (cand.employee.designation || '') + '</div>' +
+                '<div class="small muted" style="font-size:0.75rem;">Dept: ' + (cand.employee.department || 'General') + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div style="flex-grow:1;border-top:1px dashed var(--border-color, #e2e8f0);padding-top:0.65rem;margin-bottom:0.75rem;">' +
+              '<div class="small font-bold" style="margin-bottom:0.35rem;color:var(--muted);">Key HRMS Highlights:</div>' +
+              '<ul style="margin:0;padding-left:1.1rem;font-size:0.82rem;line-height:1.45;color:var(--text, #334155);">' + reasonsHtml + '</ul>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.06);">' +
+              '<span class="small" style="font-weight:600;color:' + (isR1 ? 'var(--color-primary, #b91c1c)' : 'var(--muted)') + ';font-size:0.78rem;">' + (cand.chance_label || '') + '</span>' +
+              '<button type="button" class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:2px 8px;" onclick="showScorecardModal(' + candJson + ')">Scorecard 🔍</button>' +
+            '</div>' +
+          '</div>';
+        });
+        html += '</div>';
+        body.innerHTML = html;
+      })
+      .catch(function(err) {
+        body.style.opacity = "1";
+        body.style.pointerEvents = "auto";
+      });
+  }
+
+  function showScorecardModal(cand) {
+    var overlay = document.getElementById("scorecardModalOverlay");
+    var title = document.getElementById("scModalName");
+    var sub = document.getElementById("scModalSub");
+    var content = document.getElementById("scModalContent");
+    if (!overlay || !cand) return;
+
+    if (title) title.textContent = cand.employee.name + " (" + cand.employee.code + ") — Scorecard";
+    if (sub) sub.textContent = cand.employee.designation + " · " + cand.employee.department + " · Rank #" + cand.rank;
+
+    var b = cand.breakdown || {};
+    var s = cand.stats || {};
+
+    var tableHtml = '<table class="data stack" style="font-size:0.85rem;margin-bottom:0.75rem;">' +
+      '<thead><tr><th>Dimension</th><th class="num">Score</th><th class="num">Max</th><th>Actual Performance Data</th></tr></thead>' +
+      '<tbody>' +
+        '<tr><td><strong>1. Attendance Reliability</strong></td><td class="num font-bold">' + b.attendance + '</td><td class="num muted">35</td><td>' + s.present_days + ' present / ' + s.working_days + ' working days</td></tr>' +
+        '<tr><td><strong>2. Punctuality & Early Arrivals</strong></td><td class="num font-bold">' + b.punctuality + '</td><td class="num muted">25</td><td>' + s.late_days + ' late day(s), ' + s.late_minutes + ' min late</td></tr>' +
+        '<tr><td><strong>3. Shift Hours & Diligence</strong></td><td class="num font-bold">' + b.hours + '</td><td class="num muted">20</td><td>' + s.total_hours + ' hours logged total</td></tr>' +
+        '<tr><td><strong>4. Leave Discipline & Zero LOP</strong></td><td class="num font-bold">' + b.discipline + '</td><td class="num muted">15</td><td>' + s.absent_days + ' unexcused absences</td></tr>' +
+        '<tr><td><strong>5. Biometric Authenticity</strong></td><td class="num font-bold">' + b.kiosk + '</td><td class="num muted">5</td><td>Face scans verified at kiosk</td></tr>' +
+        '<tr><td><strong>6. Regularization Deductions</strong></td><td class="num font-bold text-danger">-' + b.penalties + '</td><td class="num muted">—</td><td>' + s.regularizations + ' missed punch regularizations</td></tr>' +
+        '<tr style="background:var(--bg-hover, #f8fafc);border-top:2px solid var(--border-color, #e2e8f0);font-size:0.95rem;">' +
+          '<td><strong>Total Composite Performance Index</strong></td>' +
+          '<td class="num font-bold" style="color:var(--color-primary, #b91c1c);">⭐ ' + cand.score + '</td>' +
+          '<td class="num font-bold">100</td>' +
+          '<td><strong>' + (cand.chance_label || cand.badge_title) + '</strong></td>' +
+        '</tr>' +
+      '</tbody></table>';
+
+    if (content) content.innerHTML = tableHtml;
+    overlay.style.display = "flex";
+  }
+
+  function closeScorecardModal() {
+    var overlay = document.getElementById("scorecardModalOverlay");
+    if (overlay) overlay.style.display = "none";
+  }
+
+  // close modal on escape or background click
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") closeScorecardModal();
+  });
+  var modalOverlay = document.getElementById("scorecardModalOverlay");
+  if (modalOverlay) {
+    modalOverlay.addEventListener("click", function(e) {
+      if (e.target === modalOverlay) closeScorecardModal();
+    });
+  }
 </script>
 {% endblock %}

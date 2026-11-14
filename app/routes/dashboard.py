@@ -13,6 +13,7 @@ from ..services import attendance as attendance_service
 from ..services import employees as employees_service
 from ..services import leave as leave_service
 from ..services import orgtime, payroll
+from ..services import recognition as recognition_service
 
 router = APIRouter(tags=["dashboard"])
 
@@ -56,7 +57,19 @@ def dashboard(
         hr_email_missing=not notify.hr_emails(storage),
         celebrations=alerts.upcoming(storage, orgtime.today(settings)),
         face_ok=bool(face.health().get("ok")),
+        recognition=recognition_service.get_monthly_recognition(storage, settings, period=current_period),
     )
+
+
+@router.get("/api/dashboard/recognition")
+def recognition_api(
+    period: str | None = None,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    """Return JSON metrics and top 3 performers for a selected period."""
+    return recognition_service.get_monthly_recognition(storage, settings, period=period)
 
 
 @router.get("/api/dashboard/live-scans")
