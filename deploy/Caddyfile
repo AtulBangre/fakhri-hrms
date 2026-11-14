@@ -27,6 +27,24 @@ hrms.fakhriitservices.com {
 		}
 	}
 
+	# High-performance browser caching for static assets (7 days)
+	@static {
+		path /static/*
+		path /kiosk.webmanifest
+		path /manifest.webmanifest
+		path /favicon.ico
+		path /sw.js
+	}
+	header @static {
+		Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+	}
+
+	# Employee avatar image caching (24 hours)
+	@avatars path_regexp avatar ^/employees/[0-9]+/avatar$
+	header @avatars {
+		Cache-Control "public, max-age=86400, stale-while-revalidate=3600"
+	}
+
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"

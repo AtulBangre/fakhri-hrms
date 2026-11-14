@@ -20,7 +20,10 @@ from .config import SETTING_DEFS, Settings
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
-PRAGMA busy_timeout=5000;
+PRAGMA busy_timeout=10000;
+PRAGMA cache_size=-128000;
+PRAGMA mmap_size=268435456;
+PRAGMA temp_store=MEMORY;
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -572,8 +575,9 @@ class Storage:
         with self._lock:
             self._conn.execute("PRAGMA journal_mode=WAL;")
             self._conn.execute("PRAGMA synchronous=NORMAL;")
-            self._conn.execute("PRAGMA busy_timeout=5000;")
-            self._conn.execute("PRAGMA cache_size=-64000;")
+            self._conn.execute("PRAGMA busy_timeout=10000;")
+            self._conn.execute("PRAGMA cache_size=-128000;")
+            self._conn.execute("PRAGMA mmap_size=268435456;")
             self._conn.execute("PRAGMA temp_store=MEMORY;")
             self._conn.execute("PRAGMA foreign_keys=ON;")
             self._conn.executescript(SCHEMA)
