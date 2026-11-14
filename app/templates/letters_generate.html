@@ -5,7 +5,7 @@
 <div class="page-head">
   <div class="titles">
     <h1>Generate {{ letter_template.title }}</h1>
-    <div class="sub">Select an employee to auto-fill placeholders. You can edit the final text before generating the PDF.</div>
+    <div class="sub">Create official branded letters for prospective candidates or existing employees with 1-click PDF download.</div>
   </div>
   <div class="actions">
     <a class="btn" href="/letters">&larr; Back to Letters</a>
@@ -17,9 +17,21 @@
     <div class="card mb-3">
       <div class="card-head">
         <h2>Letter Configuration</h2>
+        <span class="spacer"></span>
+        <div style="display: flex; gap: 0.5rem; background: var(--bg-card); border: 1px solid var(--border); padding: 0.2rem; border-radius: 6px;">
+          <button type="button" id="btn-mode-candidate" class="btn btn-sm {{ 'btn-primary' if target_type == 'candidate' else '' }}" onclick="switchMode('candidate')" style="font-size: 0.8rem; padding: 0.25rem 0.6rem;">
+            Candidate / New Hire
+          </button>
+          <button type="button" id="btn-mode-employee" class="btn btn-sm {{ 'btn-primary' if target_type == 'employee' else '' }}" onclick="switchMode('employee')" style="font-size: 0.8rem; padding: 0.25rem 0.6rem;">
+            Existing Employee
+          </button>
+        </div>
       </div>
+
       <div class="card-body">
-        <form method="get" action="/letters/generate" id="select-form" class="mb-3">
+        <!-- Template Picker -->
+        <form method="get" action="/letters/generate" id="config-form" class="mb-3">
+          <input type="hidden" name="target_type" id="input_target_type" value="{{ target_type }}">
           <div class="form-row cols-2">
             <div class="field">
               <label for="slug">Letter Template</label>
@@ -31,9 +43,11 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="field">
+
+            <!-- Employee Dropdown (shown only when mode is employee) -->
+            <div class="field" id="box-employee-select" style="{{ 'display: none;' if target_type == 'candidate' else '' }}">
               <label for="employee_id">Select Employee</label>
-              <select id="employee_id" name="employee_id" onchange="this.form.submit()" required>
+              <select id="employee_id" name="employee_id" onchange="this.form.submit()">
                 <option value="">-- Choose Employee --</option>
                 {% for emp in employees %}
                   <option value="{{ emp.id }}" {{ 'selected' if employee_id == emp.id }}>
@@ -45,15 +59,78 @@
           </div>
         </form>
 
-        {% if not employee_id %}
+        <!-- Candidate Details Form (shown when mode is candidate) -->
+        <div id="box-candidate-fields" style="{{ 'display: none;' if target_type == 'employee' else '' }}; background: var(--bg-hover, #f8f9fa); border: 1px dashed var(--border); border-radius: var(--radius); padding: 1rem; margin-bottom: 1.5rem;">
+          <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.75rem; color: var(--brand-maroon, #800000); display: flex; align-items: center; justify-content: space-between;">
+            <span>Candidate Information (Prospective Hire)</span>
+            <button type="button" class="btn btn-sm" onclick="applyCandidateToText()" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">
+              {{ icon('refresh') }} Update Letter Text
+            </button>
+          </div>
+          <div class="form-row cols-3">
+            <div class="field">
+              <label for="cand_name">Candidate Name *</label>
+              <input type="text" id="cand_name" value="{{ candidate_name }}" placeholder="e.g. Rahul Sharma" oninput="markCandidateDirty()">
+            </div>
+            <div class="field">
+              <label for="cand_email">Email</label>
+              <input type="email" id="cand_email" value="{{ candidate_email }}" placeholder="candidate@gmail.com">
+            </div>
+            <div class="field">
+              <label for="cand_phone">Phone</label>
+              <input type="tel" id="cand_phone" value="{{ candidate_phone }}" placeholder="+91 98765 43210">
+            </div>
+          </div>
+          <div class="form-row cols-3">
+            <div class="field">
+              <label for="cand_role">Designation / Role</label>
+              <input type="text" id="cand_role" value="{{ candidate_role }}" placeholder="e.g. Full Stack Developer" oninput="markCandidateDirty()">
+            </div>
+            <div class="field">
+              <label for="cand_dept">Department</label>
+              <input type="text" id="cand_dept" value="{{ candidate_dept }}" placeholder="e.g. Technology" oninput="markCandidateDirty()">
+            </div>
+            <div class="field">
+              <label for="cand_gross">Monthly Gross Salary (₹)</label>
+              <input type="number" id="cand_gross" value="{{ candidate_gross or '' }}" placeholder="e.g. 50000" oninput="markCandidateDirty()">
+            </div>
+          </div>
+          <div class="form-row cols-3">
+            <div class="field">
+              <label for="cand_joining">Proposed Joining Date</label>
+              <input type="date" id="cand_joining" value="{{ candidate_joining }}" oninput="markCandidateDirty()">
+            </div>
+            <div class="field">
+              <label for="cand_probation">Probation Duration</label>
+              <input type="text" id="cand_probation" value="{{ probation_months or '3' }}" placeholder="3 months" oninput="markCandidateDirty()">
+            </div>
+            <div class="field">
+              <label for="cand_notice">Notice Period</label>
+              <input type="text" id="cand_notice" value="{{ notice_period or '30' }}" placeholder="30 days" oninput="markCandidateDirty()">
+            </div>
+          </div>
+        </div>
+
+        {% if target_type == 'employee' and not employee_id %}
           <div class="alert alert-info">
-            <strong>Select an employee above</strong> to automatically populate their name, code, designation, CTC, joining date, and company details into the letter below.
+            <strong>Select an employee above</strong> to automatically populate their name, code, designation, CTC, joining date, and company details into the letter.
           </div>
         {% else %}
-          <form method="post" action="/letters/download">
+          <!-- Main Submission Form -->
+          <form method="post" action="/letters/download" id="download-form" onsubmit="return validateBeforeSubmit();">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <input type="hidden" name="slug" value="{{ letter_template.slug }}">
-            <input type="hidden" name="employee_id" value="{{ employee_id }}">
+            <input type="hidden" name="target_type" id="submit_target_type" value="{{ target_type }}">
+            <input type="hidden" name="employee_id" id="submit_employee_id" value="{{ employee_id or '' }}">
+            <input type="hidden" name="candidate_name" id="submit_candidate_name" value="{{ candidate_name }}">
+            <input type="hidden" name="candidate_email" id="submit_candidate_email" value="{{ candidate_email }}">
+            <input type="hidden" name="candidate_phone" id="submit_candidate_phone" value="{{ candidate_phone }}">
+            <input type="hidden" name="candidate_role" id="submit_candidate_role" value="{{ candidate_role }}">
+            <input type="hidden" name="candidate_dept" id="submit_candidate_dept" value="{{ candidate_dept }}">
+            <input type="hidden" name="candidate_gross" id="submit_candidate_gross" value="{{ candidate_gross }}">
+            <input type="hidden" name="candidate_joining" id="submit_candidate_joining" value="{{ candidate_joining }}">
+            <input type="hidden" name="probation_months" id="submit_probation_months" value="{{ probation_months }}">
+            <input type="hidden" name="notice_period" id="submit_notice_period" value="{{ notice_period }}">
 
             <div class="field">
               <label for="subject">Subject Line</label>
@@ -61,7 +138,12 @@
             </div>
 
             <div class="field">
-              <label for="body_text">Letter Content (Editable)</label>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                <label for="body_text">Letter Content (Editable)</label>
+                <button type="button" class="btn btn-sm" onclick="resetToRawTemplate()" style="font-size: 0.75rem; padding: 0.15rem 0.5rem;">
+                  Reset to Original Template
+                </button>
+              </div>
               <textarea id="body_text" name="body_text" rows="18" style="font-family: inherit; font-size: 0.95rem; line-height: 1.6;" required>{{ rendered_body }}</textarea>
               <div class="hint">Paragraphs are formatted automatically in the official PDF letterhead.</div>
             </div>
@@ -79,16 +161,26 @@
   </div>
 
   <div>
+    <div class="card mb-3">
+      <div class="card-head">
+        <h3>How It Works</h3>
+      </div>
+      <div class="card-body small" style="line-height: 1.6;">
+        <p><strong>Candidate Mode:</strong> Use this for prospective hires who don't exist in the system yet. Once they accept the offer and join, click <em>"Onboard as Employee"</em> in the letters history to auto-fill their employee record and link this document!</p>
+        <p><strong>Employee Mode:</strong> Use this for existing staff for increment letters, confirmation certificates, or relieving certificates.</p>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-head">
         <h3>Available Placeholders</h3>
       </div>
       <div class="card-body small">
-        <p class="muted">These variables are automatically resolved from the employee record:</p>
+        <p class="muted">These variables are automatically resolved into the letter body:</p>
         <ul style="padding-left: 1.2rem; line-height: 1.8;">
           <li><span class="mono">{% raw %}{{employee_name}}{% endraw %}</span> &mdash; Full Name</li>
-          <li><span class="mono">{% raw %}{{employee_code}}{% endraw %}</span> &mdash; Employee Code</li>
-          <li><span class="mono">{% raw %}{{designation}}{% endraw %}</span> &mdash; Designation</li>
+          <li><span class="mono">{% raw %}{{employee_code}}{% endraw %}</span> &mdash; Employee Code / PROSPECT</li>
+          <li><span class="mono">{% raw %}{{designation}}{% endraw %}</span> &mdash; Designation / Role</li>
           <li><span class="mono">{% raw %}{{department}}{% endraw %}</span> &mdash; Department</li>
           <li><span class="mono">{% raw %}{{joined_on}}{% endraw %}</span> &mdash; Date of Joining</li>
           <li><span class="mono">{% raw %}{{monthly_gross}}{% endraw %}</span> &mdash; Monthly Gross (CTC)</li>
@@ -102,4 +194,107 @@
     </div>
   </div>
 </div>
+
+<script>
+const rawTemplateSubject = {{ letter_template.subject|tojson }};
+const rawTemplateBody = {{ letter_template.body_text|tojson }};
+const orgName = {{ org_name|tojson }};
+
+function switchMode(mode) {
+  const inputMode = document.getElementById('input_target_type');
+  inputMode.value = mode;
+  document.getElementById('config-form').submit();
+}
+
+function resetToRawTemplate() {
+  if (confirm("Reset letter text back to the default template format? Any manual edits will be overwritten.")) {
+    document.getElementById('subject').value = rawTemplateSubject || '';
+    document.getElementById('body_text').value = rawTemplateBody || '';
+    if (document.getElementById('input_target_type').value === 'candidate') {
+      applyCandidateToText();
+    }
+  }
+}
+
+function markCandidateDirty() {
+  // Sync hidden fields with form inputs
+  const name = document.getElementById('cand_name').value.trim();
+  const role = document.getElementById('cand_role').value.trim();
+  const dept = document.getElementById('cand_dept').value.trim();
+  const gross = parseFloat(document.getElementById('cand_gross').value) || 0;
+  const joining = document.getElementById('cand_joining').value;
+  const probation = document.getElementById('cand_probation').value.trim();
+  const notice = document.getElementById('cand_notice').value.trim();
+
+  document.getElementById('submit_candidate_name').value = name;
+  document.getElementById('submit_candidate_email').value = document.getElementById('cand_email').value.trim();
+  document.getElementById('submit_candidate_phone').value = document.getElementById('cand_phone').value.trim();
+  document.getElementById('submit_candidate_role').value = role;
+  document.getElementById('submit_candidate_dept').value = dept;
+  document.getElementById('submit_candidate_gross').value = gross;
+  document.getElementById('submit_candidate_joining').value = joining;
+  document.getElementById('submit_probation_months').value = probation;
+  document.getElementById('submit_notice_period').value = notice;
+}
+
+function applyCandidateToText() {
+  markCandidateDirty();
+  const name = document.getElementById('cand_name').value.trim() || '[Candidate Name]';
+  const role = document.getElementById('cand_role').value.trim() || '[Designation]';
+  const dept = document.getElementById('cand_dept').value.trim() || '[Department]';
+  const gross = parseFloat(document.getElementById('cand_gross').value) || 0;
+  const annual = gross * 12;
+  const joining = document.getElementById('cand_joining').value || new Date().toISOString().slice(0, 10);
+  const probation = document.getElementById('cand_probation').value.trim() || '3';
+  const notice = document.getElementById('cand_notice').value.trim() || '30';
+
+  const tokens = {
+    'employee_name': name,
+    'employee_code': 'PROSPECT',
+    'designation': role,
+    'department': dept,
+    'monthly_gross': gross > 0 ? gross.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '[Monthly Gross]',
+    'annual_ctc': annual > 0 ? annual.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '[Annual CTC]',
+    'joined_on': joining,
+    'probation_months': probation,
+    'notice_period': notice,
+    'company_name': orgName,
+    'today': new Date().toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}),
+    'relieving_date': new Date().toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}),
+    'effective_date': new Date().toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'})
+  };
+
+  let subj = rawTemplateSubject || '';
+  let body = rawTemplateBody || '';
+
+  for (const [key, val] of Object.entries(tokens)) {
+    const rx = new RegExp('\\{\\{' + key + '\\}\\}', 'g');
+    subj = subj.replace(rx, val);
+    body = body.replace(rx, val);
+  }
+
+  document.getElementById('subject').value = subj;
+  document.getElementById('body_text').value = body;
+}
+
+function validateBeforeSubmit() {
+  const mode = document.getElementById('submit_target_type').value;
+  if (mode === 'candidate') {
+    markCandidateDirty();
+    const candName = document.getElementById('submit_candidate_name').value.trim();
+    if (!candName) {
+      alert("Please provide the Candidate Name before downloading the letter.");
+      document.getElementById('cand_name').focus();
+      return false;
+    }
+  } else if (mode === 'employee') {
+    const empId = document.getElementById('submit_employee_id').value;
+    if (!empId) {
+      alert("Please select an employee.");
+      return false;
+    }
+  }
+  return true;
+}
+</script>
 {% endblock %}

@@ -15,6 +15,15 @@
 {% set f = form or {} %}
 <form method="post" action="{{ '/employees/' ~ employee.id if employee else '/employees' }}" enctype="multipart/form-data">
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <input type="hidden" name="from_letter_id" value="{{ f.get('from_letter_id') or '' }}">
+
+  {% if f.get('from_letter_id') %}
+    <div class="alert alert-info mb-3" style="display: flex; align-items: center; gap: 0.75rem; border-left: 4px solid var(--brand-maroon, #800000);">
+      <div>
+        <strong>Onboarding candidate from Offer Letter</strong> &mdash; Details and salary pre-filled from official letter. The offer letter will be automatically linked to this employee's Document Vault upon save.
+      </div>
+    </div>
+  {% endif %}
 
   <div class="grid grid-sidebar">
     <div>

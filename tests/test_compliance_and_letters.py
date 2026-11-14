@@ -220,3 +220,91 @@ def test_document_and_template_studio(hr_client: TestClient, storage, staff):
     assert storage.get_setting("payslip_show_attendance") == "0"
     assert "Custom Advisory" in storage.get_setting("payslip_footer_note")
 
+
+def test_candidate_offer_letter_and_onboarding_flow(storage, hr_client):
+    storage._seed_letter_templates()
+    token = csrf_of(hr_client, "/letters/generate?slug=offer")
+
+    # 1. Generate Offer Letter for prospective candidate (who does not exist in DB)
+    res_gen = hr_client.post(
+        "/letters/download",
+        data={
+            "slug": "offer",
+            "target_type": "candidate",
+            "candidate_name": "Arun Kumar",
+            "candidate_email": "arun.kumar@example.com",
+            "candidate_phone": "9876543210",
+            "candidate_role": "Lead DevOps Engineer",
+            "candidate_dept": "Infrastructure",
+            "candidate_gross": "85000",
+            "candidate_joining": "2026-12-01",
+            "probation_months": "6",
+            "notice_period": "60",
+            "subject": "Offer of Employment - Lead DevOps Engineer",
+            "body_text": "Dear Arun Kumar,\n\nWe are pleased to offer you the position of Lead DevOps Engineer at Fakhri IT Services.",
+            "_csrf": token,
+        },
+    )
+    assert res_gen.status_code == 200
+    assert res_gen.headers["content-type"] == "application/pdf"
+    assert res_gen.content.startswith(b"%PDF-")
+
+    # 2. Check generated_letters table has candidate record with employee_id = None
+    gen_list = letters_service.list_generated_letters(storage)
+    assert len(gen_list) >= 1
+    cand_letter = next((l for l in gen_list if l["candidate_name"] == "Arun Kumar"), None)
+    assert cand_letter is not None
+    assert cand_letter["employee_id"] is None
+    assert cand_letter["employee_code"] == "PROSPECT"
+    assert cand_letter["employee_name"] == "Arun Kumar"
+
+    # 3. Test direct download route by letter id
+    res_pdf = hr_client.get(f"/letters/{cand_letter['id']}/pdf")
+    assert res_pdf.status_code == 200
+    assert res_pdf.headers["content-type"] == "application/pdf"
+    assert res_pdf.content.startswith(b"%PDF-")
+
+    # 4. Test pre-fill onboarding form
+    res_form = hr_client.get(f"/employees/new?from_letter_id={cand_letter['id']}")
+    assert res_form.status_code == 200
+    html = res_form.text
+    assert "Arun Kumar" in html
+    assert "Lead DevOps Engineer" in html
+    assert "Infrastructure" in html
+    assert "85000" in html
+
+    # 5. Onboard Candidate as Employee
+    emp_token = csrf_of(hr_client, f"/employees/new?from_letter_id={cand_letter['id']}")
+    res_create = hr_client.post(
+        "/employees",
+        data={
+            "name": "Arun Kumar",
+            "code": "FSPL0099",
+            "email": "arun.kumar@example.com",
+            "phone": "+91 98765 43210",
+            "designation": "Lead DevOps Engineer",
+            "department": "Infrastructure",
+            "joined_on": "2026-12-01",
+            "monthly_gross": "85000",
+            "employment_type": "full_time",
+            "from_letter_id": str(cand_letter["id"]),
+            "create_login": "0",
+            "skip_documents": "1",
+            "_csrf": emp_token,
+        },
+        follow_redirects=True,
+    )
+    assert res_create.status_code == 200
+
+    # 6. Verify generated letter is now linked to the new employee
+    updated_letter = letters_service.get_generated_letter(storage, cand_letter["id"])
+    assert updated_letter["employee_id"] is not None
+
+    # 7. Verify the Offer Letter is now registered in the Document Vault (`documents` table)
+    from app.services import records
+    docs = records.list_documents(storage, employee_id=updated_letter["employee_id"])
+    offer_doc = next((d for d in docs if d["category"] == "offer_letter"), None)
+    assert offer_doc is not None
+    assert "Offer Letter" in offer_doc["title"]
+
+

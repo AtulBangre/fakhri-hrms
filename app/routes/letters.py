@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from fastapi import APIRouter, Depends, Form, Request, Response
 
@@ -40,7 +41,17 @@ def letters_index(
 def generate_page(
     request: Request,
     slug: str = "offer",
+    target_type: str = "",
     employee_id: int | None = None,
+    candidate_name: str = "",
+    candidate_email: str = "",
+    candidate_phone: str = "",
+    candidate_role: str = "",
+    candidate_dept: str = "",
+    candidate_gross: float = 0.0,
+    candidate_joining: str = "",
+    probation_months: str = "3",
+    notice_period: str = "30",
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
 ):
@@ -52,11 +63,43 @@ def generate_page(
     employees = employees_service.list_employees(storage, status="all", limit=500)
     templates = letters_service.list_templates(storage)
     
+    # If target_type not explicitly given: Offer defaults to candidate mode, others default to employee mode
+    if not target_type:
+        target_type = "candidate" if slug == "offer" else "employee"
+
     context = {}
     rendered_subject = template["subject"] or ""
     rendered_body = template["body_text"] or ""
     
-    if employee_id:
+    if target_type == "candidate":
+        if candidate_name.strip():
+            context = letters_service.build_candidate_context(
+                storage,
+                candidate_name=candidate_name,
+                designation=candidate_role or "Associate",
+                department=candidate_dept or "General",
+                monthly_gross=candidate_gross or 0.0,
+                joined_on=candidate_joining or None,
+                probation_months=probation_months or "3",
+                notice_period=notice_period or "30",
+                custom_data={"email": candidate_email, "phone": candidate_phone},
+            )
+            rendered_subject = letters_service.render_tokens(template["subject"] or "", context)
+            rendered_body = letters_service.render_tokens(template["body_text"] or "", context)
+        else:
+            # Pre-render with smart placeholders so user sees live preview template
+            preview_ctx = letters_service.build_candidate_context(
+                storage,
+                candidate_name="[Candidate Name]",
+                designation="[Designation]",
+                department="[Department]",
+                monthly_gross=0.0,
+                probation_months=probation_months or "3",
+                notice_period=notice_period or "30",
+            )
+            rendered_subject = template["subject"] or ""
+            rendered_body = template["body_text"] or ""
+    elif target_type == "employee" and employee_id:
         try:
             context = letters_service.build_employee_context(storage, employee_id)
             rendered_subject = letters_service.render_tokens(template["subject"] or "", context)
@@ -73,6 +116,16 @@ def generate_page(
         templates=templates,
         employees=employees,
         employee_id=employee_id,
+        target_type=target_type,
+        candidate_name=candidate_name,
+        candidate_email=candidate_email,
+        candidate_phone=candidate_phone,
+        candidate_role=candidate_role,
+        candidate_dept=candidate_dept,
+        candidate_gross=candidate_gross,
+        candidate_joining=candidate_joining,
+        probation_months=probation_months,
+        notice_period=notice_period,
         rendered_subject=rendered_subject,
         rendered_body=rendered_body,
         context=context,
@@ -83,7 +136,17 @@ def generate_page(
 def download_letter(
     request: Request,
     slug: str = Form(...),
-    employee_id: int = Form(...),
+    target_type: str = Form("employee"),
+    employee_id: int | None = Form(None),
+    candidate_name: str = Form(""),
+    candidate_email: str = Form(""),
+    candidate_phone: str = Form(""),
+    candidate_role: str = Form(""),
+    candidate_dept: str = Form(""),
+    candidate_gross: float = Form(0.0),
+    candidate_joining: str = Form(""),
+    probation_months: str = Form("3"),
+    notice_period: str = Form("30"),
     subject: str = Form(""),
     body_text: str = Form(...),
     csrf: str = Form("", alias="_csrf"),
@@ -92,40 +155,130 @@ def download_letter(
     settings=Depends(get_settings_dep),
 ):
     verify_form_csrf(user, csrf)
-    emp = employees_service.require_employee(storage, employee_id)
     org_name = storage.get_setting("org_name", settings.org_name) or "Fakhri IT Services"
-    ref_no = f"FITS/HR/{slug.upper()}/{date.today().year}/{emp['code']}"
+    template = letters_service.get_template(storage, slug)
+    title = template["title"] if template else slug.title()
     letter_date = date.today().strftime("%d %b %Y")
+    cur_year = date.today().year
+
+    if target_type == "candidate":
+        cand_name_clean = candidate_name.strip()
+        if not cand_name_clean:
+            return redirect(f"/letters/generate?slug={slug}&target_type=candidate", err="Candidate Name is required to generate letter.")
+        
+        cand_slug_name = "".join(c for c in cand_name_clean if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")[:25]
+        ref_no = f"FITS/HR/{slug.upper()}/{cur_year}/CAND-{cand_slug_name.upper()[:10]}"
+        filename = f"Candidate_{cand_slug_name}_{slug}_{date.today().isoformat()}.pdf"
+
+        cand_data = {
+            "name": cand_name_clean,
+            "email": candidate_email.strip(),
+            "phone": candidate_phone.strip(),
+            "designation": candidate_role.strip(),
+            "department": candidate_dept.strip(),
+            "monthly_gross": candidate_gross,
+            "joined_on": candidate_joining.strip(),
+            "probation_months": probation_months.strip(),
+            "notice_period": notice_period.strip(),
+        }
+
+        pdf_bytes = letters_service.render_letter_pdf(
+            org_name=org_name,
+            ref_no=ref_no,
+            letter_date=letter_date,
+            subject=subject,
+            body_text=body_text,
+        )
+
+        letters_service.record_generated_letter(
+            storage,
+            employee_id=None,
+            candidate_name=cand_name_clean,
+            candidate_email=candidate_email.strip() or None,
+            candidate_phone=candidate_phone.strip() or None,
+            candidate_data_json=json.dumps(cand_data),
+            template_slug=slug,
+            title=title,
+            subject=subject,
+            body_text=body_text,
+            pdf_filename=filename,
+            created_by=user.username,
+        )
+
+        storage.audit(
+            actor=user.username,
+            action="generate_letter",
+            entity="letter",
+            entity_id=None,
+            detail=f"{title} generated for prospective candidate {cand_name_clean}",
+        )
+    else:
+        if not employee_id:
+            return redirect(f"/letters/generate?slug={slug}&target_type=employee", err="Please select an employee.")
+        emp = employees_service.require_employee(storage, employee_id)
+        ref_no = f"FITS/HR/{slug.upper()}/{cur_year}/{emp['code']}"
+        filename = f"{emp['code']}_{slug}_{date.today().isoformat()}.pdf"
+
+        pdf_bytes = letters_service.render_letter_pdf(
+            org_name=org_name,
+            ref_no=ref_no,
+            letter_date=letter_date,
+            subject=subject,
+            body_text=body_text,
+        )
+
+        letters_service.record_generated_letter(
+            storage,
+            employee_id=employee_id,
+            template_slug=slug,
+            title=title,
+            subject=subject,
+            body_text=body_text,
+            pdf_filename=filename,
+            created_by=user.username,
+        )
+
+        storage.audit(
+            actor=user.username,
+            action="generate_letter",
+            entity="letter",
+            entity_id=employee_id,
+            detail=f"{title} generated for {emp['name']} ({emp['code']})",
+        )
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{letter_id}/pdf")
+def download_letter_by_id(
+    letter_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    letter = letters_service.get_generated_letter(storage, letter_id)
+    if not letter:
+        return redirect("/letters", err="Generated letter not found.")
+    
+    org_name = storage.get_setting("org_name", settings.org_name) or "Fakhri IT Services"
+    cur_year = (letter.get("created_at") or "")[:4] or str(date.today().year)
+    slug = letter.get("template_slug") or "letter"
+    code = letter.get("employee_code") or "CAND"
+    ref_no = f"FITS/HR/{slug.upper()}/{cur_year}/{code}"
+    letter_date = (letter.get("created_at") or "")[:10] or date.today().strftime("%d %b %Y")
 
     pdf_bytes = letters_service.render_letter_pdf(
         org_name=org_name,
         ref_no=ref_no,
         letter_date=letter_date,
-        subject=subject,
-        body_text=body_text,
+        subject=letter.get("subject") or "",
+        body_text=letter.get("body_text") or "",
     )
-
-    filename = f"{emp['code']}_{slug}_{date.today().isoformat()}.pdf"
-    template = letters_service.get_template(storage, slug)
-    title = template["title"] if template else slug.title()
-
-    letters_service.record_generated_letter(
-        storage,
-        employee_id=employee_id,
-        template_slug=slug,
-        title=title,
-        pdf_filename=filename,
-        created_by=user.username,
-    )
-
-    storage.audit(
-        actor=user.username,
-        action="generate_letter",
-        entity="letter",
-        entity_id=employee_id,
-        detail=f"{title} generated for {emp['name']} ({emp['code']})",
-    )
-
+    filename = letter.get("pdf_filename") or f"Letter_{letter_id}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import date
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from urllib.parse import urlencode
@@ -234,7 +236,47 @@ async def bulk_upload(
 
 
 @router.get("/new")
-def new_page(request: Request, user: SessionUser = Depends(require_hr), storage=Depends(get_storage)):
+def new_page(
+    request: Request,
+    from_letter_id: int | None = None,
+    name: str = "",
+    email: str = "",
+    phone: str = "",
+    designation: str = "",
+    department: str = "",
+    monthly_gross: str = "",
+    joined_on: str = "",
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    prefill = {}
+    if from_letter_id:
+        from ..services import letters as letters_service
+        letter = letters_service.get_generated_letter(storage, from_letter_id)
+        if letter:
+            prefill["from_letter_id"] = str(from_letter_id)
+            prefill["name"] = letter.get("candidate_name") or letter.get("employee_name") or ""
+            prefill["email"] = letter.get("candidate_email") or ""
+            prefill["phone"] = letter.get("candidate_phone") or ""
+            if letter.get("candidate_data_json"):
+                try:
+                    cdata = json.loads(letter["candidate_data_json"])
+                    prefill["designation"] = cdata.get("designation") or ""
+                    prefill["department"] = cdata.get("department") or ""
+                    prefill["monthly_gross"] = str(cdata.get("monthly_gross") or "")
+                    prefill["joined_on"] = cdata.get("joined_on") or ""
+                except Exception:
+                    pass
+    if name: prefill["name"] = name
+    if email: prefill["email"] = email
+    if phone: prefill["phone"] = phone
+    if designation: prefill["designation"] = designation
+    if department: prefill["department"] = department
+    if monthly_gross: prefill["monthly_gross"] = monthly_gross
+    if joined_on: prefill["joined_on"] = joined_on
+    if from_letter_id and "from_letter_id" not in prefill:
+        prefill["from_letter_id"] = str(from_letter_id)
+
     return render(
         request,
         "employee_form.html",
@@ -247,7 +289,7 @@ def new_page(request: Request, user: SessionUser = Depends(require_hr), storage=
         employment_labels=employees_service.EMPLOYMENT_LABELS,
         shifts=storage.query("SELECT id, name, start_time, end_time FROM shifts ORDER BY name"),
         managers=storage.query("SELECT id, code, name, designation, department, email FROM employees WHERE status = 'active' ORDER BY name"),
-        form={},
+        form=prefill,
         pl_policy_mode=storage.get_setting("pl_policy_mode", "accrual"),
         pl_annual_default=storage.get_float("pl_annual_quota", 6.0),
         pl_accrual_default=storage.get_float("pl_accrual_per_month", 0.5),
@@ -341,6 +383,41 @@ async def create(
                 uploaded += 1
             except (UploadError, ValueError) as exc:
                 failed.append(f"{item.filename}: {exc}")
+
+    # Link candidate letter if onboarded from offer letter
+    letter_id_val = text("from_letter_id")
+    if letter_id_val:
+        try:
+            lid = int(letter_id_val)
+            storage.execute("UPDATE generated_letters SET employee_id = ? WHERE id = ?", (employee_id, lid))
+            from ..services import letters as letters_service
+            letter_row = letters_service.get_generated_letter(storage, lid)
+            if letter_row and letter_row.get("body_text"):
+                org_name = storage.get_setting("org_name", settings.org_name) or "Fakhri IT Services"
+                cur_year = (letter_row.get("created_at") or "")[:4] or str(date.today().year)
+                ref_no = f"FITS/HR/{letter_row.get('template_slug', 'offer').upper()}/{cur_year}/{employee['code']}"
+                letter_date = (letter_row.get("created_at") or "")[:10] or date.today().strftime("%d %b %Y")
+                pdf_bytes = letters_service.render_letter_pdf(
+                    org_name=org_name,
+                    ref_no=ref_no,
+                    letter_date=letter_date,
+                    subject=letter_row.get("subject") or "Offer of Employment",
+                    body_text=letter_row.get("body_text"),
+                )
+                records.add_document(
+                    storage,
+                    settings,
+                    employee_id=employee_id,
+                    data=pdf_bytes,
+                    original_name=f"Offer_Letter_{employee['code']}.pdf",
+                    category="offer_letter",
+                    title="Offer Letter (Official)",
+                    notes="Generated from HR Letter Studio upon candidate onboarding",
+                    uploaded_by=user.username,
+                )
+                uploaded += 1
+        except Exception:
+            pass
 
     # Portal login (C3)
     credentials = None

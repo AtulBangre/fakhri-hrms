@@ -514,9 +514,15 @@ CREATE TABLE IF NOT EXISTS letter_templates (
 
 CREATE TABLE IF NOT EXISTS generated_letters (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    employee_id   INTEGER NOT NULL REFERENCES employees(id),
+    employee_id   INTEGER REFERENCES employees(id),
+    candidate_name TEXT,
+    candidate_email TEXT,
+    candidate_phone TEXT,
+    candidate_data_json TEXT,
     template_slug TEXT NOT NULL,
     title         TEXT NOT NULL,
+    subject       TEXT,
+    body_text     TEXT,
     pdf_filename  TEXT NOT NULL,
     created_by    TEXT NOT NULL,
     created_at    TEXT NOT NULL
@@ -605,7 +611,60 @@ class Storage:
                 "CREATE INDEX IF NOT EXISTS idx_users_employee ON users(employee_id)"
             )
             self._sync_default_shift_with_settings()
+            self._make_generated_letters_nullable()
             self._conn.commit()
+
+    def _make_generated_letters_nullable(self) -> None:
+        """Allow generated_letters to store letters for prospective candidates without an employee_id."""
+        try:
+            cols = self._conn.execute("PRAGMA table_info(generated_letters)").fetchall()
+            if not cols:
+                return
+            col_names = {c["name"] for c in cols}
+            emp_col = next((c for c in cols if c["name"] == "employee_id"), None)
+            needs_rebuild = emp_col and emp_col["notnull"] == 1
+            if needs_rebuild:
+                self._conn.execute("PRAGMA legacy_alter_table = ON")
+                self._conn.execute("PRAGMA foreign_keys = OFF")
+                self._conn.execute("""
+                    CREATE TABLE generated_letters__new (
+                        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                        employee_id         INTEGER REFERENCES employees(id),
+                        candidate_name      TEXT,
+                        candidate_email     TEXT,
+                        candidate_phone     TEXT,
+                        candidate_data_json TEXT,
+                        template_slug       TEXT NOT NULL,
+                        title               TEXT NOT NULL,
+                        pdf_filename        TEXT NOT NULL,
+                        created_by          TEXT NOT NULL,
+                        created_at          TEXT NOT NULL
+                    )
+                """)
+                self._conn.execute("""
+                    INSERT INTO generated_letters__new (id, employee_id, template_slug, title, pdf_filename, created_by, created_at)
+                    SELECT id, employee_id, template_slug, title, pdf_filename, created_by, created_at FROM generated_letters
+                """)
+                self._conn.execute("DROP TABLE generated_letters")
+                self._conn.execute("ALTER TABLE generated_letters__new RENAME TO generated_letters")
+                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_gen_letters_emp ON generated_letters(employee_id)")
+                self._conn.execute("PRAGMA foreign_keys = ON")
+                self._conn.execute("PRAGMA legacy_alter_table = OFF")
+                self._conn.commit()
+            else:
+                for name, decl in [
+                    ("candidate_name", "TEXT"),
+                    ("candidate_email", "TEXT"),
+                    ("candidate_phone", "TEXT"),
+                    ("candidate_data_json", "TEXT"),
+                    ("subject", "TEXT"),
+                    ("body_text", "TEXT"),
+                ]:
+                    if name not in col_names:
+                        self._conn.execute(f"ALTER TABLE generated_letters ADD COLUMN {name} {decl}")
+                self._conn.commit()
+        except Exception:
+            pass
 
     def _sync_default_shift_with_settings(self) -> None:
         """Keep the default shift timings in sync with organisation shift settings."""

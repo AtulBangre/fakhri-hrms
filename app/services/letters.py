@@ -62,14 +62,16 @@ def delete_template(storage: Storage, slug: str) -> bool:
 def list_generated_letters(storage: Storage, employee_id: int | None = None, limit: int = 100) -> list[dict[str, Any]]:
     if employee_id:
         return storage.query(
-            "SELECT g.*, e.name AS employee_name, e.code AS employee_code "
-            "FROM generated_letters g JOIN employees e ON e.id = g.employee_id "
+            "SELECT g.*, COALESCE(e.name, g.candidate_name, 'Candidate') AS employee_name, "
+            "COALESCE(e.code, 'PROSPECT') AS employee_code "
+            "FROM generated_letters g LEFT JOIN employees e ON e.id = g.employee_id "
             "WHERE g.employee_id = ? ORDER BY g.id DESC LIMIT ?",
             (employee_id, limit),
         )
     return storage.query(
-        "SELECT g.*, e.name AS employee_name, e.code AS employee_code "
-        "FROM generated_letters g JOIN employees e ON e.id = g.employee_id "
+        "SELECT g.*, COALESCE(e.name, g.candidate_name, 'Candidate') AS employee_name, "
+        "COALESCE(e.code, 'PROSPECT') AS employee_code "
+        "FROM generated_letters g LEFT JOIN employees e ON e.id = g.employee_id "
         "ORDER BY g.id DESC LIMIT ?",
         (limit,),
     )
@@ -78,18 +80,82 @@ def list_generated_letters(storage: Storage, employee_id: int | None = None, lim
 def record_generated_letter(
     storage: Storage,
     *,
-    employee_id: int,
+    employee_id: int | None = None,
+    candidate_name: str | None = None,
+    candidate_email: str | None = None,
+    candidate_phone: str | None = None,
+    candidate_data_json: str | None = None,
     template_slug: str,
     title: str,
+    subject: str = "",
+    body_text: str = "",
     pdf_filename: str,
     created_by: str,
 ) -> int:
     cursor = storage.execute(
-        "INSERT INTO generated_letters (employee_id, template_slug, title, pdf_filename, created_by, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (employee_id, template_slug, title, pdf_filename, created_by, utcnow_iso()),
+        "INSERT INTO generated_letters (employee_id, candidate_name, candidate_email, candidate_phone, candidate_data_json, template_slug, title, subject, body_text, pdf_filename, created_by, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (employee_id, candidate_name, candidate_email, candidate_phone, candidate_data_json, template_slug, title, subject, body_text, pdf_filename, created_by, utcnow_iso()),
     )
     return int(cursor.lastrowid)
+
+
+def get_generated_letter(storage: Storage, letter_id: int) -> dict[str, Any] | None:
+    return storage.query_one(
+        "SELECT g.*, COALESCE(e.name, g.candidate_name, 'Candidate') AS employee_name, "
+        "COALESCE(e.code, 'PROSPECT') AS employee_code, "
+        "COALESCE(e.email, g.candidate_email) AS employee_email "
+        "FROM generated_letters g LEFT JOIN employees e ON e.id = g.employee_id "
+        "WHERE g.id = ?",
+        (letter_id,),
+    )
+
+
+def build_candidate_context(
+    storage: Storage,
+    *,
+    candidate_name: str,
+    designation: str = "Associate",
+    department: str = "General",
+    monthly_gross: float = 0.0,
+    joined_on: str | None = None,
+    probation_months: str = "3",
+    notice_period: str = "30",
+    custom_data: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    settings = storage.settings
+    org_name = storage.get_setting("org_name", settings.org_name) or "Fakhri IT Services"
+    annual = monthly_gross * 12
+    today_formatted = date.today().strftime("%d %b %Y")
+    proposed_joining = joined_on or today_formatted
+
+    ctx: dict[str, str] = {
+        "company_name": org_name,
+        "employee_name": candidate_name.strip(),
+        "employee_code": "PROSPECT",
+        "designation": designation.strip() or "Associate",
+        "department": department.strip() or "General",
+        "joined_on": proposed_joining,
+        "monthly_gross": f"{monthly_gross:,.2f}",
+        "annual_ctc": f"{annual:,.2f}",
+        "relieving_date": today_formatted,
+        "effective_date": today_formatted,
+        "today": today_formatted,
+        "probation_months": str(probation_months),
+        "notice_period": str(notice_period),
+        "email": "",
+        "phone": "",
+        "pan": "",
+        "uan": "",
+        "bank_name": "",
+        "bank_account": "",
+        "ifsc": "",
+    }
+    if custom_data:
+        for k, v in custom_data.items():
+            if v is not None and str(v).strip():
+                ctx[k] = str(v).strip()
+    return ctx
 
 
 def build_employee_context(storage: Storage, employee_id: int, custom_data: dict[str, Any] | None = None) -> dict[str, str]:

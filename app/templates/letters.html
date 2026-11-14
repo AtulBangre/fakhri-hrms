@@ -82,7 +82,11 @@
             <tr>
               <td>
                 <strong>{{ row.employee_name }}</strong>
-                <span class="mono muted small" style="margin-left: 0.25rem;">{{ row.employee_code }}</span>
+                {% if not row.employee_id or row.employee_code == 'PROSPECT' %}
+                  <span class="chip chip-warning small" style="margin-left: 0.35rem; font-size: 0.72rem; padding: 0.15rem 0.4rem;">Candidate</span>
+                {% else %}
+                  <span class="mono muted small" style="margin-left: 0.25rem;">{{ row.employee_code }}</span>
+                {% endif %}
               </td>
               <td>
                 <span class="chip chip-primary">{{ row.title }}</span>
@@ -90,9 +94,20 @@
               <td class="small muted">{{ row.created_at[:10] }}</td>
               <td class="small">{{ row.created_by }}</td>
               <td style="text-align: right;">
-                <a class="btn btn-sm" href="/letters/generate?slug={{ row.template_slug }}&employee_id={{ row.employee_id }}">
-                  {{ icon('file-edit') }} Re-generate
-                </a>
+                <div style="display: inline-flex; gap: 0.4rem; justify-content: flex-end;">
+                  <a class="btn btn-sm" href="/letters/{{ row.id }}/pdf" title="Download Official PDF">
+                    {{ icon('download') }} PDF
+                  </a>
+                  {% if not row.employee_id or row.employee_code == 'PROSPECT' %}
+                    <a class="btn btn-sm btn-primary" href="/employees/new?from_letter_id={{ row.id }}" title="1-Click Onboard to HRMS">
+                      {{ icon('user-plus') }} Onboard
+                    </a>
+                  {% else %}
+                    <a class="btn btn-sm" href="/letters/generate?slug={{ row.template_slug }}&target_type=employee&employee_id={{ row.employee_id }}">
+                      {{ icon('file-edit') }} Re-edit
+                    </a>
+                  {% endif %}
+                </div>
               </td>
             </tr>
           {% endfor %}
