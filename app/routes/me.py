@@ -14,7 +14,7 @@ is no employee-id parameter anywhere in these routes for someone to tamper with.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -102,6 +102,36 @@ def dashboard(
             settings, row["check_in"], orgtime.hhmmss(orgtime.local_now(settings))
         )
 
+    emp_shift = orgtime.shift_for(storage, employee)
+    shift_start = emp_shift["start_time"]
+    shift_end = emp_shift["end_time"]
+
+    # Calculate shift total minutes
+    st_clock = orgtime.parse_clock(shift_start)
+    et_clock = orgtime.parse_clock(shift_end)
+    if st_clock and et_clock:
+        shift_minutes = (et_clock.hour * 60 + et_clock.minute) - (st_clock.hour * 60 + st_clock.minute)
+        if shift_minutes <= 0:
+            shift_minutes += 24 * 60
+    else:
+        shift_minutes = 480
+
+    worked_pct = 0.0
+    current_worked_label = "0h 0m"
+    if row and row.get("check_in") and not row.get("check_out") and row.get("status") != "leave":
+        now_dt = orgtime.local_now(settings)
+        ci_clock = orgtime.parse_clock(row["check_in"])
+        if ci_clock:
+            ci_dt = datetime.combine(now_dt.date(), ci_clock).replace(tzinfo=settings.tz)
+            elapsed_seconds = max(0, int((now_dt - ci_dt).total_seconds()))
+            elapsed_mins = elapsed_seconds // 60
+            worked_pct = min(100.0, max(0.0, round((elapsed_mins / shift_minutes) * 100, 1)))
+            current_worked_label = orgtime.format_minutes(elapsed_mins)
+    elif row and row.get("worked_minutes"):
+        elapsed_mins = row["worked_minutes"]
+        worked_pct = min(100.0, max(0.0, round((elapsed_mins / shift_minutes) * 100, 1)))
+        current_worked_label = orgtime.format_minutes(elapsed_mins)
+
     return render(
         request,
         "me.html",
@@ -123,8 +153,11 @@ def dashboard(
         active_loan=active_loan,
         pending=leave_service.list_leave(storage, employee_id=employee["id"], status="pending", limit=5),
         recent_leave=leave_service.employee_leave_history(storage, employee["id"], limit=4),
-        shift_start=orgtime.shift_for(storage, employee)["start_time"],
-        shift_end=orgtime.shift_for(storage, employee)["end_time"],
+        shift_start=shift_start,
+        shift_end=shift_end,
+        shift_minutes=shift_minutes,
+        worked_pct=worked_pct,
+        current_worked_label=current_worked_label,
         announcements=announcement_service.visible_for(storage, "employees"),
         company_notice_footer=storage.get_setting("company_notice_footer", ""),
         is_manager=_is_manager(storage, employee["id"]),

@@ -75,19 +75,26 @@
   </div>
 
   <!-- Dynamic Shift Progress Bar -->
-  <div class="me-shift-track-wrap">
+  <div class="me-shift-track-wrap" id="liveShiftTracker"
+       data-punched-in="{{ 'true' if punched_in else 'false' }}"
+       data-checkin="{{ today_row.check_in if (today_row and today_row.check_in) else '' }}"
+       data-shift-start="{{ shift_start }}"
+       data-shift-end="{{ shift_end }}"
+       data-shift-minutes="{{ shift_minutes or 480 }}">
     <div class="me-shift-track">
-      {% set worked_pct = 0 %}
-      {% if today_row and today_row.worked_minutes %}
-        {% set worked_pct = [[((today_row.worked_minutes / 480) * 100) | round(1), 100] | min, 0] | max %}
-      {% elif punched_in %}
-        {% set worked_pct = 40 %}
-      {% endif %}
-      <div class="me-shift-fill" style="--progress: {{ worked_pct }}%; width: var(--progress);"></div>
+      <div class="me-shift-fill" id="liveShiftFill" style="--progress: {{ worked_pct }}%; width: {{ worked_pct }}%;"></div>
     </div>
     <div class="me-shift-labels">
       <span>Start ({{ shift_start }})</span>
-      <span>Worked: {{ today_row.worked_minutes | duration if (today_row and today_row.worked_minutes) else ('In progress' if punched_in else '0h 0m') }}</span>
+      <span id="liveWorkedLabel">
+        {% if punched_in %}
+          Worked: {{ current_worked_label }} (In progress)
+        {% elif today_row and today_row.worked_minutes %}
+          Worked: {{ today_row.worked_minutes | duration }}
+        {% else %}
+          Worked: 0h 0m
+        {% endif %}
+      </span>
       <span>End ({{ shift_end }})</span>
     </div>
   </div>
@@ -104,7 +111,15 @@
     </div>
     <div>
       <span>WORKED</span>
-      <strong>{{ today_row.worked_minutes | duration if (today_row and today_row.worked_minutes) else ('In progress' if punched_in else '—') }}</strong>
+      <strong id="liveWorkedPillar">
+        {% if punched_in %}
+          {{ current_worked_label }} <span class="pulse-dot" style="display:inline-block;vertical-align:middle;margin-left:2px;" title="Live on duty"></span>
+        {% elif today_row and today_row.worked_minutes %}
+          {{ today_row.worked_minutes | duration }}
+        {% else %}
+          —
+        {% endif %}
+      </strong>
     </div>
   </div>
 </section>
@@ -349,4 +364,65 @@
     </div>
   </div>
 </div>
+
+<script>
+(function() {
+  var tracker = document.getElementById("liveShiftTracker");
+  if (!tracker || tracker.dataset.punchedIn !== "true") return;
+
+  var checkinStr = tracker.dataset.checkin;
+  var shiftMins = parseInt(tracker.dataset.shiftMinutes, 10) || 480;
+  if (!checkinStr) return;
+
+  // Extract hours, minutes, seconds from checkin (handles "10:12:00", "10:12", or "2026-11-14T10:12:00")
+  var timePart = checkinStr.indexOf("T") !== -1 ? checkinStr.split("T")[1] : checkinStr;
+  var ciParts = timePart.split(":");
+  if (ciParts.length < 2) return;
+  var ciHour = parseInt(ciParts[0], 10);
+  var ciMin = parseInt(ciParts[1], 10);
+  var ciSec = ciParts.length > 2 ? parseInt(ciParts[2].slice(0, 2), 10) || 0 : 0;
+
+  function updateLiveProgress() {
+    var now = new Date();
+    var ciDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), ciHour, ciMin, ciSec);
+    var diffMs = now.getTime() - ciDate.getTime();
+    if (diffMs < 0) diffMs = 0;
+
+    var elapsedMins = Math.floor(diffMs / 60000);
+    var hrs = Math.floor(elapsedMins / 60);
+    var mins = elapsedMins % 60;
+
+    var durationTxt = "";
+    if (hrs > 0 && mins > 0) {
+      durationTxt = hrs + "h " + mins + "m";
+    } else if (hrs > 0) {
+      durationTxt = hrs + "h";
+    } else {
+      durationTxt = mins + "m";
+    }
+
+    var pct = Math.min(100, Math.max(0, ((elapsedMins / shiftMins) * 100))).toFixed(1);
+
+    var fillEl = document.getElementById("liveShiftFill");
+    if (fillEl) {
+      fillEl.style.width = pct + "%";
+      fillEl.style.setProperty("--progress", pct + "%");
+    }
+
+    var labelEl = document.getElementById("liveWorkedLabel");
+    if (labelEl) {
+      labelEl.textContent = "Worked: " + durationTxt + " (In progress)";
+    }
+
+    var pillarEl = document.getElementById("liveWorkedPillar");
+    if (pillarEl) {
+      pillarEl.innerHTML = durationTxt + ' <span class="pulse-dot" style="display:inline-block;vertical-align:middle;margin-left:2px;" title="Live on duty"></span>';
+    }
+  }
+
+  updateLiveProgress();
+  // Update every 10 seconds for real-time live progression
+  setInterval(updateLiveProgress, 10000);
+})();
+</script>
 {% endblock %}
