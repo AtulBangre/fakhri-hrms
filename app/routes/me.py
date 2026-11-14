@@ -286,6 +286,7 @@ def my_payslip_pdf(
         slip, settings=settings,
         org_name=storage.get_setting("org_name", settings.org_name),
         period_label=orgtime.month_label(slip["period"]),
+        storage=storage,
     )
     return Response(
         content=data, media_type="application/pdf",

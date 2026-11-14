@@ -48,19 +48,39 @@ def _text(value: Any) -> str:
     return text.encode("latin-1", "replace").decode("latin-1")
 
 
+def _hex_to_rgb(hex_str: str | None, default: tuple[int, int, int] = MAROON) -> tuple[int, int, int]:
+    if not hex_str:
+        return default
+    s = str(hex_str).strip().lstrip("#")
+    if len(s) == 6:
+        try:
+            return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+        except ValueError:
+            pass
+    return default
+
+
 class PayslipPDF(FPDF):
     """Thin FPDF subclass that knows the company's colours."""
 
-    def __init__(self, org_name: str, subtitle: str = "Salary slip - computer generated"):
+    def __init__(
+        self,
+        org_name: str,
+        subtitle: str = "Salary slip - computer generated",
+        brand_color: tuple[int, int, int] = MAROON,
+        footer_note: str | None = None,
+    ):
         super().__init__(orientation="P", unit="mm", format="A4")
         self.org_name = org_name
         self.subtitle = subtitle
+        self.brand_color = brand_color
+        self.footer_note = footer_note
         self.set_auto_page_break(auto=True, margin=16)
         self.set_margins(14, 14, 14)
 
     # -- building blocks ---------------------------------------------------
     def brand_bar(self) -> None:
-        self.set_fill_color(*MAROON)
+        self.set_fill_color(*self.brand_color)
         self.rect(0, 0, 210, 24, style="F")
         self.set_xy(14, 6)
         self.set_font("Helvetica", "B", 16)
@@ -75,7 +95,7 @@ class PayslipPDF(FPDF):
     def section(self, title: str) -> None:
         self.ln(2)
         self.set_font("Helvetica", "B", 10)
-        self.set_text_color(*MAROON)
+        self.set_text_color(*self.brand_color)
         self.cell(0, 6, _text(title.upper()), new_x="LEFT", new_y="NEXT")
         self.set_draw_color(*BORDER)
         y = self.get_y()
@@ -107,9 +127,17 @@ def render_payslip(
     org_name: str,
     period_label: str,
     currency: str = "Rs",
+    storage: Any = None,
 ) -> bytes:
     """Return the payslip PDF as bytes."""
-    pdf = PayslipPDF(org_name)
+    subtitle = (storage.get_setting("payslip_subtitle", "") if storage else "") or "Salary slip - computer generated"
+    brand_color_hex = (storage.get_setting("payslip_brand_color", "") if storage else "") or "#870808"
+    footer_note = (storage.get_setting("payslip_footer_note", "") if storage else "") or ""
+    show_bank = (storage.get_setting("payslip_show_bank", "1") if storage else "1") != "0"
+    show_attendance = (storage.get_setting("payslip_show_attendance", "1") if storage else "1") != "0"
+
+    brand_rgb = _hex_to_rgb(brand_color_hex, MAROON)
+    pdf = PayslipPDF(org_name, subtitle=subtitle, brand_color=brand_rgb, footer_note=footer_note)
     pdf.add_page()
     pdf.brand_bar()
 
@@ -130,12 +158,19 @@ def render_payslip(
         ("Department", _text(slip.get("department") or "-")),
         ("Designation", _text(slip.get("designation") or "-")),
     ]
+    if show_bank and slip.get("bank_account"):
+        left.append(("Bank A/C", _text(f"{slip.get('bank_name') or 'Bank'} - {slip.get('bank_account')}")))
+
     right = [
         ("Date of joining", _text(slip.get("joined_on") or "-")),
-        ("Payable days", f"{_num(slip.get('present_days'))} present + {_num(slip.get('paid_leave_days'))} paid leave"),
-        ("Loss of pay days", _num(slip.get("lop_days"))),
-        ("Per day rate", _money(slip.get("per_day_rate"))),
     ]
+    if show_attendance:
+        right.append(("Payable days", f"{_num(slip.get('present_days'))} present + {_num(slip.get('paid_leave_days'))} paid leave"))
+        right.append(("Loss of pay days", _num(slip.get("lop_days"))))
+        right.append(("Per day rate", _money(slip.get("per_day_rate"))))
+    else:
+        right.append(("Per day rate", _money(slip.get("per_day_rate"))))
+
     start_y = pdf.get_y()
     pdf.set_x(14)
     for label, value in left:
@@ -212,14 +247,13 @@ def render_payslip(
     pdf.ln(6)
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(*MUTED)
-    pdf.multi_cell(
-        0, 4.5,
-        _text(
-            "Net pay = earned gross + bonus - total deductions. "
-            "This is a computer-generated payslip from the HRMS; errors and omissions excepted. "
-            f"Generated on {orgtime.today(settings).strftime('%d %b %Y')}."
-        ),
+    default_disclaimer = (
+        "Net pay = earned gross + bonus - total deductions. "
+        "This is a computer-generated payslip from the HRMS; errors and omissions excepted. "
+        f"Generated on {orgtime.today(settings).strftime('%d %b %Y')}."
     )
+    final_footer = footer_note if footer_note else default_disclaimer
+    pdf.multi_cell(0, 4.5, _text(final_footer))
     pdf.ln(8)
     pdf.set_draw_color(*BORDER)
     y = pdf.get_y()

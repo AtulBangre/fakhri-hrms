@@ -145,3 +145,78 @@ def test_letters_web_routes(hr_client: TestClient, staff, settings, storage):
     resp_esic = hr_client.get("/payroll/export-esic.csv?period=2026-06")
     assert resp_esic.status_code == 200
     assert "IP Number,IP Name" in resp_esic.text
+
+
+def test_document_and_template_studio(hr_client: TestClient, storage, staff):
+    token = csrf_of(hr_client, "/letters/templates")
+
+    # 1. Test create custom letter template
+    res = hr_client.post(
+        "/letters/templates/new",
+        data={
+            "title": "Warning Letter",
+            "slug": "warning_letter",
+            "subject": "Official Warning - {{employee_code}}",
+            "body_text": "Dear {{employee_name}},\n\nThis is an official warning regarding attendance.",
+            "_csrf": token,
+        },
+        follow_redirects=True,
+    )
+    assert res.status_code == 200
+    custom_tmpl = letters_service.get_template(storage, "warning_letter")
+    assert custom_tmpl is not None
+    assert custom_tmpl["title"] == "Warning Letter"
+
+    # 2. Test update custom letter template
+    res_up = hr_client.post(
+        "/letters/templates/warning_letter",
+        data={
+            "title": "Severe Warning Letter",
+            "subject": "Final Warning - {{employee_code}}",
+            "body_text": "Dear {{employee_name}},\n\nFinal disciplinary notice.",
+            "_csrf": token,
+        },
+        follow_redirects=True,
+    )
+    assert res_up.status_code == 200
+    updated = letters_service.get_template(storage, "warning_letter")
+    assert updated["title"] == "Severe Warning Letter"
+
+    # 3. Test delete custom letter template (allowed)
+    res_del = hr_client.post(
+        "/letters/templates/warning_letter/delete",
+        data={"_csrf": token},
+        follow_redirects=True,
+    )
+    assert res_del.status_code == 200
+    assert letters_service.get_template(storage, "warning_letter") is None
+
+    # 4. Test delete standard template (rejected)
+    res_del_std = hr_client.post(
+        "/letters/templates/offer/delete",
+        data={"_csrf": token},
+        follow_redirects=True,
+    )
+    assert res_del_std.status_code == 200
+    assert letters_service.get_template(storage, "offer") is not None
+
+    # 5. Test update payslip configuration
+    res_ps = hr_client.post(
+        "/letters/templates/payslip/update",
+        data={
+            "payslip_subtitle": "Confidential Monthly Statement",
+            "payslip_brand_color": "#1e40af",
+            "payslip_show_bank": "1",
+            "payslip_show_attendance": "0",
+            "payslip_footer_note": "Custom Advisory: Contact payroll@example.com for discrepancies.",
+            "_csrf": token,
+        },
+        follow_redirects=True,
+    )
+    assert res_ps.status_code == 200
+    assert storage.get_setting("payslip_subtitle") == "Confidential Monthly Statement"
+    assert storage.get_setting("payslip_brand_color") == "#1e40af"
+    assert storage.get_setting("payslip_show_bank") == "1"
+    assert storage.get_setting("payslip_show_attendance") == "0"
+    assert "Custom Advisory" in storage.get_setting("payslip_footer_note")
+

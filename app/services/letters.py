@@ -21,6 +21,9 @@ LIGHT_BG = (0xFD, 0xF2, 0xF2)
 BORDER = (0xD8, 0xD3, 0xD0)
 
 
+STANDARD_SLUGS = {"offer", "appointment", "increment", "relieving"}
+
+
 def list_templates(storage: Storage) -> list[dict[str, Any]]:
     return storage.query("SELECT * FROM letter_templates ORDER BY id ASC")
 
@@ -34,6 +37,26 @@ def update_template(storage: Storage, slug: str, title: str, subject: str, body_
         "UPDATE letter_templates SET title = ?, subject = ?, body_text = ?, updated_at = ? WHERE slug = ?",
         (title.strip(), subject.strip(), body_text.strip(), utcnow_iso(), slug),
     )
+
+
+def create_template(storage: Storage, slug: str, title: str, subject: str, body_text: str) -> None:
+    clean_slug = re.sub(r"[^a-z0-9_-]", "", slug.lower().strip().replace(" ", "_"))
+    if not clean_slug:
+        raise ValueError("Invalid template slug.")
+    existing = get_template(storage, clean_slug)
+    if existing:
+        raise ValueError(f"Template with slug '{clean_slug}' already exists.")
+    storage.execute(
+        "INSERT INTO letter_templates (slug, title, subject, body_text, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (clean_slug, title.strip(), subject.strip(), body_text.strip(), utcnow_iso()),
+    )
+
+
+def delete_template(storage: Storage, slug: str) -> bool:
+    if slug in STANDARD_SLUGS:
+        return False
+    storage.execute("DELETE FROM letter_templates WHERE slug = ?", (slug,))
+    return True
 
 
 def list_generated_letters(storage: Storage, employee_id: int | None = None, limit: int = 100) -> list[dict[str, Any]]:
@@ -91,6 +114,13 @@ def build_employee_context(storage: Storage, employee_id: int, custom_data: dict
         "today": today_formatted,
         "probation_months": "3",
         "notice_period": storage.get_setting("notice_period_days", "30"),
+        "email": emp.get("email") or "",
+        "phone": emp.get("phone") or "",
+        "pan": emp.get("pan") or "",
+        "uan": emp.get("uan") or "",
+        "bank_name": emp.get("bank_name") or "",
+        "bank_account": emp.get("bank_account") or "",
+        "ifsc": emp.get("bank_ifsc") or "",
     }
     if custom_data:
         for k, v in custom_data.items():

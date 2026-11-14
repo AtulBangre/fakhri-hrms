@@ -136,18 +136,66 @@ def download_letter(
 @router.get("/templates")
 def templates_page(
     request: Request,
+    slug: str | None = None,
+    tab: str = "letters",
     user: SessionUser = Depends(require_hr),
     storage=Depends(get_storage),
 ):
     storage._seed_letter_templates()
     templates = letters_service.list_templates(storage)
+    selected_slug = slug or (templates[0]["slug"] if templates else "offer")
+    selected_template = next((t for t in templates if t["slug"] == selected_slug), (templates[0] if templates else None))
+
+    payslip_settings = {
+        "subtitle": storage.get_setting("payslip_subtitle", "Salary slip - computer generated") or "Salary slip - computer generated",
+        "footer_note": storage.get_setting(
+            "payslip_footer_note",
+            "Net pay = earned gross + bonus - total deductions. This is a computer-generated payslip from the HRMS; errors and omissions excepted."
+        ) or "Net pay = earned gross + bonus - total deductions. This is a computer-generated payslip from the HRMS; errors and omissions excepted.",
+        "brand_color": storage.get_setting("payslip_brand_color", "#870808") or "#870808",
+        "show_bank": storage.get_setting("payslip_show_bank", "1") != "0",
+        "show_attendance": storage.get_setting("payslip_show_attendance", "1") != "0",
+    }
+
     return render(
         request,
         "letters_templates.html",
         active="letters",
         user=user,
         templates=templates,
+        selected_slug=selected_slug,
+        selected_template=selected_template,
+        payslip_settings=payslip_settings,
+        active_tab=tab,
+        standard_slugs=letters_service.STANDARD_SLUGS,
     )
+
+
+@router.post("/templates/new")
+def create_template_action(
+    request: Request,
+    slug: str = Form(...),
+    title: str = Form(...),
+    subject: str = Form(""),
+    body_text: str = Form(...),
+    csrf: str = Form("", alias="_csrf"),
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    verify_form_csrf(user, csrf)
+    try:
+        letters_service.create_template(storage, slug, title, subject, body_text)
+    except Exception as exc:
+        return redirect("/letters/templates?tab=letters", err=str(exc))
+
+    storage.audit(
+        actor=user.username,
+        action="create_letter_template",
+        entity="letter_template",
+        entity_id=0,
+        detail=f"Template '{slug}' ({title}) created by {user.username}",
+    )
+    return redirect(f"/letters/templates?slug={slug}&tab=letters", msg=f"Template '{title}' created successfully.")
 
 
 @router.post("/templates/{slug}")
@@ -170,4 +218,55 @@ def update_template_action(
         entity_id=0,
         detail=f"Template '{slug}' updated by {user.username}",
     )
-    return redirect("/letters/templates", msg=f"Template '{title}' updated successfully.")
+    return redirect(f"/letters/templates?slug={slug}&tab=letters", msg=f"Template '{title}' updated successfully.")
+
+
+@router.post("/templates/{slug}/delete")
+def delete_template_action(
+    request: Request,
+    slug: str,
+    csrf: str = Form("", alias="_csrf"),
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    verify_form_csrf(user, csrf)
+    if not letters_service.delete_template(storage, slug):
+        return redirect("/letters/templates?tab=letters", err=f"Standard template '{slug}' cannot be deleted.")
+
+    storage.audit(
+        actor=user.username,
+        action="delete_letter_template",
+        entity="letter_template",
+        entity_id=0,
+        detail=f"Template '{slug}' deleted by {user.username}",
+    )
+    return redirect("/letters/templates?tab=letters", msg=f"Template '{slug}' deleted successfully.")
+
+
+@router.post("/templates/payslip/update")
+def update_payslip_template_action(
+    request: Request,
+    payslip_subtitle: str = Form("Salary slip - computer generated"),
+    payslip_brand_color: str = Form("#870808"),
+    payslip_show_bank: str = Form("0"),
+    payslip_show_attendance: str = Form("0"),
+    payslip_footer_note: str = Form(""),
+    csrf: str = Form("", alias="_csrf"),
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+):
+    verify_form_csrf(user, csrf)
+    storage.set_setting("payslip_subtitle", payslip_subtitle.strip())
+    storage.set_setting("payslip_brand_color", payslip_brand_color.strip() or "#870808")
+    storage.set_setting("payslip_show_bank", "1" if payslip_show_bank == "1" else "0")
+    storage.set_setting("payslip_show_attendance", "1" if payslip_show_attendance == "1" else "0")
+    storage.set_setting("payslip_footer_note", payslip_footer_note.strip())
+
+    storage.audit(
+        actor=user.username,
+        action="update_payslip_template",
+        entity="payslip_template",
+        entity_id=0,
+        detail=f"Payslip format & color ({payslip_brand_color}) updated by {user.username}",
+    )
+    return redirect("/letters/templates?tab=payslip", msg="Payslip template & format saved successfully.")

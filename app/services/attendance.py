@@ -335,23 +335,23 @@ def employee_month_days(storage: Storage, settings: Settings, employee: dict, pe
 KIOSK_ONLINE_SECONDS = 75
 
 
-_last_heartbeat_time: dict[str, float] = {}
+_last_heartbeat_time: dict[tuple[int, str], float] = {}
 
 
 def record_kiosk_heartbeat(storage: Storage, device: str) -> None:
     """Remember when a gate device last checked in (shown live on the HR dashboard).
-    Debounced to once every 60s per device so settings cache is not constantly invalidated.
+    Debounced to once every 60s per device per storage so settings cache is not constantly invalidated.
     """
     now_m = time.monotonic()
-    dev_key = device[:60]
-    if dev_key in _last_heartbeat_time and (now_m - _last_heartbeat_time[dev_key]) < 60.0:
+    cache_key = (id(storage), device[:60])
+    if cache_key in _last_heartbeat_time and (now_m - _last_heartbeat_time[cache_key]) < 60.0:
         return
-    _last_heartbeat_time[dev_key] = now_m
+    _last_heartbeat_time[cache_key] = now_m
     try:
         beats = json.loads(storage.get_setting("kiosk_heartbeat", "{}") or "{}")
     except ValueError:
         beats = {}
-    beats[dev_key] = utcnow_iso()
+    beats[device[:60]] = utcnow_iso()
     storage.set_setting("kiosk_heartbeat", json.dumps(beats))
 
 
