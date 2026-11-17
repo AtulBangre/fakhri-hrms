@@ -9,13 +9,31 @@
 {% macro pager_bar(pager, base, params={}) -%}
   {% if pager.total %}
   <div class="pager">
-    <span class="muted">Showing {{ pager.first }}–{{ pager.last }} of {{ pager.total }}</span>
+    <span class="muted">Showing {{ pager.first }}–{{ pager.last }} of {{ pager.total }}{% if pager.per_page %} &middot; {{ pager.per_page }} per page{% endif %}</span>
     {% if pager.pages > 1 %}
     <span class="pager-links">
-      {% set query = params | dictsort | selectattr(1) | list | urlencode %}
-      {% if pager.page > 1 %}<a class="btn btn-sm" href="{{ base }}?{{ query }}{{ '&' if query }}page={{ pager.page - 1 }}">← Previous</a>{% endif %}
-      <span class="small muted" style="align-self:center">Page {{ pager.page }} of {{ pager.pages }}</span>
-      {% if pager.page < pager.pages %}<a class="btn btn-sm" href="{{ base }}?{{ query }}{{ '&' if query }}page={{ pager.page + 1 }}">Next →</a>{% endif %}
+      {% set query = params | dictsort | selectattr(1) | rejectattr(0, 'equalto', 'page') | list | urlencode %}
+      {% if pager.page > 1 %}
+        <a class="btn btn-sm" href="{{ base }}?{{ query }}{{ '&' if query }}page={{ pager.page - 1 }}">← Previous</a>
+      {% else %}
+        <span class="btn btn-sm btn-ghost" style="opacity:0.4;pointer-events:none;">← Previous</span>
+      {% endif %}
+
+      {% for p in range(1, pager.pages + 1) %}
+        {% if p == pager.page %}
+          <span class="btn btn-sm btn-primary" style="min-width:32px;text-align:center;pointer-events:none;">{{ p }}</span>
+        {% elif p <= 2 or p >= pager.pages - 1 or (p >= pager.page - 1 and p <= pager.page + 1) %}
+          <a class="btn btn-sm" style="min-width:32px;text-align:center;" href="{{ base }}?{{ query }}{{ '&' if query }}page={{ p }}">{{ p }}</a>
+        {% elif p == 3 or p == pager.pages - 2 %}
+          <span class="small muted" style="align-self:center;padding:0 2px;">…</span>
+        {% endif %}
+      {% endfor %}
+
+      {% if pager.page < pager.pages %}
+        <a class="btn btn-sm" href="{{ base }}?{{ query }}{{ '&' if query }}page={{ pager.page + 1 }}">Next →</a>
+      {% else %}
+        <span class="btn btn-sm btn-ghost" style="opacity:0.4;pointer-events:none;">Next →</span>
+      {% endif %}
     </span>
     {% endif %}
   </div>

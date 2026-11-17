@@ -82,22 +82,42 @@ def search_clause(q: str | None, columns: tuple[str, ...]) -> tuple[str, list[An
 
 
 EMPLOYEE_SORTS = {
-    "name": "name COLLATE NOCASE", "code": "code COLLATE NOCASE", "department": "department COLLATE NOCASE",
-    "joined": "joined_on", "gross": "monthly_gross", "face": "face_id IS NULL", "status": "status",
+    "name": "e.name COLLATE NOCASE", "code": "e.code COLLATE NOCASE", "department": "e.department COLLATE NOCASE",
+    "joined": "e.joined_on", "gross": "e.monthly_gross", "face": "e.face_id IS NULL", "status": "e.status",
+    "shift": "shift_name COLLATE NOCASE",
 }
 
 
-def _employee_filters(q: str | None, department: str | None, status: str) -> tuple[str, list[Any]]:
+def _employee_filters(
+    storage: Storage,
+    q: str | None,
+    department: str | None,
+    status: str,
+    shift_id: str | int | None = None,
+) -> tuple[str, list[Any]]:
     """Shared WHERE clause, so a list and its count always agree."""
     clauses: list[str] = []
     params: list[Any] = []
     if status and status != "all":
-        clauses.append("status = ?")
+        clauses.append("e.status = ?")
         params.append(status)
     if department:
-        clauses.append("department = ? COLLATE NOCASE")
+        clauses.append("e.department = ? COLLATE NOCASE")
         params.append(department.strip())
-    clause, words = search_clause(q, ("name", "code", "email", "phone", "designation", "department"))
+    if shift_id is not None and str(shift_id).strip() and str(shift_id).strip().lower() != "all":
+        try:
+            sid = int(str(shift_id).strip())
+            default_shift = storage.query_one("SELECT id FROM shifts WHERE is_default = 1")
+            is_def = default_shift and default_shift["id"] == sid
+            if is_def:
+                clauses.append("(e.shift_id = ? OR e.shift_id IS NULL)")
+                params.append(sid)
+            else:
+                clauses.append("e.shift_id = ?")
+                params.append(sid)
+        except ValueError:
+            pass
+    clause, words = search_clause(q, ("e.name", "e.code", "e.email", "e.phone", "e.designation", "e.department"))
     if clause:
         clauses.append(clause)
         params.extend(words)
@@ -109,29 +129,42 @@ def list_employees(
     *,
     q: str | None = None,
     department: str | None = None,
+    shift_id: str | int | None = None,
     status: str = "active",
-    limit: int = 200,
+    limit: int = 50,
     offset: int = 0,
     sort: str = "name",
     direction: str = "asc",
 ) -> list[dict[str, Any]]:
-    where, params = _employee_filters(q, department, status)
+    where, params = _employee_filters(storage, q, department, status, shift_id)
     params.extend([limit, offset])
     # Only names from our own table reach the SQL. Blanks stay last in both directions.
     column = EMPLOYEE_SORTS.get(sort, EMPLOYEE_SORTS["name"])
     order = "DESC" if direction == "desc" else "ASC"
-    return storage.query(
-        f"SELECT * FROM employees {where} ORDER BY {column.split()[0]} IS NULL, {column} {order}, "
-        "name COLLATE NOCASE LIMIT ? OFFSET ?",
-        params,
-    )
+    sql = f"""
+        SELECT e.*,
+               COALESCE(s.name, (SELECT name FROM shifts WHERE is_default = 1 LIMIT 1), 'General Shift') AS shift_name,
+               COALESCE(s.start_time, (SELECT start_time FROM shifts WHERE is_default = 1 LIMIT 1), '10:00') AS shift_start,
+               COALESCE(s.end_time, (SELECT end_time FROM shifts WHERE is_default = 1 LIMIT 1), '18:30') AS shift_end
+        FROM employees e
+        LEFT JOIN shifts s ON s.id = e.shift_id
+        {where}
+        ORDER BY {column.split()[0]} IS NULL, {column} {order}, e.name COLLATE NOCASE
+        LIMIT ? OFFSET ?
+    """
+    return storage.query(sql, params)
 
 
 def count_employees(
-    storage: Storage, *, status: str = "active", q: str | None = None, department: str | None = None
+    storage: Storage,
+    *,
+    status: str = "active",
+    q: str | None = None,
+    department: str | None = None,
+    shift_id: str | int | None = None,
 ) -> int:
-    where, params = _employee_filters(q, department, status)
-    return int(storage.scalar(f"SELECT COUNT(*) AS n FROM employees {where}", params))
+    where, params = _employee_filters(storage, q, department, status, shift_id)
+    return int(storage.scalar(f"SELECT COUNT(*) AS n FROM employees e {where}", params))
 
 
 def get_employee(storage: Storage, employee_id: int) -> dict[str, Any] | None:

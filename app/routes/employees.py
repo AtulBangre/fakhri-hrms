@@ -69,6 +69,7 @@ def list_page(
     storage=Depends(get_storage),
     q: str | None = None,
     department: str | None = None,
+    shift_id: str | None = None,
     status: str = "active",
     page: int = 1,
     sort: str = "name",
@@ -76,14 +77,18 @@ def list_page(
 ):
     sort = sort if sort in employees_service.EMPLOYEE_SORTS else "name"
     direction = "desc" if dir == "desc" else "asc"
-    pager = paginate(
-        employees_service.count_employees(storage, q=q, department=department, status=status), page, PER_PAGE
+    total_count = employees_service.count_employees(
+        storage, q=q, department=department, shift_id=shift_id, status=status
     )
+    pager = paginate(total_count, page, PER_PAGE)
     people = employees_service.list_employees(
-        storage, q=q, department=department, status=status, limit=PER_PAGE, offset=pager["offset"],
+        storage, q=q, department=department, shift_id=shift_id, status=status, limit=PER_PAGE, offset=pager["offset"],
         sort=sort, direction=direction,
     )
-    export_query = urlencode({k: v for k, v in (("q", q or ""), ("department", department or ""), ("status", status or "all")) if v})
+    shifts = storage.query("SELECT * FROM shifts ORDER BY is_default DESC, name ASC")
+    export_query = urlencode(
+        {k: v for k, v in (("q", q or ""), ("department", department or ""), ("status", status or "all"), ("shift_id", shift_id or "")) if v}
+    )
     return render(
         request,
         "employees.html",
@@ -92,7 +97,8 @@ def list_page(
         employees=people,
         stats=employees_service.stats(storage),
         departments=employees_service.departments(storage),
-        filters={"q": q or "", "department": department or "", "status": status, "sort": sort, "dir": direction},
+        shifts=shifts,
+        filters={"q": q or "", "department": department or "", "shift_id": shift_id or "", "status": status, "sort": sort, "dir": direction},
         pager=pager,
         missing_face={row["id"] for row in employees_service.employees_missing_face(storage)},
         export_query=export_query,
@@ -107,11 +113,12 @@ def export_xlsx(
     settings=Depends(get_settings_dep),
     q: str = "",
     department: str = "",
+    shift_id: str = "",
     status: str = "all",
 ):
     """Download full employee records in styled Excel (.xlsx) spreadsheet format."""
     xlsx_bytes = employees_export.export_employees_xlsx(
-        storage, settings, q=q, department=department, status=status
+        storage, settings, q=q, department=department, shift_id=shift_id, status=status
     )
     today_str = orgtime.today(settings).isoformat()
     filename = f"employees_all_details_{today_str}.xlsx"
@@ -130,11 +137,12 @@ def export_csv(
     settings=Depends(get_settings_dep),
     q: str = "",
     department: str = "",
+    shift_id: str = "",
     status: str = "all",
 ):
     """Download full employee records in UTF-8 BOM CSV format for Excel."""
     csv_text = employees_export.export_employees_csv(
-        storage, settings, q=q, department=department, status=status
+        storage, settings, q=q, department=department, shift_id=shift_id, status=status
     )
     today_str = orgtime.today(settings).isoformat()
     filename = f"employees_all_details_{today_str}.csv"

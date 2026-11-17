@@ -98,6 +98,7 @@ def get_employees_dataset(
     *,
     q: str = "",
     department: str = "",
+    shift_id: str = "",
     status: str = "all",
 ) -> tuple[list[str], list[list[Any]]]:
     """Compile exhaustive dataset of all employees with linked salary, leave, shift and portal data."""
@@ -112,6 +113,18 @@ def get_employees_dataset(
     if department:
         sql += " AND department = ?"
         params.append(department)
+
+    if shift_id and str(shift_id).strip() and str(shift_id).strip().lower() != "all":
+        try:
+            sid = int(str(shift_id).strip())
+            def_shift = storage.query_one("SELECT id FROM shifts WHERE is_default = 1")
+            if def_shift and def_shift["id"] == sid:
+                sql += " AND (shift_id = ? OR shift_id IS NULL)"
+            else:
+                sql += " AND shift_id = ?"
+            params.append(sid)
+        except ValueError:
+            pass
 
     if q:
         sql += " AND (name LIKE ? OR code LIKE ? OR phone LIKE ? OR email LIKE ?)"
@@ -280,10 +293,11 @@ def export_employees_xlsx(
     *,
     q: str = "",
     department: str = "",
+    shift_id: str = "",
     status: str = "all",
 ) -> bytes:
     """Generate fully-featured OpenXML Spreadsheet (.xlsx) bytes with brand styling."""
-    headers, rows = get_employees_dataset(storage, settings, q=q, department=department, status=status)
+    headers, rows = get_employees_dataset(storage, settings, q=q, department=department, shift_id=shift_id, status=status)
 
     out = io.BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
@@ -440,10 +454,11 @@ def export_employees_csv(
     *,
     q: str = "",
     department: str = "",
+    shift_id: str = "",
     status: str = "all",
 ) -> str:
     """Generate UTF-8 with BOM CSV for 100% native Microsoft Excel compatibility."""
-    headers, rows = get_employees_dataset(storage, settings, q=q, department=department, status=status)
+    headers, rows = get_employees_dataset(storage, settings, q=q, department=department, shift_id=shift_id, status=status)
     out = io.StringIO()
     writer = csv.writer(out)
     writer.writerow(headers)

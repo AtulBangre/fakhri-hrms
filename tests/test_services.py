@@ -357,6 +357,35 @@ def test_recalculate_employee_attendance_adjusts_past_records_for_new_shift(stor
     assert updated_row["status"] == "present"
 
 
+def test_list_employees_shift_filter_and_pagination(storage: Storage, aarav, isha):
+    s1 = storage.execute(
+        "INSERT INTO shifts (name, start_time, end_time, grace_minutes, half_day_minutes, overtime_min_minutes, is_default, created_at) "
+        "VALUES ('Morning Shift', '09:00', '17:00', 15, 360, 60, 1, '2026-01-01')"
+    ).lastrowid
+    s2 = storage.execute(
+        "INSERT INTO shifts (name, start_time, end_time, grace_minutes, half_day_minutes, overtime_min_minutes, is_default, created_at) "
+        "VALUES ('Evening Shift', '14:00', '22:00', 15, 360, 60, 0, '2026-01-01')"
+    ).lastrowid
+
+    storage.execute("UPDATE employees SET shift_id = ? WHERE id = ?", (s1, aarav["id"]))
+    storage.execute("UPDATE employees SET shift_id = ? WHERE id = ?", (s2, isha["id"]))
+
+    all_emps = employees_service.list_employees(storage, shift_id=None)
+    assert len(all_emps) >= 2
+    assert any(e["id"] == aarav["id"] for e in all_emps)
+    assert any(e["id"] == isha["id"] for e in all_emps)
+
+    s2_emps = employees_service.list_employees(storage, shift_id=s2)
+    assert len(s2_emps) == 1
+    assert s2_emps[0]["id"] == isha["id"]
+    assert s2_emps[0]["shift_name"] == "Evening Shift"
+    assert employees_service.count_employees(storage, shift_id=s2) == 1
+
+    s1_emps = employees_service.list_employees(storage, shift_id=s1)
+    assert any(e["id"] == aarav["id"] for e in s1_emps)
+    assert not any(e["id"] == isha["id"] for e in s1_emps)
+
+
 def test_changing_the_company_shift_reaches_new_scans_and_registers(storage: Storage, settings, aarav):
     storage.set_setting("shift_start", "11:00")
     assert attendance_service.mark_by_face(storage, settings, aarav, moment=at(11, 5)).late_minutes == 0
