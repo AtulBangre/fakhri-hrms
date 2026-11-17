@@ -58,6 +58,11 @@
                   {% endfor %}
                 </div>
               {% endif %}
+              {% if item.manager_note %}
+                <div class="mt-1" style="background:var(--subtle);border-left:3px solid var(--primary);padding:3px 7px;border-radius:3px;font-size:0.76rem;">
+                  <span style="font-weight:600;color:var(--primary);">👤 Manager{% if item.manager_action_name %} ({{ item.manager_action_name }}){% endif %}:</span> {{ item.manager_note }}
+                </div>
+              {% endif %}
             </td>
             <td class="actions-cell">
               <div style="display:flex;gap:.35rem;flex-wrap:wrap;justify-content:flex-end">
@@ -67,7 +72,7 @@
                   <button class="btn btn-sm btn-primary" type="submit">Approve</button>
                 </form>
                 <form method="post" action="/leave/{{ item.id }}/reject"
-                      data-confirm="Reject this request? The employee will see it was declined.">
+                      onsubmit="var r = prompt('Reason for rejection (optional):'); if (r === null) return false; this.reason.value = r; return true;">
                   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                   <input type="hidden" name="period" value="{{ period }}">
                   <input type="hidden" name="reason" value="">

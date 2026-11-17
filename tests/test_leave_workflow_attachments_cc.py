@@ -202,3 +202,57 @@ def test_employee_leave_history_api(hr_client, storage, settings, staff):
     assert "balance" in data
     assert len(data["leaves"]) >= 1
     assert data["leaves"][0]["reason"] == "Family trip"
+
+
+def test_manager_leave_approval_and_rejection_notes(storage, settings, staff):
+    emp = staff[0]
+    manager = staff[1]
+    employees_service.update_employee(storage, emp["id"], {"manager_id": manager["id"]})
+
+    res = leave_service.apply_leave(
+        storage,
+        settings,
+        employee_id=emp["id"],
+        leave_type="casual",
+        from_date="2026-11-25",
+        to_date="2026-11-25",
+        reason="Dentist appointment",
+        status="pending",
+        allow_negative=True,
+    )
+    leave_id = res["leave"]["id"]
+    assert res["leave"]["status"] == "pending_manager"
+
+    custom_note = "Approved, handover daily tasks to Priya"
+    approved_leave = leave_service.manager_decide_leave(
+        storage, leave_id, manager["id"], decision="approved", note=custom_note, actor="manager_test"
+    )
+    assert approved_leave["status"] == "pending"
+    assert approved_leave["manager_note"] == custom_note
+    assert approved_leave["manager_status"] == "approved"
+    assert approved_leave["manager_action_by"] == manager["id"]
+
+    pending = leave_service.pending_requests(storage)
+    matching = next(p for p in pending if p["id"] == leave_id)
+    assert matching["manager_note"] == custom_note
+    assert matching["manager_action_name"] == manager["name"]
+
+    res2 = leave_service.apply_leave(
+        storage,
+        settings,
+        employee_id=emp["id"],
+        leave_type="casual",
+        from_date="2026-11-26",
+        to_date="2026-11-26",
+        reason="Personal work",
+        status="pending",
+        allow_negative=True,
+    )
+    leave_id_2 = res2["leave"]["id"]
+    rej_note = "Critical project sprint on 26 Nov"
+    rejected_leave = leave_service.manager_decide_leave(
+        storage, leave_id_2, manager["id"], decision="rejected", note=rej_note, actor="manager_test"
+    )
+    assert rejected_leave["status"] == "rejected"
+    assert rejected_leave["manager_note"] == rej_note
+    assert rejected_leave["manager_status"] == "rejected"

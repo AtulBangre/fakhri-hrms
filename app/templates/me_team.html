@@ -66,12 +66,8 @@
             </td>
             <td class="actions-cell">
               <div style="display:flex;gap:.35rem;flex-wrap:wrap;justify-content:flex-end">
-                <form method="post" action="/me/team/leave/{{ item.id }}/approve">
-                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                  <input type="hidden" name="note" value="Recommended by reporting manager">
-                  <button class="btn btn-sm btn-primary" type="submit" title="Recommend leave to HR">Approve</button>
-                </form>
-                <button class="btn btn-sm btn-danger" type="button" onclick="document.getElementById('reject-dialog-{{ item.id }}').showModal()">Reject</button>
+                <button class="btn btn-sm btn-primary" type="button" onclick="document.getElementById('approve-dialog-{{ item.id }}').showModal()" title="Approve & recommend to HR">Approve</button>
+                <button class="btn btn-sm btn-danger" type="button" onclick="document.getElementById('reject-dialog-{{ item.id }}').showModal()" title="Decline request">Reject</button>
               </div>
             </td>
           </tr>
@@ -83,18 +79,57 @@
 </div>
 
 {% for item in pending_leaves %}
-<dialog id="reject-dialog-{{ item.id }}" class="modal-dialog" style="max-width:440px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.3);background:var(--card)">
+<!-- Approve Modal -->
+<dialog id="approve-dialog-{{ item.id }}" class="modal-dialog" style="max-width:480px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.3);background:var(--card)">
   <div class="card" style="margin:0;border:none">
     <div class="card-head" style="background:var(--subtle);padding:0.75rem 1rem">
-      <h3 style="margin:0;font-size:1rem">Reject Leave Request</h3>
+      <h3 style="margin:0;font-size:1rem;color:var(--primary)">Approve & Recommend Leave</h3>
+    </div>
+    <form method="post" action="/me/team/leave/{{ item.id }}/approve" style="padding:1rem">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      
+      <div style="background:var(--subtle);border-radius:var(--radius);padding:0.6rem 0.85rem;margin-bottom:0.85rem;font-size:0.82rem;">
+        <div><strong>{{ item.employee_name }}</strong> · {{ item.type_label }} ({{ item.days | number }} day{{ 's' if item.days != 1 else '' }})</div>
+        <div class="muted mt-1">📅 {{ item.from_label }}{% if item.to_date != item.from_date %} &rarr; {{ item.to_label }}{% endif %}</div>
+        {% if item.reason %}
+          <div class="mt-1" style="color:var(--ink-soft)"><em>"{{ item.reason }}"</em></div>
+        {% endif %}
+      </div>
+
+      <div class="field mb-3">
+        <label for="appr-note-{{ item.id }}" style="font-weight:600">Remarks / Instructions for HR & Employee <span class="muted font-normal">(Optional)</span></label>
+        <textarea id="appr-note-{{ item.id }}" name="note" rows="3" style="width:100%;border:1px solid var(--border);border-radius:var(--radius);padding:0.45rem;font-size:0.85rem;" placeholder="e.g. Approved, task handover given to team"></textarea>
+        <div class="hint" style="font-size:0.75rem;color:var(--muted);margin-top:3px;">This note will be forwarded to HR and visible to the employee.</div>
+      </div>
+      
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+        <button class="btn btn-sm" type="button" onclick="document.getElementById('approve-dialog-{{ item.id }}').close()">Cancel</button>
+        <button class="btn btn-sm btn-primary" type="submit">Confirm & Recommend</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- Reject Modal -->
+<dialog id="reject-dialog-{{ item.id }}" class="modal-dialog" style="max-width:480px;width:95%;border:none;border-radius:var(--radius-lg);padding:0;box-shadow:0 20px 25px -5px rgba(0,0,0,0.3);background:var(--card)">
+  <div class="card" style="margin:0;border:none">
+    <div class="card-head" style="background:var(--subtle);padding:0.75rem 1rem">
+      <h3 style="margin:0;font-size:1rem;color:var(--danger)">Reject Leave Request</h3>
     </div>
     <form method="post" action="/me/team/leave/{{ item.id }}/reject" style="padding:1rem">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-      <p class="small muted mb-2">Please provide a reason so {{ item.employee_name }} knows why this request was declined.</p>
-      <div class="field mb-3">
-        <label for="rej-note-{{ item.id }}">Reason for Rejection *</label>
-        <input id="rej-note-{{ item.id }}" name="note" type="text" placeholder="e.g. Critical deployment on these dates" required>
+      
+      <div style="background:var(--subtle);border-radius:var(--radius);padding:0.6rem 0.85rem;margin-bottom:0.85rem;font-size:0.82rem;">
+        <div><strong>{{ item.employee_name }}</strong> · {{ item.type_label }} ({{ item.days | number }} day{{ 's' if item.days != 1 else '' }})</div>
+        <div class="muted mt-1">📅 {{ item.from_label }}{% if item.to_date != item.from_date %} &rarr; {{ item.to_label }}{% endif %}</div>
       </div>
+
+      <div class="field mb-3">
+        <label for="rej-note-{{ item.id }}" style="font-weight:600">Reason for Rejection *</label>
+        <textarea id="rej-note-{{ item.id }}" name="note" rows="3" required style="width:100%;border:1px solid var(--border);border-radius:var(--radius);padding:0.45rem;font-size:0.85rem;" placeholder="e.g. Critical deployment scheduled during these dates, please reschedule."></textarea>
+        <div class="hint" style="font-size:0.75rem;color:var(--muted);margin-top:3px;">{{ item.employee_name }} will receive this reason in their rejection notification.</div>
+      </div>
+      
       <div style="display:flex;gap:0.5rem;justify-content:flex-end">
         <button class="btn btn-sm" type="button" onclick="document.getElementById('reject-dialog-{{ item.id }}').close()">Cancel</button>
         <button class="btn btn-sm btn-danger" type="submit">Reject Request</button>

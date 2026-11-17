@@ -548,8 +548,11 @@ def list_leave(
     params.append(limit)
     rows = storage.query(
         f"""
-        SELECT l.*, e.name AS employee_name, e.code AS employee_code, e.department, e.manager_id
-        FROM leave_requests l JOIN employees e ON e.id = l.employee_id
+        SELECT l.*, e.name AS employee_name, e.code AS employee_code, e.department, e.manager_id,
+               mgr.name AS manager_action_name
+        FROM leave_requests l
+        JOIN employees e ON e.id = l.employee_id
+        LEFT JOIN employees mgr ON mgr.id = l.manager_action_by
         {where}
         ORDER BY
             CASE l.status WHEN 'pending' THEN 0 ELSE 1 END,

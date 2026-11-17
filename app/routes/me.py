@@ -569,18 +569,27 @@ def approve_team_leave(
     user: SessionUser = Depends(require_employee),
     storage=Depends(get_storage),
     settings=Depends(get_settings_dep),
-    note: str = Form("Recommended by reporting manager"),
+    note: str = Form(""),
     csrf: str = Form("", alias="_csrf"),
 ):
     from ..auth import verify_form_csrf
     verify_form_csrf(user, csrf)
     employee = _me(storage, user)
+    clean_note = (note or "").strip() or "Recommended by reporting manager"
     try:
         updated = leave_service.manager_decide_leave(
-            storage, leave_id, employee["id"], decision="approved", note=note, actor=user.username
+            storage, leave_id, employee["id"], decision="approved", note=clean_note, actor=user.username
         )
     except Exception as exc:
         return redirect("/me/team", err=str(exc))
+
+    # Push notification to applicant
+    notify.push_employee(
+        storage, settings, updated["employee_id"],
+        "Leave Recommended by Manager",
+        f"Your manager {employee['name']} recommended your leave to HR: {clean_note}",
+        "/me/leave", category="leave_update"
+    )
 
     # Notify HR that reporting manager has approved and forwarded
     applicant = employees_service.get_employee(storage, updated["employee_id"])
@@ -597,7 +606,7 @@ def approve_team_leave(
             from_date=orgtime.human_date(updated["from_date"]),
             to_date=orgtime.human_date(updated["to_date"]),
             days=updated["days"],
-            reason=f"Recommended by Manager ({employee['name']})" + (f": {note}" if note else "") + f"\n\nOriginal Reason: {updated.get('reason') or '—'}",
+            reason=f"Recommended by Manager ({employee['name']}): {clean_note}\n\nOriginal Reason: {updated.get('reason') or '—'}",
             cc=[manager_email] if manager_email else None,
         )
 
@@ -617,15 +626,36 @@ def reject_team_leave(
     from ..auth import verify_form_csrf
     verify_form_csrf(user, csrf)
     employee = _me(storage, user)
+    clean_note = (note or "").strip() or "Declined by reporting manager"
     try:
         updated = leave_service.manager_decide_leave(
-            storage, leave_id, employee["id"], decision="rejected", note=note, actor=user.username
+            storage, leave_id, employee["id"], decision="rejected", note=clean_note, actor=user.username
         )
     except Exception as exc:
         return redirect("/me/team", err=str(exc))
 
-    # Notify employee with HR and Manager in CC
     applicant = employees_service.get_employee(storage, updated["employee_id"])
+
+    # Push notification to employee
+    notify.push_employee(
+        storage, settings, updated["employee_id"],
+        "Leave Request Declined by Manager",
+        f"Your {updated['days']:g}-day {orgtime.LEAVE_LABELS.get(updated['leave_type'], updated['leave_type'])} request was declined: {clean_note}",
+        "/me/leave", category="leave_decided"
+    )
+
+    # WhatsApp notification if active
+    if getattr(settings, "notify_whatsapp_reminders", False) and applicant and applicant.get("phone"):
+        msg = (
+            f"*{settings.org_name} — Leave Request Update*\n\n"
+            f"Hello {applicant['name']},\n"
+            f"Your leave request for *{orgtime.human_date(updated['from_date'])}* ({updated['days']:g} day) was *Declined* by your reporting manager {employee['name']}.\n"
+            f"Reason: _{clean_note}_\n\n"
+            f"Portal: https://hrms.fakhriitservices.com/me/leave"
+        )
+        notify.queue(storage, channel="whatsapp", recipient=applicant["phone"], body=msg, category="leave_update", settings=settings)
+
+    # Notify employee with HR and Manager in CC
     if applicant and applicant.get("email") and settings.notify_leave_email:
         hr_cc = notify.hr_emails(storage, settings)
         manager_email = employee.get("email")
@@ -636,7 +666,7 @@ def reject_team_leave(
             from_date=orgtime.human_date(updated["from_date"]),
             to_date=orgtime.human_date(updated["to_date"]),
             days=updated["days"], decision="rejected",
-            note=note or "Declined by reporting manager",
+            note=clean_note,
             leave_type=orgtime.LEAVE_LABELS.get(updated["leave_type"], updated["leave_type"]),
             decided_by=f"Reporting Manager ({employee['name']})",
             cc=cc_list,
