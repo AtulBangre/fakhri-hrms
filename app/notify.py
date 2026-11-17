@@ -870,7 +870,56 @@ def _waha_headers(settings: Settings) -> dict[str, str]:
     return headers
 
 
+_last_waha_alive_check: float = 0.0
+
+
+def ensure_waha_session_alive(settings: Settings, *, force: bool = False) -> bool:
+    """Keep the WAHA WhatsApp session connected and auto-heal if the socket went dormant.
+
+    After long idle periods (such as overnight between 7 PM and 10 AM), Baileys / WhatsApp
+    servers often drop the underlying WebSocket connection while the WAHA container remains
+    in status 'WORKING' with 'presence: offline'. This function verifies the socket is active
+    and triggers an automatic restart if it has dropped or stalled, restoring live delivery.
+    """
+    global _last_waha_alive_check
+    now = time.monotonic()
+    if not force and (now - _last_waha_alive_check) < 60.0:
+        return True
+
+    base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
+    headers = _waha_headers(settings)
+    session_name = getattr(settings, "waha_session", "default")
+
+    try:
+        res = httpx.get(f"{base_url}/api/sessions/{session_name}", headers=headers, timeout=6.0)
+        _last_waha_alive_check = now
+        if res.status_code == 200:
+            data = res.json()
+            status = data.get("status")
+            me = data.get("me")
+            presence = data.get("presence")
+
+            # If paired account exists but socket presence dropped offline, auto-restart to reconnect
+            if status == "WORKING" and me and presence == "offline":
+                logger.warning("WAHA session '%s' socket is offline (dormant); auto-reconnecting...", session_name)
+                start_or_restart_waha(settings)
+                time.sleep(2.0)
+                return True
+            elif status in ("STOPPED", "FAILED"):
+                logger.warning("WAHA session '%s' is %s; auto-restarting...", session_name, status)
+                start_or_restart_waha(settings)
+                time.sleep(2.0)
+                return True
+            return True
+        elif res.status_code == 404:
+            return False
+    except Exception as exc:
+        logger.warning("WAHA session alive check failed: %s", exc)
+    return False
+
+
 def _send_waha_whatsapp(storage: Storage, settings: Settings, row: dict[str, Any]) -> str:
+    ensure_waha_session_alive(settings)
     base_url = getattr(settings, "waha_api_url", "http://waha:3000").rstrip("/")
     chat_id = format_whatsapp_chat_id(row["recipient"])
     headers = _waha_headers(settings)
@@ -1268,11 +1317,19 @@ class NotificationWorker:
         from .services import alerts  # imported here because alerts builds on this module
 
         next_alerts = 0.0
+        next_waha_ping = 0.0
         while not self._stop.wait(self.interval):
             try:
-                if time.monotonic() >= next_alerts:
-                    next_alerts = time.monotonic() + ALERT_CHECK_SECONDS
+                now_mono = time.monotonic()
+                if now_mono >= next_alerts:
+                    next_alerts = now_mono + ALERT_CHECK_SECONDS
                     alerts.run_due(self.storage, self.settings)
+
+                # Keep WAHA socket awake and auto-heal if dropped overnight (checks every 5 minutes)
+                if getattr(self.settings, "whatsapp_provider", "") == "waha" and now_mono >= next_waha_ping:
+                    next_waha_ping = now_mono + 300.0  # every 5 minutes
+                    ensure_waha_session_alive(self.settings, force=True)
+
                 results = dispatch(self.storage, self.settings, limit=50)
                 self.sent += sum(1 for r in results if r.get("ok"))
                 self.failed += sum(1 for r in results if not r.get("ok"))
