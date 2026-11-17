@@ -1150,3 +1150,113 @@ def _csv_safe(value: object) -> str:
     if any(ch in text for ch in (",", '"', "\n")):
         return '"' + text.replace('"', '""') + '"'
     return text
+
+
+def recalculate_employee_attendance(
+    storage: Storage,
+    employee_id: int,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    actor: str = "system",
+) -> dict:
+    """Recalculate attendance records for an employee within a date range (default: current month)
+    based on their currently assigned shift.
+    """
+    employee = storage.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
+    if not employee:
+        return {"updated": 0, "changes": []}
+
+    today = datetime.now().date()
+    start_date = start_date or today.replace(day=1)
+    end_date = end_date or orgtime.month_bounds(today.strftime("%Y-%m"))[1]
+
+    emp_shift = None
+    if employee.get("shift_id"):
+        emp_shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee["shift_id"],))
+
+    rows = storage.query(
+        """
+        SELECT * FROM attendance
+        WHERE employee_id = ? AND work_date BETWEEN ? AND ?
+        ORDER BY work_date
+        """,
+        (employee_id, start_date.isoformat(), end_date.isoformat()),
+    )
+
+    updated_count = 0
+    now = utcnow_iso()
+    changes = []
+
+    with storage.transaction():
+        for r in rows:
+            check_in = r.get("check_in")
+            if not check_in:
+                continue
+            day = orgtime.parse_date(r["work_date"])
+            if orgtime.day_kind(storage, day) != "working":
+                continue
+
+            parsed_in = orgtime.parse_clock(check_in)
+            if not parsed_in:
+                continue
+
+            check_in_dt = datetime.combine(day, parsed_in)
+            assessed = orgtime.late_assessment(storage, check_in_dt, shift=emp_shift)
+            new_late = assessed["late_minutes"]
+            new_fine = assessed["fine"]
+            status = r["status"]
+            note = r.get("note")
+
+            if status == orgtime.STATUS_PRESENT:
+                is_manual_override = note and note != "late arrival — half day"
+                if assessed["half_day"] and not is_manual_override:
+                    status = orgtime.STATUS_HALF_DAY
+                    if not note:
+                        note = "late arrival — half day"
+            elif status == orgtime.STATUS_HALF_DAY:
+                is_late_half_day = (note == "late arrival — half day")
+                if is_late_half_day and not assessed["half_day"]:
+                    status = orgtime.STATUS_PRESENT
+                    note = None
+
+            check_out = r.get("check_out")
+            worked = orgtime.minutes_between(check_in, check_out) if (check_in and check_out) else r.get("worked_minutes")
+
+            old_fine = float(r.get("late_fine") or 0.0)
+            if (
+                new_late != r.get("late_minutes")
+                or abs(float(new_fine) - old_fine) > 0.01
+                or status != r.get("status")
+                or note != r.get("note")
+            ):
+                storage.execute_tx(
+                    """
+                    UPDATE attendance
+                    SET status = ?, late_minutes = ?, late_fine = ?, worked_minutes = ?, note = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (status, new_late, new_fine, worked, note, now, r["id"]),
+                )
+                updated_count += 1
+                changes.append({
+                    "date": r["work_date"],
+                    "old_late": r.get("late_minutes"),
+                    "new_late": new_late,
+                    "old_fine": old_fine,
+                    "new_fine": new_fine,
+                    "old_status": r.get("status"),
+                    "new_status": status,
+                })
+
+        if updated_count > 0:
+            storage.audit(
+                actor=actor,
+                action="recalculate_shift_attendance",
+                entity="employee",
+                entity_id=employee_id,
+                detail=f"Recalculated {updated_count} attendance rows ({start_date} to {end_date}) for shift {employee.get('shift_id')}",
+            )
+
+    return {"updated": updated_count, "changes": changes}
+

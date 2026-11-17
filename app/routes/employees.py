@@ -204,6 +204,7 @@ def bulk_update_apply(
     employee_ids: list[int] = Form(...),
     new_department: str = Form(""),
     new_shift_id: str = Form(""),
+    recalculate_current_month: str = Form("0"),
 ):
     auth.verify_form_csrf(user, csrf)
     with storage.transaction():
@@ -212,8 +213,18 @@ def bulk_update_apply(
                 storage.execute_tx("UPDATE employees SET department = ? WHERE id = ?", (new_department.strip(), emp_id))
             if new_shift_id.strip():
                 storage.execute_tx("UPDATE employees SET shift_id = ? WHERE id = ?", (int(new_shift_id), emp_id))
+    
+    recalc_count = 0
+    if new_shift_id.strip() and recalculate_current_month in ("1", "true", "on", "yes"):
+        for emp_id in employee_ids:
+            res = attendance_service.recalculate_employee_attendance(storage, emp_id, actor=user.username)
+            recalc_count += res.get("updated", 0)
+
     storage.audit(actor=user.username, action="bulk_update_employees", detail=f"Updated {len(employee_ids)} employees")
-    return redirect("/employees", ok=f"Successfully updated {len(employee_ids)} employees.")
+    msg = f"Successfully updated {len(employee_ids)} employees."
+    if recalc_count > 0:
+        msg += f" Recalculated {recalc_count} current month attendance records."
+    return redirect("/employees", ok=msg)
 
 
 @router.get("/bulk-template")
@@ -697,6 +708,7 @@ def update(
     statutory_mode: str = Form("auto"),
     effective_from: str = Form(""),
     salary_note: str = Form(""),
+    recalculate_current_month: str = Form("0"),
 ):
     from ..auth import verify_form_csrf
 
@@ -768,7 +780,17 @@ def update(
                     )
     except employees_service.ValidationError as exc:
         return redirect(f"/employees/{employee_id}/edit", err=str(exc))
-    return redirect(f"/employees/{employee_id}", ok="Employee details updated.")
+
+    recalc_count = 0
+    new_shift = int(shift_id) if shift_id.strip() else None
+    if new_shift != before.get("shift_id") and recalculate_current_month in ("1", "true", "on", "yes"):
+        res = attendance_service.recalculate_employee_attendance(storage, employee_id, actor=user.username)
+        recalc_count = res.get("updated", 0)
+
+    ok_msg = "Employee details updated."
+    if recalc_count > 0:
+        ok_msg += f" Recalculated {recalc_count} current month attendance records for the new shift."
+    return redirect(f"/employees/{employee_id}", ok=ok_msg)
 
 
 @router.post("/{employee_id}/toggle-remote")

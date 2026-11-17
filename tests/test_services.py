@@ -330,6 +330,33 @@ def test_late_and_half_day_follow_the_employees_own_shift(storage: Storage, sett
     assert attendance_service.mark_by_face(storage, settings, person, moment=at(19, 10)).status == "half_day"
 
 
+def test_recalculate_employee_attendance_adjusts_past_records_for_new_shift(storage: Storage, settings, aarav):
+    storage.set_setting("late_policy_mode", "tiered_fine_only")
+    day = date(2026, 1, 5)
+    row = attendance_service.mark_manual(
+        storage, employee_id=aarav["id"], work_date=day.isoformat(), status="present",
+        check_in="10:00", check_out="18:30",
+    )
+    # Default shift 09:30 + 15m grace = 09:45. Check-in 10:00 is 15m late -> fine 50.0
+    assert row["late_minutes"] == 15
+    assert row["late_fine"] == 50.0
+
+    shift_id = storage.execute(
+        "INSERT INTO shifts (name, start_time, end_time, grace_minutes, half_day_minutes, overtime_min_minutes, "
+        "is_default, created_at) VALUES ('11am Shift', '11:00', '17:00', 15, 360, 60, 0, '2026-01-01')",
+    ).lastrowid
+    storage.execute("UPDATE employees SET shift_id = ? WHERE id = ?", (shift_id, aarav["id"]))
+
+    res = attendance_service.recalculate_employee_attendance(
+        storage, aarav["id"], start_date=day, end_date=day, actor="test"
+    )
+    assert res["updated"] == 1
+    updated_row = attendance_service.get_row(storage, aarav["id"], day)
+    assert updated_row["late_minutes"] == 0
+    assert updated_row["late_fine"] == 0.0
+    assert updated_row["status"] == "present"
+
+
 def test_changing_the_company_shift_reaches_new_scans_and_registers(storage: Storage, settings, aarav):
     storage.set_setting("shift_start", "11:00")
     assert attendance_service.mark_by_face(storage, settings, aarav, moment=at(11, 5)).late_minutes == 0

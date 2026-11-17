@@ -13,9 +13,10 @@
 </div>
 
 {% set f = form or {} %}
-<form method="post" action="{{ '/employees/' ~ employee.id if employee else '/employees' }}" enctype="multipart/form-data">
+<form id="employeeForm" method="post" action="{{ '/employees/' ~ employee.id if employee else '/employees' }}" enctype="multipart/form-data">
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
   <input type="hidden" name="from_letter_id" value="{{ f.get('from_letter_id') or '' }}">
+  <input type="hidden" name="recalculate_current_month" id="recalculate_current_month" value="0">
 
   {% if f.get('from_letter_id') %}
     <div class="alert alert-info mb-3" style="display: flex; align-items: center; gap: 0.75rem; border-left: 4px solid var(--brand-maroon, #800000);">
@@ -106,7 +107,7 @@
             <div class="field">
               <label for="shift_id">Work Shift</label>
               {% set cur_shift = f.get('shift_id') if ('shift_id' in f and f.get('shift_id') is not none) else (employee.shift_id if employee and employee.shift_id is not none else '') %}
-              <select id="shift_id" name="shift_id">
+              <select id="shift_id" name="shift_id" data-original="{{ cur_shift }}">
                 <option value="">Company Default Shift</option>
                 {% for s in shifts %}
                   <option value="{{ s.id }}" {{ 'selected' if cur_shift != '' and (cur_shift | string) == (s.id | string) }}>
@@ -467,5 +468,28 @@ function onFormDateChange(val) {
     hint.textContent = "Mid-month date: Payroll will automatically split and blend pro-rata pay for " + val + ".";
   }
 }
+
+{% if employee %}
+(function() {
+  var form = document.getElementById('employeeForm');
+  var shiftSelect = document.getElementById('shift_id');
+  var recalcInput = document.getElementById('recalculate_current_month');
+  if (form && shiftSelect && recalcInput) {
+    form.addEventListener('submit', function() {
+      var orig = shiftSelect.getAttribute('data-original') || '';
+      var curr = shiftSelect.value || '';
+      if (curr !== orig) {
+        var ok = confirm(
+          "⚠️ Shift Change Detected!\n\n" +
+          "Kya aap is employee ke current month (is mahine) ke pichhle saare attendance records naye shift ke according manage / recalculate karna chahte hain?\n\n" +
+          "• [OK / Yes] : Current month ke pichhle attendance records naye shift ke hisab se recalculate karo.\n" +
+          "• [Cancel / No] : Sirf aaj aur aage ke naye punches par lagu karo (purane records waise hi rahenge)."
+        );
+        recalcInput.value = ok ? '1' : '0';
+      }
+    });
+  }
+})();
+{% endif %}
 </script>
 {% endblock %}

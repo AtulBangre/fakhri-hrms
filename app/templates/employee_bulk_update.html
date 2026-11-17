@@ -33,6 +33,7 @@
 
 <form method="post" action="/employees/bulk-update" id="bulkForm">
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+  <input type="hidden" name="recalculate_current_month" id="recalculate_current_month" value="0">
 
   <div class="card mb-3" style="border-top: 3px solid var(--primary);">
     <div class="card-head">
@@ -130,6 +131,23 @@
     checkboxes.forEach(function(cb) {
       cb.addEventListener("change", updateCount);
     });
+
+    var bulkForm = document.getElementById("bulkForm");
+    var newShiftSelect = document.getElementById("new_shift_id");
+    var recalcInput = document.getElementById("recalculate_current_month");
+    if (bulkForm && newShiftSelect && recalcInput) {
+      bulkForm.addEventListener("submit", function() {
+        if (newShiftSelect.value) {
+          var ok = confirm(
+            "⚠️ Bulk Shift Change Detected!\n\n" +
+            "Kya aap chune gaye employees ke current month (is mahine) ke pichhle saare attendance records naye shift ke according manage / recalculate karna chahte hain?\n\n" +
+            "• [OK / Yes] : Current month ke pichhle attendance records naye shift ke hisab se recalculate karo.\n" +
+            "• [Cancel / No] : Sirf aaj aur aage ke naye punches par lagu karo (purane records waise hi rahenge)."
+          );
+          recalcInput.value = ok ? "1" : "0";
+        }
+      });
+    }
   })();
 </script>
 {% endblock %}
