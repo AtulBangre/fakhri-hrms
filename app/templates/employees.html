@@ -6,7 +6,7 @@
 <div class="page-head">
   <div class="titles">
     <h1>Employees</h1>
-    <div class="sub">{{ stats.active }} active · {{ stats.face_enrolled }} with face enrolled · monthly payroll {{ stats.monthly_payroll | money }}</div>
+    <div class="sub">{{ stats.active }} active · {{ stats.remote_work or 0 }} WFH · {{ stats.face_enrolled }} with face enrolled · monthly payroll {{ stats.monthly_payroll | money }}</div>
   </div>
   <div class="page-actions">
     <a class="btn" href="/employees/chart">Org Chart</a>
@@ -50,6 +50,14 @@
           {% for item in departments %}
             <option value="{{ item }}" {{ 'selected' if filters.department == item }}>{{ item }}</option>
           {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="work_mode">Work Mode</label>
+        <select id="work_mode" name="work_mode">
+          <option value="">All Work Modes</option>
+          <option value="office" {{ 'selected' if filters.work_mode == 'office' }}>🏢 Office / On-Site</option>
+          <option value="remote" {{ 'selected' if filters.work_mode in ('remote', 'wfh') }}>🏠 Work From Home (WFH)</option>
         </select>
       </div>
       <div class="field">
@@ -102,7 +110,7 @@
               {% endif %}
               <div class="who">
                 <a href="/employees/{{ person.id }}"><strong>{{ person.name }}</strong></a>
-                <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}{% if person.remote_work_enabled %}<span class="chip chip-ok" style="font-size:0.65rem;padding:0.1rem 0.35rem;margin-left:0.25rem">Remote</span>{% endif %}{% if person.status != 'active' %}<span class="m-only"> · {{ person.status }}</span>{% endif %}</span>
+                <span class="sub">{{ person.code }}{% if person.designation %} · {{ person.designation }}{% endif %}{% if person.remote_work_enabled %}<span class="chip chip-ok" style="font-size:0.68rem;padding:0.12rem 0.45rem;margin-left:0.35rem;background:#eef2ff;color:#4338ca;border-color:#c7d2fe;font-weight:600;">🏠 WFH</span>{% endif %}{% if person.status != 'active' %}<span class="m-only"> · {{ person.status }}</span>{% endif %}</span>
               </div>
             </div>
           </td>

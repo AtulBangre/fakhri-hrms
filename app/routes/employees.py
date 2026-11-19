@@ -15,6 +15,7 @@ from ..face import FaceServiceError, FaceServiceUnavailable
 from ..services import records
 from ..uploads import UploadError, read_capped
 from ..services import attendance as attendance_service
+from ..services import deductions as deductions_service
 from ..services import employees as employees_service
 from ..services import employees_bulk
 from ..services import employees_export
@@ -70,6 +71,7 @@ def list_page(
     q: str | None = None,
     department: str | None = None,
     shift_id: str | None = None,
+    work_mode: str | None = None,
     status: str = "active",
     page: int = 1,
     sort: str = "name",
@@ -78,16 +80,16 @@ def list_page(
     sort = sort if sort in employees_service.EMPLOYEE_SORTS else "name"
     direction = "desc" if dir == "desc" else "asc"
     total_count = employees_service.count_employees(
-        storage, q=q, department=department, shift_id=shift_id, status=status
+        storage, q=q, department=department, shift_id=shift_id, work_mode=work_mode, status=status
     )
     pager = paginate(total_count, page, PER_PAGE)
     people = employees_service.list_employees(
-        storage, q=q, department=department, shift_id=shift_id, status=status, limit=PER_PAGE, offset=pager["offset"],
+        storage, q=q, department=department, shift_id=shift_id, work_mode=work_mode, status=status, limit=PER_PAGE, offset=pager["offset"],
         sort=sort, direction=direction,
     )
     shifts = storage.query("SELECT * FROM shifts ORDER BY is_default DESC, name ASC")
     export_query = urlencode(
-        {k: v for k, v in (("q", q or ""), ("department", department or ""), ("status", status or "all"), ("shift_id", shift_id or "")) if v}
+        {k: v for k, v in (("q", q or ""), ("department", department or ""), ("status", status or "all"), ("shift_id", shift_id or ""), ("work_mode", work_mode or "")) if v}
     )
     return render(
         request,
@@ -98,7 +100,7 @@ def list_page(
         stats=employees_service.stats(storage),
         departments=employees_service.departments(storage),
         shifts=shifts,
-        filters={"q": q or "", "department": department or "", "shift_id": shift_id or "", "status": status, "sort": sort, "dir": direction},
+        filters={"q": q or "", "department": department or "", "shift_id": shift_id or "", "work_mode": work_mode or "", "status": status, "sort": sort, "dir": direction},
         pager=pager,
         missing_face={row["id"] for row in employees_service.employees_missing_face(storage)},
         export_query=export_query,
@@ -114,11 +116,12 @@ def export_xlsx(
     q: str = "",
     department: str = "",
     shift_id: str = "",
+    work_mode: str = "",
     status: str = "all",
 ):
     """Download full employee records in styled Excel (.xlsx) spreadsheet format."""
     xlsx_bytes = employees_export.export_employees_xlsx(
-        storage, settings, q=q, department=department, shift_id=shift_id, status=status
+        storage, settings, q=q, department=department, shift_id=shift_id, work_mode=work_mode, status=status
     )
     today_str = orgtime.today(settings).isoformat()
     filename = f"employees_all_details_{today_str}.xlsx"
@@ -138,11 +141,12 @@ def export_csv(
     q: str = "",
     department: str = "",
     shift_id: str = "",
+    work_mode: str = "",
     status: str = "all",
 ):
     """Download full employee records in UTF-8 BOM CSV format for Excel."""
     csv_text = employees_export.export_employees_csv(
-        storage, settings, q=q, department=department, shift_id=shift_id, status=status
+        storage, settings, q=q, department=department, shift_id=shift_id, work_mode=work_mode, status=status
     )
     today_str = orgtime.today(settings).isoformat()
     filename = f"employees_all_details_{today_str}.csv"
@@ -385,13 +389,16 @@ async def create(
         "hra": _as_float(text("hra")), "other_allowances": _as_float(text("other_allowances")),
         "pf": _as_float(text("pf")), "esi": _as_float(text("esi")),
         "professional_tax": _as_float(text("professional_tax")), "notes": text("notes"),
-        "statutory_mode": text("statutory_mode", "auto"), "_actor": user.username,
+        "statutory_mode": text("statutory_mode", "fixed"), "_actor": user.username,
         "shift_id": text("shift_id") or None,
         "manager_id": text("manager_id") or None,
         "custom_pl_accrual": text("custom_pl_accrual") or None,
         "custom_sl_quota": text("custom_sl_quota") or None,
         "custom_cl_quota": text("custom_cl_quota") or None,
         "remote_work_enabled": 1 if text("remote_work_enabled") in ("1", "on", "true") else 0,
+        "custom_grace_minutes": int(text("custom_grace_minutes")) if text("custom_grace_minutes") else None,
+        "custom_shift_start": text("custom_shift_start") or None,
+        "custom_shift_end": text("custom_shift_end") or None,
         **{field: text(field) for field in IDENTITY_FIELDS},
         "skip_documents": text("skip_documents"), "create_login": text("create_login"),
         "send_welcome": text("send_welcome"), "portal_username": text("portal_username"),
@@ -540,8 +547,12 @@ def edit_page(
         "pf": str(latest_salary.get("pf") or ""),
         "esi": str(latest_salary.get("esi") or ""),
         "professional_tax": str(latest_salary.get("professional_tax") if latest_salary.get("professional_tax") is not None else "0"),
-        "statutory_mode": latest_salary.get("statutory_mode") or "auto",
+        "statutory_mode": latest_salary.get("statutory_mode") or "fixed",
         "effective_from": _month_presets(today)["cur_month_iso"],
+        "remote_work_enabled": employee.get("remote_work_enabled") or 0,
+        "custom_grace_minutes": str(employee.get("custom_grace_minutes") if employee.get("custom_grace_minutes") is not None else ""),
+        "custom_shift_start": str(employee.get("custom_shift_start") or ""),
+        "custom_shift_end": str(employee.get("custom_shift_end") or ""),
     }
     return render(
         request,
@@ -592,7 +603,7 @@ def detail(
         "pf": latest.get("pf", 0) or 0,
         "esi": latest.get("esi", 0) or 0,
         "professional_tax": latest.get("professional_tax") if latest.get("professional_tax") is not None else 0,
-        "statutory_mode": latest.get("statutory_mode") or "auto",
+        "statutory_mode": latest.get("statutory_mode") or "fixed",
     }
     today_iso = today.isoformat()
     active_rev_id = None
@@ -628,14 +639,30 @@ def detail(
         annotated_history.append(item)
 
     month_presets = _month_presets(today)
-    emp_shift = (
-        storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee.get("shift_id"),))
-        if employee.get("shift_id")
-        else None
-    )
-    shift_start = emp_shift["start_time"] if emp_shift else storage.get_setting("shift_start", "09:30")
-    shift_end = emp_shift["end_time"] if emp_shift else storage.get_setting("shift_end", "18:30")
+    emp_shift = orgtime.shift_for(storage, employee)
+    shift_start = emp_shift["start_time"]
+    shift_end = emp_shift["end_time"]
     manager = storage.query_one("SELECT id, code, name, designation, email FROM employees WHERE id = ?", (employee.get("manager_id"),)) if employee.get("manager_id") else None
+
+    # 360° Profile aggregations: KYC docs, Assets, Direct Reports, Deductions & Fines
+    docs = records.list_documents(storage, employee_id=employee_id, limit=50)
+    assigned_assets = records.assets_for_employee(storage, employee_id)
+    direct_reports = storage.query(
+        """
+        SELECT id, code, name, designation, department, email, photo_filename
+        FROM employees
+        WHERE manager_id = ? AND status = 'active'
+        ORDER BY name COLLATE NOCASE
+        """,
+        (employee_id,),
+    )
+    emp_deductions = deductions_service.employee_deductions_for_period(storage, employee_id, period)
+    total_deductions_amount = round(
+        float(summary.get("late_fines") or 0.0) + sum(float(d.get("amount") or 0.0) for d in emp_deductions),
+        2,
+    )
+    masked_aadhaar = employees_service.masked_aadhaar(employee.get("aadhaar_last4"))
+
     return render(
         request,
         "employee_detail.html",
@@ -660,12 +687,20 @@ def detail(
         attendance_days=attendance_service.employee_month_days(storage, settings, employee, period),
         shift_start=shift_start,
         shift_end=shift_end,
+        emp_shift=emp_shift,
         leave_types=orgtime.ALL_LEAVE_TYPES,
         leave_labels=orgtime.LEAVE_LABELS,
         all_statuses=orgtime.ALL_STATUSES,
         status_labels=orgtime.STATUS_LABELS,
         ess_user=auth.get_user_for_employee(storage, employee_id),
         suggested_password=auth.generate_password(),
+        docs=docs,
+        doc_categories=records.DOC_CATEGORIES,
+        assigned_assets=assigned_assets,
+        direct_reports=direct_reports,
+        emp_deductions=emp_deductions,
+        total_deductions_amount=total_deductions_amount,
+        masked_aadhaar=masked_aadhaar,
     )
 
 
@@ -704,6 +739,9 @@ def update(
     custom_sl_quota: str = Form(""),
     custom_cl_quota: str = Form(""),
     remote_work_enabled: str = Form("0"),
+    custom_grace_minutes: str = Form(""),
+    custom_shift_start: str = Form(""),
+    custom_shift_end: str = Form(""),
     uan: str = Form(""),
     esic_ip: str = Form(""),
     monthly_gross: str = Form(""),
@@ -713,7 +751,7 @@ def update(
     pf: str = Form("0"),
     esi: str = Form("0"),
     professional_tax: str = Form("0"),
-    statutory_mode: str = Form("auto"),
+    statutory_mode: str = Form("fixed"),
     effective_from: str = Form(""),
     salary_note: str = Form(""),
     recalculate_current_month: str = Form("0"),
@@ -738,6 +776,9 @@ def update(
         "custom_sl_quota": float(custom_sl_quota) if custom_sl_quota.strip() else None,
         "custom_cl_quota": float(custom_cl_quota) if custom_cl_quota.strip() else None,
         "remote_work_enabled": 1 if remote_work_enabled in ("1", "on", "true") else 0,
+        "custom_grace_minutes": int(custom_grace_minutes) if custom_grace_minutes.strip() else None,
+        "custom_shift_start": custom_shift_start.strip() or None,
+        "custom_shift_end": custom_shift_end.strip() or None,
         "uan": uan.strip() or None,
         "esic_ip": esic_ip.strip() or None,
     }
@@ -781,7 +822,7 @@ def update(
                         pf=_as_float(pf),
                         esi=_as_float(esi),
                         professional_tax=_as_float(professional_tax),
-                        statutory_mode=statutory_mode or "auto",
+                        statutory_mode=statutory_mode or "fixed",
                         effective_from=effective_from or None,
                         note=salary_note.strip() or "Updated via Edit Employee profile",
                         actor=user.username,
@@ -791,13 +832,22 @@ def update(
 
     recalc_count = 0
     new_shift = int(shift_id) if shift_id.strip() else None
-    if new_shift != before.get("shift_id") and recalculate_current_month in ("1", "true", "on", "yes"):
+    new_grace = int(custom_grace_minutes) if custom_grace_minutes.strip() else None
+    new_start = custom_shift_start.strip() or None
+    new_end = custom_shift_end.strip() or None
+    timing_changed = (
+        new_shift != before.get("shift_id")
+        or new_grace != before.get("custom_grace_minutes")
+        or new_start != before.get("custom_shift_start")
+        or new_end != before.get("custom_shift_end")
+    )
+    if timing_changed and recalculate_current_month in ("1", "true", "on", "yes"):
         res = attendance_service.recalculate_employee_attendance(storage, employee_id, actor=user.username)
         recalc_count = res.get("updated", 0)
 
     ok_msg = "Employee details updated."
     if recalc_count > 0:
-        ok_msg += f" Recalculated {recalc_count} current month attendance records for the new shift."
+        ok_msg += f" Recalculated {recalc_count} current month attendance records for the updated shift/timing."
     return redirect(f"/employees/{employee_id}", ok=ok_msg)
 
 
@@ -819,6 +869,64 @@ def toggle_remote(
     storage.audit(actor=user.username, action="toggle_remote_work", entity="employee", entity_id=employee_id, detail=f"remote_work={new_val}")
     status_label = "enabled" if new_val else "disabled"
     return redirect(f"/employees/{employee_id}", ok=f"Remote work {status_label} for {emp['name']}.")
+
+
+@router.post("/{employee_id}/documents")
+async def upload_document(
+    request: Request,
+    employee_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    from ..auth import verify_form_csrf
+
+    form = await request.form()
+    verify_form_csrf(user, str(form.get("_csrf") or ""))
+    category = str(form.get("category") or "other").strip()
+    title = str(form.get("title") or "").strip() or None
+    notes = str(form.get("notes") or "").strip() or None
+    file_item = form.get("file")
+    if not file_item or not getattr(file_item, "filename", ""):
+        return redirect(f"/employees/{employee_id}#documents", err="Please select a document file to upload.")
+
+    try:
+        data = read_capped(file_item.file)
+        records.add_document(
+            storage,
+            settings,
+            employee_id=employee_id,
+            data=data,
+            original_name=file_item.filename,
+            category=category,
+            title=title,
+            notes=notes,
+            uploaded_by=user.username,
+        )
+    except (UploadError, ValueError) as exc:
+        return redirect(f"/employees/{employee_id}#documents", err=str(exc))
+
+    return redirect(f"/employees/{employee_id}#documents", ok="Document uploaded successfully.")
+
+
+@router.post("/{employee_id}/documents/{document_id}/delete")
+def delete_document(
+    employee_id: int,
+    document_id: int,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+    csrf: str = Form("", alias="_csrf"),
+):
+    from ..auth import verify_form_csrf
+
+    verify_form_csrf(user, csrf)
+    try:
+        records.delete_document(storage, settings, document_id, actor=user.username)
+    except ValueError as exc:
+        return redirect(f"/employees/{employee_id}#documents", err=str(exc))
+
+    return redirect(f"/employees/{employee_id}#documents", ok="Document deleted.")
 
 
 @router.post("/{employee_id}/salary")

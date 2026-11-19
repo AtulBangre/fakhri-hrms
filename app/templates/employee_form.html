@@ -135,6 +135,43 @@
             </div>
           </div>
 
+          <!-- Individual Shift & Grace Flexibility (Tarika 2) -->
+          <div style="background:var(--surface, #fcfcfd);border:1px solid var(--border);border-radius:var(--radius);padding:0.9rem 1rem;margin-bottom:1rem">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+              <strong style="font-size:0.9rem;display:flex;align-items:center;gap:0.4rem;color:var(--ink)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Individual Shift &amp; Grace Flexibility
+              </strong>
+              <span class="small muted">optional individual override</span>
+            </div>
+            <div class="hint mb-2" style="font-size:0.8rem">
+              Custom timings or grace period for this specific employee. Leave empty to use company/assigned shift default.
+            </div>
+            <div class="form-row cols-3">
+              <div class="field">
+                <label for="custom_shift_start">Custom Shift Start</label>
+                {% set cur_css = f.get('custom_shift_start') if ('custom_shift_start' in f) else (employee.custom_shift_start if employee else '') or '' %}
+                <input id="custom_shift_start" name="custom_shift_start" type="time" data-original="{{ cur_css }}"
+                       value="{{ cur_css }}">
+                <div class="hint">Overrides shift start (e.g. 10:00)</div>
+              </div>
+              <div class="field">
+                <label for="custom_shift_end">Custom Shift End</label>
+                {% set cur_cse = f.get('custom_shift_end') if ('custom_shift_end' in f) else (employee.custom_shift_end if employee else '') or '' %}
+                <input id="custom_shift_end" name="custom_shift_end" type="time" data-original="{{ cur_cse }}"
+                       value="{{ cur_cse }}">
+                <div class="hint">Overrides shift end (e.g. 19:00)</div>
+              </div>
+              <div class="field">
+                <label for="custom_grace_minutes">Custom Grace Period (Mins)</label>
+                {% set cur_cgm = f.get('custom_grace_minutes') if ('custom_grace_minutes' in f) else (employee.custom_grace_minutes if employee and employee.custom_grace_minutes is not none else '') or '' %}
+                <input id="custom_grace_minutes" name="custom_grace_minutes" type="number" min="0" max="720" placeholder="e.g. 30" data-original="{{ cur_cgm }}"
+                       value="{{ cur_cgm }}">
+                <div class="hint">No fine/penalty applied within this grace window</div>
+              </div>
+            </div>
+          </div>
+
           {% if employee %}
           <div class="field">
             <label for="self_punch_mode">Where can they mark attendance?</label>
@@ -149,7 +186,8 @@
 
           <div class="field">
             <label class="checkline">
-              <input type="checkbox" name="remote_work_enabled" value="1" {{ 'checked' if (f.get('remote_work_enabled') if f else (employee.remote_work_enabled if employee else 0)) }}>
+              {% set cur_remote = f.get('remote_work_enabled') if ('remote_work_enabled' in f) else (employee.remote_work_enabled if employee else 0) %}
+              <input type="checkbox" name="remote_work_enabled" value="1" {{ 'checked' if cur_remote in (1, '1', True, 'true', 'on') }}>
               <strong>Remote work (Work From Home)</strong>
             </label>
             <div class="hint">Allows employee to mark attendance via camera Kiosk scanner on their own portal / mobile device.</div>
@@ -331,8 +369,8 @@
               <input id="professional_tax" name="professional_tax" type="number" min="0" step="any" value="{{ f.get('professional_tax') if (f.get('professional_tax') is not none and f.get('professional_tax') != '') else '0' }}" placeholder="0"></div>
             <div class="field"><label for="statutory_mode">PF / ESI</label>
               <select id="statutory_mode" name="statutory_mode">
-                <option value="auto" {{ 'selected' if (f.get('statutory_mode') or 'auto') == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
-                <option value="fixed" {{ 'selected' if (f.get('statutory_mode') or 'auto') != 'auto' }}>Use the amounts above</option>
+                <option value="fixed" {{ 'selected' if (f.get('statutory_mode') or 'fixed') != 'auto' }}>No automatic deduction (Use exact amounts above, default ₹0)</option>
+                <option value="auto" {{ 'selected' if (f.get('statutory_mode') or 'fixed') == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
               </select>
               <div class="hint">Either way PF/ESI are reduced in loss-of-pay months.</div></div>
           </div>
@@ -474,15 +512,26 @@ function onFormDateChange(val) {
   var form = document.getElementById('employeeForm');
   var shiftSelect = document.getElementById('shift_id');
   var recalcInput = document.getElementById('recalculate_current_month');
-  if (form && shiftSelect && recalcInput) {
+  if (form && recalcInput) {
     form.addEventListener('submit', function() {
-      var orig = shiftSelect.getAttribute('data-original') || '';
-      var curr = shiftSelect.value || '';
-      if (curr !== orig) {
+      var origShift = shiftSelect ? (shiftSelect.getAttribute('data-original') || '') : '';
+      var currShift = shiftSelect ? (shiftSelect.value || '') : '';
+      var graceEl = document.getElementById('custom_grace_minutes');
+      var origGrace = graceEl ? (graceEl.getAttribute('data-original') || '') : '';
+      var currGrace = graceEl ? (graceEl.value || '') : '';
+      var startEl = document.getElementById('custom_shift_start');
+      var origStart = startEl ? (startEl.getAttribute('data-original') || '') : '';
+      var currStart = startEl ? (startEl.value || '') : '';
+      var endEl = document.getElementById('custom_shift_end');
+      var origEnd = endEl ? (endEl.getAttribute('data-original') || '') : '';
+      var currEnd = endEl ? (endEl.value || '') : '';
+
+      var timingChanged = (currShift !== origShift) || (currGrace !== origGrace) || (currStart !== origStart) || (currEnd !== origEnd);
+      if (timingChanged) {
         var ok = confirm(
-          "⚠️ Shift Change Detected!\n\n" +
-          "Kya aap is employee ke current month (is mahine) ke pichhle saare attendance records naye shift ke according manage / recalculate karna chahte hain?\n\n" +
-          "• [OK / Yes] : Current month ke pichhle attendance records naye shift ke hisab se recalculate karo.\n" +
+          "⚠️ Shift / Timing Change Detected!\n\n" +
+          "Kya aap is employee ke current month (is mahine) ke pichhle saare attendance records naye shift / grace timing ke according recalculate karna chahte hain?\n\n" +
+          "• [OK / Yes] : Current month ke attendance records naye timing aur grace ke hisab se recalculate karo (fines/late adjust ho jayenge).\n" +
           "• [Cancel / No] : Sirf aaj aur aage ke naye punches par lagu karo (purane records waise hi rahenge)."
         );
         recalcInput.value = ok ? '1' : '0';

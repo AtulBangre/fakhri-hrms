@@ -168,10 +168,15 @@ def approve(storage: Storage, request_id: int, *, actor: str | None = None, note
         raise ValidationError(
             f"Payroll for {orgtime.month_label(row['work_date'][:7])} is {locked}. Reopen the run before approving."
         )
+    req_status = row["requested_status"]
+    is_early = (req_status == "early_leave") or ("early leave" in (row.get("reason") or "").lower())
+    if req_status == "early_leave":
+        req_status = "present"
     attendance_service.mark_manual(
-        storage, employee_id=row["employee_id"], work_date=row["work_date"], status=row["requested_status"],
+        storage, employee_id=row["employee_id"], work_date=row["work_date"], status=req_status,
         check_in=row["check_in"], check_out=row["check_out"], leave_type=None,
         note=f"Regularized: {row['reason'][:120]}", actor=actor, release_leave=release_leave,
+        early_leave=is_early,
     )
     storage.execute(
         "UPDATE attendance_regularizations SET status = 'approved', decided_by = ?, decided_at = ?, "

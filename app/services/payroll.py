@@ -173,14 +173,23 @@ PF_RATE, PF_WAGE_CEILING = 0.12, 15_000.0
 ESI_RATE, ESI_GROSS_LIMIT = 0.0075, 21_000.0
 
 
-def statutory_deductions(salary: dict[str, Any], monthly_gross: float, earned_gross: float) -> tuple[float, float, float]:
+def statutory_deductions(
+    salary: dict[str, Any],
+    monthly_gross: float,
+    earned_gross: float,
+    storage: Storage | None = None,
+) -> tuple[float, float, float]:
     """PF, ESI and professional tax for the month, following the *earned* wages.
 
+    If statutory deductions are disabled in company settings (default 'no'), returns (0.0, 0.0, 0.0).
     ``fixed`` mode pro-rates the amounts on the salary structure by the share of
     the month actually earned; ``auto`` mode computes 12% PF on earned basic (wage
     ceiling ₹15,000) and 0.75% ESI on earned gross while gross is within ₹21,000.
     Professional tax is a flat slab and is only charged when something was earned.
     """
+    if storage is not None and storage.get_setting("statutory_deductions_enabled", "no") == "no":
+        return 0.0, 0.0, 0.0
+
     share = (earned_gross / monthly_gross) if monthly_gross else 0.0
     professional_tax = float(salary.get("professional_tax") or 0) if earned_gross > 0 else 0.0
     if salary.get("statutory_mode") == "auto":
@@ -266,13 +275,24 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
 
     earned_gross = max(0.0, base_gross - lop_days * per_day)
 
-    pf, esi, professional_tax = statutory_deductions(salary, monthly_gross, earned_gross)
+    pf, esi, professional_tax = statutory_deductions(salary, monthly_gross, earned_gross, storage=storage)
     # Tax can only come out of pay that was actually earned this month.
     tds = min(tds_for_period(storage, employee["id"], period),
               max(0.0, earned_gross - pf - esi - professional_tax))
-    # late-arrival fines (Feature 4), never more than the month can carry
-    late_fine = min(float(summary.get("late_fines") or 0), max(0.0, earned_gross - pf - esi - professional_tax - tds))
-    total_deductions = pf + esi + professional_tax + tds + late_fine
+
+    # Active deductions from the monthly deductions ledger
+    from . import deductions as deductions_service
+    active_deductions = deductions_service.employee_deductions_for_period(storage, employee["id"], period)
+    ledger_late_fines = sum(float(d["amount"]) for d in active_deductions if d["category"] == "late_fine")
+    effective_late_fine = ledger_late_fines if ledger_late_fines > 0 else float(summary.get("late_fines") or 0)
+
+    ledger_other_deductions = sum(float(d["amount"]) for d in active_deductions if d["category"] != "late_fine")
+    other_notes = "; ".join(f"{d['category'].replace('_', ' ').title()}: {d['reason']}" for d in active_deductions if d["category"] != "late_fine")
+
+    # late-arrival fines, never more than the month can carry
+    late_fine = min(effective_late_fine, max(0.0, earned_gross - pf - esi - professional_tax - tds))
+    other_deduction = min(ledger_other_deductions, max(0.0, earned_gross - pf - esi - professional_tax - tds - late_fine))
+    total_deductions = pf + esi + professional_tax + tds + late_fine + other_deduction
     claims = approved_claims(storage, employee["id"], period)
 
     return {
@@ -296,6 +316,8 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
         "professional_tax": round(professional_tax, 2),
         "tds": round(tds, 2),
         "late_fine": round(late_fine, 2),
+        "other_deduction": round(other_deduction, 2),
+        "other_deduction_note": other_notes or None,
         "total_deductions": round(total_deductions, 2),
         "reimbursement": round(sum(float(c["amount"]) for c in claims), 2),
         "claim_ids": [c["id"] for c in claims],
@@ -395,8 +417,8 @@ def generate_run(
                                       lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
                                       professional_tax, tds, total_deductions, net_pay, created_at, updated_at,
                                       bonus, advance, other_deduction, tds_override, note, reimbursement, rounding,
-                                      late_fine, status, hold_reason, loan_id, loan_emi, advance_note)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                      late_fine, status, hold_reason, loan_id, loan_emi, advance_note, other_deduction_note)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
@@ -405,7 +427,7 @@ def generate_run(
                     calc["tds"], calc["total_deductions"], calc["net_pay"], now, now,
                     calc["bonus"], calc["advance"], calc["other_deduction"], calc["tds_override"], calc["note"],
                     calc["reimbursement"], calc["rounding"], calc["late_fine"],
-                    emp_status, emp_hold, loan_id, loan_emi, calc.get("advance_note"),
+                    emp_status, emp_hold, loan_id, loan_emi, calc.get("advance_note"), calc.get("other_deduction_note"),
                 ),
             )
             if calc["claim_ids"]:
@@ -442,7 +464,8 @@ def _apply_adjustments(calc: dict[str, Any], kept: dict[str, Any] | None) -> Non
     kept = kept or {}
     bonus = float(kept.get("bonus") or 0)
     advance = float(kept.get("advance") or 0)
-    other = float(kept.get("other_deduction") or 0)
+    other = float(kept["other_deduction"]) if ("other_deduction" in kept and kept["other_deduction"] is not None) else calc.get("other_deduction", 0.0)
+    other_note = kept.get("other_deduction_note") or calc.get("other_deduction_note")
     override = kept.get("tds_override")
     tds = float(override) if override is not None else calc["tds"]
     note = kept.get("note")
@@ -457,7 +480,8 @@ def _apply_adjustments(calc: dict[str, Any], kept: dict[str, Any] | None) -> Non
         note = ((note + " · ") if note else "") + "recovery reduced to fit this month's pay"
     total = statutory + advance + other
     calc.update(
-        bonus=bonus, advance=round(advance, 2), other_deduction=round(other, 2), tds=round(tds, 2),
+        bonus=bonus, advance=round(advance, 2), other_deduction=round(other, 2),
+        other_deduction_note=other_note, tds=round(tds, 2),
         tds_override=override, note=note, total_deductions=round(total, 2),
         **_settle(calc["earned_gross"], bonus, calc["reimbursement"], total),
     )

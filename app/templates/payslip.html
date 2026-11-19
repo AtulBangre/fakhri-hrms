@@ -75,7 +75,10 @@
             {% if slip.tds %}<tr><td>Income tax (TDS)</td><td class="num">{{ slip.tds | money }}</td></tr>{% endif %}
             {% if slip.late_fine %}<tr><td>Late arrival fines</td><td class="num">{{ slip.late_fine | money }}</td></tr>{% endif %}
             <tr><td>Salary advance recovered</td><td class="num">{{ slip.advance | money }}</td></tr>
-            <tr><td>Other deductions</td><td class="num">{{ slip.other_deduction | money }}</td></tr>
+            <tr>
+              <td>Other deductions{% if slip.other_deduction_note %}<span class="sub muted" style="display:block;font-size:0.75rem;">{{ slip.other_deduction_note }}</span>{% endif %}</td>
+              <td class="num">{{ slip.other_deduction | money }}</td>
+            </tr>
             <tr class="total-row"><td>Total deductions</td><td class="num">{{ slip.total_deductions | money }}</td></tr>
           </tbody>
         </table>

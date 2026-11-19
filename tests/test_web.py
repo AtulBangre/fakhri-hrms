@@ -16,6 +16,7 @@ from app import auth
 from app.config import Settings
 from app.face import IdentificationResult
 from app.services import employees as employees_service
+from app.services import leave as leave_service
 from tests.conftest import HR_PASSWORD, HR_USERNAME, KIOSK_PASSWORD, KIOSK_USERNAME, FakeFaceService
 from tests.helpers import csrf_of
 
@@ -279,6 +280,111 @@ def test_employee_delete_removes_the_record(hr_client: TestClient, storage, staf
     )
     assert response.status_code == 303
     assert employees_service.get_employee(storage, staff[2]["id"]) is None
+
+
+def test_360_employee_profile_and_documents(hr_client: TestClient, storage, staff):
+    from app.services import orgtime, deductions as deductions_service
+    emp = staff[0]
+    emp_id = emp["id"]
+
+    # 1. Populate Bank & Statutory details on employee
+    employees_service.update_employee(
+        storage,
+        emp_id,
+        {
+            "bank_name": "Kotak Mahindra Bank",
+            "account_number": "987654321012",
+            "ifsc": "KKBK0000123",
+            "pan": "ABCDE1234K",
+            "uan": "100987654321",
+            "esic_ip": "3100123456",
+            "emergency_contact": "Spouse: 9112233445",
+        },
+    )
+
+    # 2. Assign asset to employee
+    cur = storage.execute(
+        "INSERT INTO assets (tag, name, category, serial, purchase_date, cost, status, created_at) "
+        "VALUES ('AST-TEST-99', 'MacBook Pro M3', 'laptop', 'C02XYZ123', '2026-01-01', 150000, 'assigned', '2026-01-01T00:00:00')"
+    )
+    asset_id = cur.lastrowid
+    storage.execute(
+        "INSERT INTO asset_assignments (asset_id, employee_id, assigned_on, assigned_by) "
+        "VALUES (?, ?, '2026-01-15', 'hr')",
+        (asset_id, emp_id),
+    )
+
+    # 3. Set another staff member to report to this employee
+    storage.execute("UPDATE employees SET manager_id = ? WHERE id = ?", (emp_id, staff[1]["id"]))
+
+    # 4. Add a monthly deduction for the period
+    period = "2026-11"
+    did = deductions_service.add_deduction(
+        storage,
+        employee_id=emp_id,
+        period=period,
+        category="salary_advance",
+        amount=1500.0,
+        reason="Laptop purchase salary advance installment",
+        actor="hr",
+    )
+
+    # 5. Load 360° Profile page
+    res = hr_client.get(f"/employees/{emp_id}?period={period}")
+    assert res.status_code == 200
+    html = res.text
+
+    # Verify tabs exist
+    assert "Overview &amp; Bio" in html or "Overview" in html
+    assert "Attendance" in html
+    assert "Leave &amp; Balance" in html or "Leave" in html
+    assert "Salary &amp; Deductions" in html
+    assert "Documents &amp; KYC" in html
+
+    # Verify statutory and bank details appear on profile
+    assert "Kotak Mahindra Bank" in html
+    assert "987654321012" in html
+    assert "KKBK0000123" in html
+    assert "ABCDE1234K" in html
+    assert "100987654321" in html
+    assert "Spouse: 9112233445" in html
+
+    # Verify assigned asset appears
+    assert "AST-TEST-99" in html
+    assert "MacBook Pro M3" in html
+
+    # Verify direct report appears
+    assert staff[1]["name"] in html
+
+    # Verify deduction appears in salary & deductions
+    assert "Salary Advance" in html or "salary_advance" in html
+    assert "1500" in html
+
+    # 6. Upload document to employee vault
+    token = csrf_of(hr_client, f"/employees/{emp_id}")
+    doc_res = hr_client.post(
+        f"/employees/{emp_id}/documents",
+        data={"_csrf": token, "category": "offer_letter", "title": "Official Signed Offer", "notes": "Verified KYC"},
+        files={"file": ("offer_letter.pdf", b"%PDF-1.4 Mock Offer Letter Content", "application/pdf")},
+        follow_redirects=False,
+    )
+    assert doc_res.status_code == 303
+
+    docs = storage.query("SELECT * FROM documents WHERE employee_id = ?", (emp_id,))
+    assert len(docs) >= 1
+    doc_id = docs[0]["id"]
+    assert docs[0]["title"] == "Official Signed Offer"
+
+    # 7. Delete document from employee vault
+    del_token = csrf_of(hr_client, f"/employees/{emp_id}")
+    del_res = hr_client.post(
+        f"/employees/{emp_id}/documents/{doc_id}/delete",
+        data={"_csrf": del_token},
+        follow_redirects=False,
+    )
+    assert del_res.status_code == 303
+    docs_after = storage.query("SELECT * FROM documents WHERE id = ?", (doc_id,))
+    assert len(docs_after) == 0
 
 
 # ---------------------------------------------------------------- attendance
@@ -882,7 +988,7 @@ def test_service_worker_is_network_first_for_assets(client: TestClient):
     assert worker.status_code == 200
     text = worker.text
     # a bumped cache name is what purges the stale copy on existing devices
-    assert 'const CACHE = "fakhri-hrms-v4"' in text
+    assert 'const CACHE = "fakhri-hrms-v5"' in text
     assert "network first, cache as the offline fallback" in text
     # and it must not go back to serving assets from cache first
     assert "caches.match(request).then((cached) => {\n        if (cached) return cached;" not in text
@@ -943,3 +1049,70 @@ def test_every_class_on_the_kiosk_screen_has_css():
         "clock", "stateDot",
     ):
         assert hook in ids, f"kiosk.js expects #{hook} in kiosk.html"
+
+
+def test_leave_and_early_leave_web(hr_client, storage, staff):
+    """Test manager leave badges and early leave attendance marking via web UI."""
+    mgr_id = staff[0]["id"]
+    sub_id = staff[1]["id"]
+    # Assign staff[1] to report to staff[0]
+    storage.execute("UPDATE employees SET manager_id = ? WHERE id = ?", (mgr_id, sub_id))
+
+    # 1. Subordinate applies leave
+    leave_sub = leave_service.apply_leave(
+        storage, storage.settings, employee_id=sub_id, leave_type="unpaid",
+        from_date="2026-11-20", to_date="2026-11-20", status="pending"
+    )["leave"]
+
+    # Manager has not approved yet -> /leave shows "Awaiting Mgr"
+    res = hr_client.get("/leave")
+    assert res.status_code == 200
+    assert "Awaiting Mgr" in res.text
+
+    # Manager approves
+    leave_service.manager_decide_leave(
+        storage, leave_sub["id"], mgr_id, decision="approved", note="Looks good"
+    )
+
+    # Now /leave shows "Mgr Approved"
+    res2 = hr_client.get("/leave")
+    assert "Mgr Approved" in res2.text
+
+    # 2. Subordinate applies 2nd leave, and HR directly approves it -> HR Direct badge
+    leave_sub2 = leave_service.apply_leave(
+        storage, storage.settings, employee_id=sub_id, leave_type="unpaid",
+        from_date="2026-11-21", to_date="2026-11-21", status="pending"
+    )["leave"]
+    leave_service.approve_leave(storage, leave_id=leave_sub2["id"])
+
+    res3 = hr_client.get("/leave")
+    assert "HR Direct" in res3.text
+
+    # 3. Early Leave attendance marking via POST /attendance/mark
+    token = csrf_of(hr_client, "/attendance")
+    mark_res = hr_client.post(
+        "/attendance/mark",
+        data={
+            "_csrf": token,
+            "employee_id": sub_id,
+            "work_date": "2026-11-05",
+            "status": "present",
+            "check_in": "09:30",
+            "check_out": "12:30",
+            "early_leave": "1",
+            "note": "Doctor appointment",
+        },
+        follow_redirects=True,
+    )
+    assert mark_res.status_code == 200
+
+    row = storage.query_one("SELECT * FROM attendance WHERE employee_id = ? AND work_date = '2026-11-05'", (sub_id,))
+    assert row is not None
+    assert row["status"] == "present"
+    assert row["early_leave_approved"] == 1
+    assert row["late_fine"] == 0.0
+
+    # Verify profile page shows Early Leave chip
+    prof_res = hr_client.get(f"/employees/{sub_id}?period=2026-11")
+    assert prof_res.status_code == 200
+    assert "Early Leave" in prof_res.text

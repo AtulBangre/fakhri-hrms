@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+{% block title %}Deductions & Fines · {{ period_label }} · {{ org_name }} HRMS{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Deductions & Fines</h1>
+    <div class="sub">{{ period_label }} · Month-wise penalty, fine and salary deduction ledger</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/deductions?period={{ previous_period }}">← Previous</a>
+    <a class="btn" href="/deductions?period={{ next_period }}">Next →</a>
+    <form method="post" action="/deductions/sync-fines" style="display:inline-block;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input type="hidden" name="period" value="{{ period }}">
+      <button class="btn" type="submit" title="Import non-zero late arrival fines from attendance into this ledger">
+        {{ icon('refresh') }} Sync Attendance Fines
+      </button>
+    </form>
+    <button class="btn btn-primary" id="openAddModalBtn" type="button">+ Add Deduction</button>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-3">
+  <div class="stat ok">
+    <div class="label">Total Active Deductions</div>
+    <div class="value">₹{{ stats.total_active | plain }}</div>
+    <div class="foot">will be deducted in {{ period }} payroll</div>
+  </div>
+  <div class="stat warn">
+    <div class="label">Late Arrival Fines</div>
+    <div class="value">₹{{ stats.late_fines | plain }}</div>
+    <div class="foot">from biometric/gate punches</div>
+  </div>
+  <div class="stat">
+    <div class="label">Damages & Penalties</div>
+    <div class="value">₹{{ stats.damages_penalties | plain }}</div>
+    <div class="foot">assets, equipment & disciplinary</div>
+  </div>
+  <div class="stat">
+    <div class="label">Impacted Employees</div>
+    <div class="value">{{ stats.impacted_employees }}</div>
+    <div class="foot">employees with active deductions</div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form class="filters" method="get" action="/deductions">
+      <div class="field">
+        <label for="period">Month</label>
+        <input id="period" name="period" type="month" value="{{ period }}">
+      </div>
+      <div class="field">
+        <label for="category">Category</label>
+        <select id="category" name="category">
+          <option value="">All Categories</option>
+          {% for cat in categories %}
+            <option value="{{ cat }}" {{ 'selected' if filters.category == cat }}>{{ category_labels[cat] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="department">Department</label>
+        <select id="department" name="department">
+          <option value="">All Departments</option>
+          {% for dept in departments %}
+            <option value="{{ dept }}" {{ 'selected' if filters.department == dept }}>{{ dept }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          <option value="active" {{ 'selected' if filters.status == 'active' }}>Active Only</option>
+          <option value="waived" {{ 'selected' if filters.status == 'waived' }}>Waived Only</option>
+          <option value="all" {{ 'selected' if filters.status == 'all' }}>All</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="q">Search</label>
+        <input id="q" type="search" name="q" value="{{ filters.q }}" placeholder="name, code, reason…">
+      </div>
+      <button class="btn btn-primary" type="submit">Filter</button>
+      <a class="btn" href="/deductions?period={{ period }}">Reset</a>
+      <a class="btn" href="/deductions">This Month</a>
+    </form>
+  </div>
+</div>
+
+<div class="card flush">
+  <div class="card-head">
+    <h2>{{ period_label }} Records</h2>
+    <span class="spacer"></span>
+    <span class="small muted">{{ items | length }} deduction entries</span>
+  </div>
+  <div class="table-wrap">
+    <table class="data m-table">
+      <thead>
+        <tr>
+          <th class="m-fill">Employee</th>
+          <th>Category</th>
+          <th class="num">Amount (₹)</th>
+          <th>Reason</th>
+          <th class="m-hide">Date / Ref</th>
+          <th>Status</th>
+          <th class="m-hide">Added By</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in items %}
+        <tr>
+          <td data-label="Employee" class="m-fill">
+            <div class="who">
+              <a href="/employees/{{ item.employee_id }}"><strong>{{ item.employee_name }}</strong></a>
+              <span class="sub">{{ item.employee_code }}{% if item.employee_department %} · {{ item.employee_department }}{% endif %}</span>
+            </div>
+          </td>
+          <td data-label="Category">
+            <span class="chip {{ 'chip-warn' if item.category == 'late_fine' else 'chip-muted' }}">
+              {{ item.category_label }}
+            </span>
+          </td>
+          <td data-label="Amount" class="num" style="font-weight:700;color:{{ 'var(--danger)' if item.status == 'active' else 'var(--muted)' }};">
+            ₹{{ item.amount | plain }}
+          </td>
+          <td data-label="Reason">
+            <span>{{ item.reason }}</span>
+          </td>
+          <td data-label="Date" class="m-hide small muted">
+            {{ item.work_date or (item.created_at[:10]) }}
+          </td>
+          <td data-label="Status">
+            <span class="chip {{ 'chip-ok' if item.status == 'active' else 'chip-danger' }}">
+              {{ 'Active' if item.status == 'active' else 'Waived' }}
+            </span>
+          </td>
+          <td data-label="Added By" class="m-hide small muted">
+            {{ item.created_by or 'System' }}
+          </td>
+          <td class="actions-cell">
+            <div class="row-actions">
+              {% if item.status == 'active' %}
+                <button type="button" class="btn btn-sm edit-btn"
+                        data-id="{{ item.id }}"
+                        data-name="{{ item.employee_name }}"
+                        data-category="{{ item.category }}"
+                        data-amount="{{ item.amount }}"
+                        data-reason="{{ item.reason }}">
+                  Edit
+                </button>
+                <button type="button" class="btn btn-sm waive-btn"
+                        data-id="{{ item.id }}"
+                        data-name="{{ item.employee_name }}"
+                        data-amount="{{ item.amount }}"
+                        data-reason="{{ item.reason }}"
+                        title="Waive this deduction so it won't be charged in payroll">
+                  Waive
+                </button>
+              {% endif %}
+              <form method="post" action="/deductions/{{ item.id }}/delete" data-confirm="Permanently delete this deduction?">
+                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <button class="btn btn-sm btn-ghost" type="submit" title="Delete">✕</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="8" class="empty-state">
+            No deductions or fines recorded for {{ period_label }}.
+            <div class="mt-2">
+              <button class="btn btn-primary" onclick="document.getElementById('openAddModalBtn').click()">+ Add First Deduction</button>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Deduction Modal -->
+<div id="addModal" class="modal-overlay">
+  <div class="modal-box" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h3>Add Monthly Deduction / Penalty</h3>
+      <button type="button" class="btn btn-sm btn-ghost close-modal-btn">✕</button>
+    </div>
+    <form method="post" action="/deductions/add">
+      <div class="modal-body">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="period" value="{{ period }}">
+
+        <div class="field">
+          <label for="addEmployee">Employee</label>
+          <select id="addEmployee" name="employee_id" required>
+            <option value="">Select Employee...</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.name }} ({{ emp.code }}){% if emp.department %} · {{ emp.department }}{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-row cols-2">
+          <div class="field">
+            <label for="addCategory">Category</label>
+            <select id="addCategory" name="category" required>
+              {% for cat in categories %}
+                <option value="{{ cat }}">{{ category_labels[cat] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="addAmount">Amount (₹)</label>
+            <input id="addAmount" name="amount" type="number" step="any" min="1" placeholder="e.g. 250" required>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="addWorkDate">Incident / Applicable Date (Optional)</label>
+          <input id="addWorkDate" name="work_date" type="date">
+        </div>
+
+        <div class="field">
+          <label for="addReason">Reason & Justification</label>
+          <textarea id="addReason" name="reason" rows="2" placeholder="e.g. Broken laptop adapter replacement, penalty for late submission" required></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn close-modal-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Deduction</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Deduction Modal -->
+<div id="editModal" class="modal-overlay">
+  <div class="modal-box" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h3>Edit Deduction</h3>
+      <button type="button" class="btn btn-sm btn-ghost close-modal-btn">✕</button>
+    </div>
+    <form id="editForm" method="post" action="">
+      <div class="modal-body">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="period" value="{{ period }}">
+
+        <div class="kv mb-3">
+          <div><span class="k">Employee</span><span class="v" id="editEmpDisplay">—</span></div>
+        </div>
+
+        <div class="form-row cols-2">
+          <div class="field">
+            <label for="editCategory">Category</label>
+            <select id="editCategory" name="category" required>
+              {% for cat in categories %}
+                <option value="{{ cat }}">{{ category_labels[cat] }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="editAmount">Amount (₹)</label>
+            <input id="editAmount" name="amount" type="number" step="any" min="1" required>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="editReason">Reason</label>
+          <textarea id="editReason" name="reason" rows="2" required></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn close-modal-btn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Update</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Waive Deduction Modal -->
+<div id="waiveModal" class="modal-overlay">
+  <div class="modal-box" role="dialog" aria-modal="true">
+    <div class="modal-head">
+      <h3>Waive Deduction</h3>
+      <button type="button" class="btn btn-sm btn-ghost close-modal-btn">✕</button>
+    </div>
+    <form id="waiveForm" method="post" action="">
+      <div class="modal-body">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="period" value="{{ period }}">
+
+        <div class="kv mb-3">
+          <div><span class="k">Employee</span><span class="v" id="waiveEmpDisplay">—</span></div>
+          <div><span class="k">Deduction Amount</span><span class="v" id="waiveAmountDisplay" style="color:var(--danger);font-weight:700;">—</span></div>
+          <div><span class="k">Original Reason</span><span class="v" id="waiveReasonDisplay">—</span></div>
+        </div>
+
+        <div class="field">
+          <label for="waiveNote">Waiver Reason / Approval Note</label>
+          <input id="waiveNote" name="reason" type="text" placeholder="e.g. Approved waiver by Director / first-time incident" required>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn close-modal-btn">Cancel</button>
+        <button type="submit" class="btn btn-danger">Confirm Waiver (₹0)</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (function() {
+    function openModal(id) {
+      var m = document.getElementById(id);
+      if (m) m.classList.add("open");
+    }
+    function closeModal(id) {
+      var m = document.getElementById(id);
+      if (m) m.classList.remove("open");
+    }
+
+    var addBtn = document.getElementById("openAddModalBtn");
+    if (addBtn) addBtn.addEventListener("click", function() { openModal("addModal"); });
+
+    document.querySelectorAll(".close-modal-btn").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        document.querySelectorAll(".modal-overlay").forEach(function(m) { m.classList.remove("open"); });
+      });
+    });
+
+    document.querySelectorAll(".modal-overlay").forEach(function(m) {
+      m.addEventListener("click", function(e) {
+        if (e.target === m) m.classList.remove("open");
+      });
+    });
+
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") {
+        document.querySelectorAll(".modal-overlay").forEach(function(m) { m.classList.remove("open"); });
+      }
+    });
+
+    // Edit handler
+    document.querySelectorAll(".edit-btn").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        var id = btn.getAttribute("data-id");
+        var name = btn.getAttribute("data-name");
+        var cat = btn.getAttribute("data-category");
+        var amt = btn.getAttribute("data-amount");
+        var rsn = btn.getAttribute("data-reason");
+
+        document.getElementById("editForm").action = "/deductions/" + id + "/edit";
+        document.getElementById("editEmpDisplay").textContent = name;
+        document.getElementById("editCategory").value = cat;
+        document.getElementById("editAmount").value = amt;
+        document.getElementById("editReason").value = rsn;
+
+        openModal("editModal");
+      });
+    });
+
+    // Waive handler
+    document.querySelectorAll(".waive-btn").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        var id = btn.getAttribute("data-id");
+        var name = btn.getAttribute("data-name");
+        var amt = btn.getAttribute("data-amount");
+        var rsn = btn.getAttribute("data-reason");
+
+        document.getElementById("waiveForm").action = "/deductions/" + id + "/waive";
+        document.getElementById("waiveEmpDisplay").textContent = name;
+        document.getElementById("waiveAmountDisplay").textContent = "₹" + parseFloat(amt).toFixed(2);
+        document.getElementById("waiveReasonDisplay").textContent = rsn;
+        document.getElementById("waiveNote").value = "";
+
+        openModal("waiveModal");
+      });
+    });
+  })();
+</script>
+{% endblock %}

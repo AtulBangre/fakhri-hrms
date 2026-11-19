@@ -33,7 +33,7 @@
     <h1>Daily board</h1>
     <div class="sub">{{ day_label }}
       {% if kind == 'holiday' %}· Holiday{% elif kind == 'week_off' %}· Weekly off{% endif %}
-      · {{ counts.present }} present · {{ counts.absent }} absent · {{ counts.pending }} not marked</div>
+      · 🏢 {{ counts.office_present }} Office · 🏠 {{ counts.wfh_present }}/{{ counts.total_wfh }} WFH · {{ counts.absent }} absent · {{ counts.pending }} not marked</div>
   </div>
   <div class="page-actions">
     <a class="btn" href="/attendance?day={{ previous_day }}">← Previous</a>
@@ -46,10 +46,44 @@
   <div class="card-body">
     <form class="filters" method="get" action="/attendance">
       <div class="field">
-        <label for="day">Pick a date</label>
+        <label for="day">Date</label>
         <input id="day" name="day" type="date" value="{{ day_iso }}">
       </div>
-      <button class="btn btn-primary" type="submit">Show</button>
+      <div class="field">
+        <label for="work_mode">Work Mode</label>
+        <select id="work_mode" name="work_mode">
+          <option value="">All Work Modes</option>
+          <option value="office" {{ 'selected' if filters.work_mode == 'office' }}>🏢 Office / On-Site</option>
+          <option value="remote" {{ 'selected' if filters.work_mode in ('remote', 'wfh') }}>🏠 Work From Home (WFH)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="department">Department</label>
+        <select id="department" name="department">
+          <option value="">All Departments</option>
+          {% for dept in departments %}
+            <option value="{{ dept }}" {{ 'selected' if filters.department == dept }}>{{ dept }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="status_filter">Status</label>
+        <select id="status_filter" name="status_filter">
+          <option value="">All Statuses</option>
+          <option value="present" {{ 'selected' if filters.status_filter == 'present' }}>Present</option>
+          <option value="half_day" {{ 'selected' if filters.status_filter == 'half_day' }}>Half Day</option>
+          <option value="leave" {{ 'selected' if filters.status_filter == 'leave' }}>Leave</option>
+          <option value="absent" {{ 'selected' if filters.status_filter == 'absent' }}>Absent</option>
+          <option value="pending" {{ 'selected' if filters.status_filter == 'pending' }}>Unmarked / Pending</option>
+          <option value="late" {{ 'selected' if filters.status_filter == 'late' }}>Late Only</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="q">Search</label>
+        <input id="q" type="search" name="q" value="{{ filters.q }}" placeholder="name, code…">
+      </div>
+      <button class="btn btn-primary" type="submit">Filter</button>
+      <a class="btn" href="/attendance?day={{ day_iso }}">Reset</a>
       <a class="btn" href="/attendance">Today</a>
       <a class="btn" href="/attendance/register.csv">Export month (CSV)</a>
     </form>
@@ -61,6 +95,24 @@
   <div class="stat"><div class="label">Half day</div><div class="value">{{ counts.half_day }}</div><div class="foot">worked less than the half-day threshold</div></div>
   <div class="stat"><div class="label">On leave</div><div class="value">{{ counts.leave }}</div><div class="foot">approved leave</div></div>
   <div class="stat {{ 'danger' if counts.absent else '' }}"><div class="label">Absent</div><div class="value">{{ counts.absent }}</div><div class="foot">{{ counts.pending }} still unmarked</div></div>
+</div>
+
+<div class="card mb-3" style="padding:0.75rem 1rem;background:var(--card-bg, #fff);">
+  <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0.75rem;">
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;font-size:0.875rem;">
+      <span style="font-weight:600;color:var(--text-muted, #666);">Hybrid Punch Breakdown:</span>
+      <span class="chip chip-ok" style="font-size:0.8rem;padding:0.25rem 0.65rem;">
+        🏢 Office / On-Site: <strong>{{ counts.office_present }}</strong>
+      </span>
+      <span class="chip chip-ok" style="font-size:0.8rem;padding:0.25rem 0.65rem;background:#eef2ff;color:#4338ca;border-color:#c7d2fe;">
+        🏠 Work From Home (WFH): <strong>{{ counts.wfh_present }} / {{ counts.total_wfh }} active</strong>
+      </span>
+      <span class="chip chip-warn" style="font-size:0.8rem;padding:0.25rem 0.65rem;">
+        ⏰ Late Arrivals: <strong>{{ counts.late }}</strong>
+      </span>
+    </div>
+    <div class="small muted">{{ rows | length }} employees shown</div>
+  </div>
 </div>
 
 <details class="disclosure">
@@ -108,7 +160,10 @@
         </div>
         <div class="field"><label for="note">Note</label><input id="note" name="note" type="text" placeholder="e.g. forgot to scan at the gate"></div>
       </div>
-      <label class="checkline mb-2 small"><input type="checkbox" name="release_leave" value="1"> If this day is on approved leave, give it back to the balance</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:0.75rem;">
+        <label class="checkline small"><input type="checkbox" name="early_leave" value="1"> <strong>Approved Early Leave / Short Leave</strong> (Full day Present, no fine, no leave deduction)</label>
+        <label class="checkline small"><input type="checkbox" name="release_leave" value="1"> If this day is on approved leave, give it back to the balance</label>
+      </div>
           <button class="btn btn-primary" type="submit">Save entry</button>
       <span class="small muted">Tip: for a full day of leave use the Leave page — it charges the balance and handles weekly offs.</span>
     </form>
@@ -135,7 +190,7 @@
               {% endif %}
               <div class="who">
                 <a href="/employees/{{ row.employee_id }}"><strong>{{ row.name }}</strong></a>
-                <span class="sub">{{ row.code }}{% if row.department %} · {{ row.department }}{% endif %}</span>
+                <span class="sub">{{ row.code }}{% if row.department %} · {{ row.department }}{% endif %}{% if row.remote_work_enabled %}<span class="chip chip-ok" style="font-size:0.68rem;padding:0.12rem 0.45rem;margin-left:0.35rem;background:#eef2ff;color:#4338ca;border-color:#c7d2fe;font-weight:600;">🏠 WFH</span>{% endif %}</span>
               </div>
             </div>
           </td>
@@ -167,7 +222,13 @@
           <td data-label="Worked" class="m-hide">{{ row.worked_label }}</td>
           <td data-label="Late" class="m-hide">{% if row.late_minutes %}<span class="chip chip-warn">{{ row.late_minutes }}m{% if row.late_fine %} · ₹{{ row.late_fine | plain }}{% endif %}</span>{% else %}—{% endif %}</td>
           <td data-label="Source" class="m-hide">
-            {% if row.source_label %}<span class="chip chip-muted">{{ row.source_label }}</span>{% else %}—{% endif %}
+            {% if row.is_remote_punch %}
+              <span class="chip chip-ok" style="font-size:0.75rem;background:#eef2ff;color:#4338ca;border-color:#c7d2fe;font-weight:600;">🏠 Remote (Self)</span>
+            {% elif row.source_label %}
+              <span class="chip chip-muted">{{ row.source_label }}</span>
+            {% else %}
+              —
+            {% endif %}
             {% if row.user_note %}<span class="sub muted">{{ row.user_note }}</span>{% endif %}
           </td>
           <td class="actions-cell">
@@ -180,7 +241,7 @@
             <div class="m-detail-grid">
               <div><span class="k">Worked</span>{{ row.worked_label }}</div>
               <div><span class="k">Late</span>{% if row.late_minutes %}{{ row.late_minutes }}m{% if row.late_fine %} · ₹{{ row.late_fine | plain }}{% endif %}{% else %}—{% endif %}</div>
-              <div class="wide"><span class="k">Source</span>{{ row.source_label or '—' }}{% if row.user_note %} · {{ row.user_note }}{% endif %}</div>
+              <div class="wide"><span class="k">Source</span>{% if row.is_remote_punch %}🏠 Remote (Self){% else %}{{ row.source_label or '—' }}{% endif %}{% if row.user_note %} · {{ row.user_note }}{% endif %}</div>
               {% if row.punch_in_photo or row.punch_out_photo %}
                 <div class="wide"><span class="k">Photos</span>
                   {% if row.punch_in_photo %}<a href="/attendance/photos/{{ row.punch_in_photo }}" target="_blank">In photo</a>{% endif %}

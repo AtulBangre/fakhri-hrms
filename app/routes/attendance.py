@@ -24,11 +24,24 @@ def daily(
     storage=Depends(get_storage),
     settings=Depends(get_settings_dep),
     day: str | None = None,
+    work_mode: str | None = None,
+    department: str | None = None,
+    status_filter: str | None = None,
+    q: str | None = None,
 ):
     target = orgtime.parse_date(day) if day else orgtime.today(settings)
-    rows = attendance_service.daily_rows(storage, settings, target)
-    counts = {"present": 0, "late": 0, "half_day": 0, "leave": 0, "absent": 0, "pending": 0}
-    for row in rows:
+    all_rows = attendance_service.daily_rows(storage, settings, target)
+    counts = {
+        "present": 0, "late": 0, "half_day": 0, "leave": 0, "absent": 0, "pending": 0,
+        "wfh_present": 0, "office_present": 0, "total_wfh": 0, "total_office": 0,
+    }
+    for row in all_rows:
+        is_wfh_emp = bool(row.get("remote_work_enabled"))
+        if is_wfh_emp:
+            counts["total_wfh"] += 1
+        else:
+            counts["total_office"] += 1
+
         if row["effective_status"] == orgtime.STATUS_PRESENT:
             counts["present"] += 1
         elif row["effective_status"] == orgtime.STATUS_HALF_DAY:
@@ -39,8 +52,46 @@ def daily(
             counts["absent"] += 1
         elif row["effective_status"] == orgtime.STATUS_PENDING:
             counts["pending"] += 1
+
+        is_present_status = row["effective_status"] in (orgtime.STATUS_PRESENT, orgtime.STATUS_HALF_DAY)
+        if is_present_status or row.get("check_in"):
+            if is_wfh_emp or row.get("is_remote_punch"):
+                counts["wfh_present"] += 1
+            else:
+                counts["office_present"] += 1
+
         if row["is_late"]:
             counts["late"] += 1
+
+    # Apply filters for display
+    filtered_rows = []
+    q_norm = (q or "").strip().lower()
+    for row in all_rows:
+        # Work mode filter
+        if work_mode:
+            wm = str(work_mode).strip().lower()
+            if wm in ("remote", "wfh") and not row.get("remote_work_enabled"):
+                continue
+            elif wm in ("office", "onsite", "on_site") and row.get("remote_work_enabled"):
+                continue
+        # Department filter
+        if department and department != "all":
+            if (row.get("department") or "").strip().lower() != department.strip().lower():
+                continue
+        # Status filter
+        if status_filter and status_filter != "all":
+            sf = status_filter.strip().lower()
+            if sf == "late":
+                if not row.get("is_late"):
+                    continue
+            elif row["effective_status"] != sf:
+                continue
+        # Search query filter (name, code, designation)
+        if q_norm:
+            text = f"{row.get('name') or ''} {row.get('code') or ''} {row.get('designation') or ''}".lower()
+            if not all(term in text for term in q_norm.split()):
+                continue
+        filtered_rows.append(row)
 
     return render(
         request,
@@ -53,8 +104,15 @@ def daily(
         is_today=(target == orgtime.today(settings)),
         kind=orgtime.day_kind(storage, target),
         holiday=orgtime.holiday_name(storage, target),
-        rows=rows,
+        rows=filtered_rows,
         counts=counts,
+        departments=employees_service.departments(storage),
+        filters={
+            "work_mode": work_mode or "",
+            "department": department or "",
+            "status_filter": status_filter or "",
+            "q": q or "",
+        },
         statuses=orgtime.ALL_STATUSES,
         leave_types=orgtime.ALL_LEAVE_TYPES,
         leave_labels=orgtime.LEAVE_LABELS,
@@ -79,18 +137,24 @@ def mark(
     check_out: str = Form(""),
     leave_type: str = Form(""),
     note: str = Form(""),
+    late_fine: str = Form(""),
+    waive_fine: str = Form(""),
     return_day: str = Form(""),
     release_leave: str = Form(""),
+    early_leave: str = Form(""),
     return_url: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
     target = return_day or work_date
+    parsed_fine = float(late_fine) if late_fine.strip() else None
     try:
         attendance_service.mark_manual(
             storage, employee_id=employee_id, work_date=work_date, status=status,
             check_in=check_in or None, check_out=check_out or None,
-            leave_type=leave_type or None, note=note or None, actor=user.username,
-            release_leave=bool(release_leave),
+            leave_type=leave_type or None, note=note or None,
+            late_fine=parsed_fine, waive_fine=bool(waive_fine),
+            actor=user.username, release_leave=bool(release_leave),
+            early_leave=bool(early_leave),
         )
     except employees_service.ValidationError as exc:
         if return_url:
@@ -104,6 +168,30 @@ def mark(
     if return_url:
         return redirect(return_url, ok=msg)
     return redirect("/attendance", day=target, ok=msg)
+
+
+@router.post("/waive-fine")
+def waive_fine_route(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    csrf: str = Form("", alias="_csrf"),
+    employee_id: int = Form(...),
+    work_date: str = Form(...),
+    reason: str = Form(""),
+    return_url: str = Form(""),
+):
+    verify_form_csrf(user, csrf)
+    try:
+        attendance_service.waive_fine(storage, employee_id=employee_id, work_date=work_date, reason=reason, actor=user.username)
+    except Exception as exc:
+        if return_url:
+            return redirect(return_url, err=str(exc))
+        return redirect("/attendance", day=work_date, err=str(exc))
+    msg = f"Late fine waived for {work_date}."
+    if return_url:
+        return redirect(return_url, ok=msg)
+    return redirect("/attendance", day=work_date, ok=msg)
 
 
 @router.get("/clear")

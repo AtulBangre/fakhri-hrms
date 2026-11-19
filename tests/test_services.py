@@ -690,6 +690,7 @@ def _fill_january(storage: Storage, settings, employee_id: int) -> None:
 
 
 def test_compute_slip_maths(storage: Storage, settings, aarav):
+    storage.set_setting("statutory_deductions_enabled", "yes")
     employees_service.set_salary(
         storage, aarav["id"], monthly_gross=31000, pf=1800, professional_tax=200,
         effective_from="2025-04-01", note="structure",
@@ -865,3 +866,337 @@ def test_fake_face_service_contract(fake_face: FakeFaceService):
     assert fake_face.list_faces()[0]["external_id"] == "FITS001"
     assert fake_face.delete_face(result.face_id) is True
     assert fake_face.list_faces() == []
+
+
+# ------------------------------------------------------------------- WFH filters & stats
+def test_wfh_employee_filtering_and_stats(storage: Storage, settings, aarav):
+    # aarav has remote_work_enabled = 0 by default
+    from app.services import employees as employees_service
+    from app.services import employees_export
+
+    # create a remote employee
+    emp_remote_id = employees_service.create_employee(
+        storage,
+        {"code": "FITS999", "name": "Remote Worker", "status": "active", "department": "Tech", "monthly_gross": 30000},
+    )
+    storage.execute("UPDATE employees SET remote_work_enabled = 1 WHERE id = ?", (emp_remote_id,))
+
+    # Check stats
+    stats = employees_service.stats(storage)
+    assert stats["remote_work"] >= 1
+
+    # Check list filtering
+    wfh_list = employees_service.list_employees(storage, work_mode="remote")
+    wfh_ids = [e["id"] for e in wfh_list]
+    assert emp_remote_id in wfh_ids
+    assert aarav["id"] not in wfh_ids
+
+    office_list = employees_service.list_employees(storage, work_mode="office")
+    office_ids = [e["id"] for e in office_list]
+    assert aarav["id"] in office_ids
+    assert emp_remote_id not in office_ids
+
+    # Check counts
+    assert employees_service.count_employees(storage, work_mode="remote") == len(wfh_list)
+    assert employees_service.count_employees(storage, work_mode="office") == len(office_list)
+
+    # Check export dataset
+    headers, rows = employees_export.get_employees_dataset(storage, settings, work_mode="remote")
+    assert any("FITS999" in r for r in rows)
+    assert not any(aarav["code"] in r for r in rows)
+
+    # Check daily attendance rows flag
+    day_rows = attendance_service.daily_rows(storage, settings)
+    r_map = {r["employee_id"]: r for r in day_rows}
+    assert r_map[emp_remote_id]["remote_work_enabled"] is True
+    assert r_map[aarav["id"]]["remote_work_enabled"] is False
+
+
+# ------------------------------------------------------------------- Fines & Deductions
+def test_fine_tracking_and_waiver(storage: Storage, settings, aarav):
+    from app.services import attendance as attendance_service
+
+    # Mark attendance with a late fine
+    row = attendance_service.mark_manual(
+        storage,
+        employee_id=aarav["id"],
+        work_date="2026-11-10",
+        status="present",
+        check_in="10:45:00",
+        check_out="18:30:00",
+        late_fine=50.0,
+    )
+    assert row["late_fine"] == 50.0
+
+    # Verify monthly register tracks cell.has_fine and totals.fines
+    reg = attendance_service.monthly_register(storage, settings, "2026-11")
+    aarav_row = next(r for r in reg["rows"] if r["employee"]["id"] == aarav["id"])
+    day_10_cell = next(c for c, d in zip(aarav_row["cells"], reg["days"]) if d["iso"] == "2026-11-10")
+    assert day_10_cell["has_fine"] is True
+    assert day_10_cell["late_fine"] == 50.0
+    assert aarav_row["totals"]["fines"] >= 50.0
+
+    # Waive the fine via waive_fine
+    waived = attendance_service.waive_fine(storage, employee_id=aarav["id"], work_date="2026-11-10", reason="Bike puncture approved")
+    assert waived["late_fine"] == 0.0
+
+    # Verify updated register shows no active fine
+    reg_updated = attendance_service.monthly_register(storage, settings, "2026-11")
+    aarav_row_updated = next(r for r in reg_updated["rows"] if r["employee"]["id"] == aarav["id"])
+    day_10_updated = next(c for c, d in zip(aarav_row_updated["cells"], reg_updated["days"]) if d["iso"] == "2026-11-10")
+    assert day_10_updated["has_fine"] is False
+    assert day_10_updated["late_fine"] == 0.0
+
+
+def test_deductions_crud_and_payroll_sync(storage: Storage, settings, aarav):
+    from app.services import deductions as deductions_service
+    from app.services import payroll as payroll_service
+
+    period = "2026-11"
+    # Add a damage recovery deduction
+    did = deductions_service.add_deduction(
+        storage,
+        employee_id=aarav["id"],
+        period=period,
+        category="damage_recovery",
+        amount=300.0,
+        reason="Broken mouse & adapter replacement",
+        actor="hr_admin",
+    )
+    assert did > 0
+
+    # List deductions
+    dlist = deductions_service.list_deductions(storage, period, employee_id=aarav["id"])
+    assert len(dlist) == 1
+    assert dlist[0]["amount"] == 300.0
+    assert dlist[0]["category"] == "damage_recovery"
+
+    # Stats for period
+    stats = deductions_service.stats_for_period(storage, period)
+    assert stats["total_active"] >= 300.0
+
+    # Verify payroll integration in compute_slip
+    slip = payroll_service.compute_slip(storage, settings, aarav, period)
+    assert slip["other_deduction"] >= 300.0
+    assert "Broken mouse" in (slip.get("other_deduction_note") or "")
+
+    # Waive deduction
+    waived = deductions_service.waive_deduction(storage, did, reason="Waived as first-time courtesy")
+    assert waived["status"] == "waived"
+
+    # Re-compute slip after waiver: other_deduction should no longer charge the 300
+    slip_after_waiver = payroll_service.compute_slip(storage, settings, aarav, period)
+    assert slip_after_waiver["other_deduction"] == 0.0
+
+
+def test_individual_employee_shift_and_grace_flexibility(storage: Storage, settings):
+    storage.set_setting("shift_start", "09:30")
+    storage.set_setting("shift_end", "18:30")
+    storage.set_setting("late_grace_minutes", "15")  # default grace is 15 mins (up to 09:45)
+    storage.set_setting("late_policy_mode", "tiered_fine_only")
+    storage.set_setting("late_slab_1_penalty", "50")
+
+    # 1. Create normal employee and employee with custom 30 min grace
+    emp1_id = employees_service.create_employee(
+        storage,
+        {"name": "Standard Employee", "code": "STD001", "monthly_gross": 30000, "joined_on": "2026-01-01"},
+    )
+    emp2_id = employees_service.create_employee(
+        storage,
+        {
+            "name": "Flexible Employee",
+            "code": "FLX001",
+            "monthly_gross": 35000,
+            "joined_on": "2026-01-01",
+            "custom_grace_minutes": 35,  # 35 min grace (up to 10:05 allowed without fine)
+            "custom_shift_start": "09:30",
+            "custom_shift_end": "18:30",
+        },
+    )
+
+    std_emp = employees_service.get_employee(storage, emp1_id)
+    flx_emp = employees_service.get_employee(storage, emp2_id)
+
+    # Verify shift_for correctly reflects custom settings
+    shift_std = orgtime.shift_for(storage, std_emp)
+    shift_flx = orgtime.shift_for(storage, flx_emp)
+
+    assert shift_std["grace_minutes"] == 15
+    assert not shift_std["is_custom_grace"]
+
+    assert shift_flx["grace_minutes"] == 35
+    assert shift_flx["is_custom_grace"]
+
+    # 2. Both punch in at 09:55 (25 minutes after 09:30)
+    work_day = date(2026, 11, 2)  # Monday (working day)
+    
+    # Standard employee: 09:55 is 10 mins past 15m grace -> 10 mins late, ₹50 fine
+    outcome_std = attendance_service.mark_manual(
+        storage,
+        employee_id=emp1_id,
+        work_date=work_day,
+        status="present",
+        check_in="09:55:00",
+        check_out="18:30:00",
+    )
+    assert outcome_std["late_minutes"] == 10
+    assert outcome_std["late_fine"] == 50.0
+
+    # Flexible employee: 09:55 is within 35m grace -> 0 late mins, ₹0 fine
+    outcome_flx = attendance_service.mark_manual(
+        storage,
+        employee_id=emp2_id,
+        work_date=work_day,
+        status="present",
+        check_in="09:55:00",
+        check_out="18:30:00",
+    )
+    assert outcome_flx["late_minutes"] == 0
+    assert outcome_flx["late_fine"] == 0.0
+
+    # 3. Custom shift timing override: change emp2 to start at 10:30
+    employees_service.update_employee(
+        storage,
+        emp2_id,
+        {"custom_shift_start": "10:30", "custom_shift_end": "19:30", "custom_grace_minutes": 10},
+    )
+    flx_emp_updated = employees_service.get_employee(storage, emp2_id)
+    shift_flx_updated = orgtime.shift_for(storage, flx_emp_updated)
+    assert shift_flx_updated["start_time"] == "10:30"
+    assert shift_flx_updated["end_time"] == "19:30"
+    assert shift_flx_updated["grace_minutes"] == 10
+    assert shift_flx_updated["is_custom_shift"]
+    assert shift_flx_updated["is_custom_grace"]
+
+    # Punching in at 10:35 is now on-time for this employee (within 10m grace of 10:30)
+    work_day_2 = date(2026, 11, 3)
+    outcome_flx_2 = attendance_service.mark_manual(
+        storage,
+        employee_id=emp2_id,
+        work_date=work_day_2,
+        status="present",
+        check_in="10:35:00",
+        check_out="19:30:00",
+    )
+    assert outcome_flx_2["late_minutes"] == 0
+    assert outcome_flx_2["late_fine"] == 0.0
+
+
+def test_manager_leave_approval_logic(storage: Storage, settings) -> None:
+    """Test manager status and badge logic for leave requests."""
+    # Create manager and subordinate
+    mgr_id = employees_service.create_employee(
+        storage,
+        {"name": "Manager Bob", "code": "MGR001", "monthly_gross": 60000, "joined_on": "2026-01-01"},
+    )
+    sub_id = employees_service.create_employee(
+        storage,
+        {"name": "Subordinate Alice", "code": "SUB001", "monthly_gross": 40000, "joined_on": "2026-01-01", "manager_id": mgr_id},
+    )
+    solo_id = employees_service.create_employee(
+        storage,
+        {"name": "Solo Charlie", "code": "SOLO001", "monthly_gross": 35000, "joined_on": "2026-01-01"},
+    )
+
+    # 1. Solo Charlie applies leave -> manager_status is 'na', status is 'pending'
+    leave_solo = leave_service.apply_leave(
+        storage, settings, employee_id=solo_id, leave_type="unpaid", from_date="2026-11-10", to_date="2026-11-10", status="pending"
+    )["leave"]
+    assert leave_solo["manager_status"] == "na"
+    assert leave_solo["status"] == "pending"
+
+    # 2. Subordinate Alice applies leave -> manager_status is 'pending', status is 'pending_manager'
+    leave_sub = leave_service.apply_leave(
+        storage, settings, employee_id=sub_id, leave_type="unpaid", from_date="2026-11-11", to_date="2026-11-11", status="pending"
+    )["leave"]
+    assert leave_sub["manager_status"] == "pending"
+    assert leave_sub["status"] == "pending_manager"
+
+    # 3. Manager Bob approves Alice's leave
+    decided = leave_service.manager_decide_leave(
+        storage, leave_sub["id"], mgr_id, decision="approved", note="Recommended by Bob"
+    )
+    assert decided["manager_status"] == "approved"
+    assert decided["manager_action_by"] == mgr_id
+    assert decided["status"] == "pending"
+
+    # HR approves Alice's leave -> manager_status remains 'approved'
+    approved_sub = leave_service.approve_leave(storage, leave_id=leave_sub["id"])["leave"]
+    assert approved_sub["manager_status"] == "approved"
+    assert approved_sub["status"] == "approved"
+
+    # 4. HR directly approves a subordinate's leave without manager decision -> manager_status becomes 'bypassed_by_hr'
+    leave_sub_2 = leave_service.apply_leave(
+        storage, settings, employee_id=sub_id, leave_type="unpaid", from_date="2026-11-12", to_date="2026-11-12", status="pending"
+    )["leave"]
+    assert leave_sub_2["status"] == "pending_manager"
+    approved_bypassed = leave_service.approve_leave(storage, leave_id=leave_sub_2["id"])["leave"]
+    assert approved_bypassed["status"] == "approved"
+    assert approved_bypassed["manager_status"] == "bypassed_by_hr"
+
+
+def test_early_leave_attendance(storage: Storage, settings) -> None:
+    """Test early leave waiver keeps full day present, 0 fine, and does not downgrade to half-day."""
+    emp_id = employees_service.create_employee(
+        storage,
+        {"name": "Dev Priya", "code": "DEV001", "monthly_gross": 50000, "joined_on": "2026-01-01"},
+    )
+    work_day = "2026-11-04"  # Wednesday
+
+    # Mark manual with early_leave=True: checked in at 09:30, checked out at 12:30 (worked 3 hours < 4 hours threshold)
+    row = attendance_service.mark_manual(
+        storage,
+        employee_id=emp_id,
+        work_date=work_day,
+        status="present",
+        check_in="09:30:00",
+        check_out="12:30:00",
+        early_leave=True,
+    )
+    assert row["status"] == "present"
+    assert row["early_leave_approved"] == 1
+    assert row["late_fine"] == 0.0
+    assert "Early Leave" in row["note"]
+
+    # Verify employee_month_days reflects early_leave_approved
+    emp = employees_service.get_employee(storage, emp_id)
+    days = attendance_service.employee_month_days(storage, settings, emp, "2026-11")
+    day_entry = next(d for d in days if d["iso"] == work_day)
+    assert day_entry["early_leave_approved"] is True
+    assert day_entry["status"] == "present"
+
+    # Verify monthly register
+    register = attendance_service.monthly_register(storage, settings, "2026-11")
+    emp_row = next(r for r in register["rows"] if r["employee"]["id"] == emp_id)
+    # November has 30 days, day 4 is index 3
+    day_cell = emp_row["cells"][3]
+    assert day_cell["early_leave_approved"] is True
+    assert day_cell["code"] == "P"  # Full day Present!
+
+
+def test_statutory_deductions_global_setting(storage: Storage, settings) -> None:
+    """Test statutory deductions enabled/disabled global setting."""
+    emp_id = employees_service.create_employee(
+        storage,
+        {"name": "Govind Joshi", "code": "GOV001", "monthly_gross": 20000, "joined_on": "2026-01-01"},
+    )
+    emp = employees_service.get_employee(storage, emp_id)
+    # Give employee auto statutory mode
+    employees_service.set_salary(
+        storage, emp_id, monthly_gross=20000, basic=10000, statutory_mode="auto", professional_tax=200
+    )
+
+    # 1. By default, statutory_deductions_enabled is "no" -> 0 PF, 0 ESI, 0 PT
+    calc = payroll.compute_slip(storage, settings, emp, "2026-11")
+    assert calc["pf"] == 0.0
+    assert calc["esi"] == 0.0
+    assert calc["professional_tax"] == 0.0
+    assert calc["total_deductions"] == 0.0
+
+    # 2. When statutory_deductions_enabled is set to "yes" -> calculated
+    storage.set_setting("statutory_deductions_enabled", "yes")
+    calc_enabled = payroll.compute_slip(storage, settings, emp, "2026-11")
+    assert calc_enabled["pf"] > 0
+    assert calc_enabled["professional_tax"] == 200.0
+
+

@@ -29,7 +29,7 @@ from .face import FaceService
 from .notify import NotificationWorker
 from .services.sync_supabase import SupabaseSyncWorker
 from .routes import (
-    account, admin, ai_hr, attendance, auth_routes, dashboard, employees, inbox, passkeys,
+    account, admin, ai_hr, attendance, auth_routes, dashboard, deductions, employees, inbox, passkeys,
     appraisals, celebrations, engagement, exits, field, kiosk, leave, letters, loans, me, meta, payroll, records, regularizations, tax,
 )
 
@@ -201,6 +201,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(attendance.router)
     app.include_router(leave.router)
     app.include_router(payroll.router)
+    app.include_router(deductions.router)
     app.include_router(me.router)
     app.include_router(account.router)
     app.include_router(engagement.router)

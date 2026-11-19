@@ -33,9 +33,11 @@
             </td>
             <td data-label="Type">
               <span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span>
-              {% if item.manager_status == 'approved' and item.manager_id %}
-                <div class="chip chip-ok" style="font-size:0.7rem;margin-top:2px;display:inline-block" title="Recommended by Reporting Manager">Mgr Approved</div>
-              {% elif item.status == 'pending_manager' %}
+              {% if item.manager_status == 'approved' and item.manager_action_by %}
+                <div class="chip chip-ok" style="font-size:0.7rem;margin-top:2px;display:inline-block" title="Recommended by Reporting Manager{% if item.manager_action_name %} ({{ item.manager_action_name }}){% endif %}">Mgr Approved</div>
+              {% elif item.manager_status == 'bypassed_by_hr' %}
+                <div class="chip chip-info" style="font-size:0.7rem;margin-top:2px;display:inline-block" title="Approved directly by HR without manager review">HR Direct</div>
+              {% elif item.status == 'pending_manager' or item.manager_status == 'pending' %}
                 <div class="chip chip-warn" style="font-size:0.7rem;margin-top:2px;display:inline-block">Awaiting Mgr</div>
               {% endif %}
             </td>
@@ -168,9 +170,11 @@
                 <span class="sub">{{ item.employee_code }}{% if item.department %} · {{ item.department }}{% endif %}</span></td>
               <td data-label="Type">
               <span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span>
-              {% if item.manager_status == 'approved' and item.manager_id %}
-                <div class="chip chip-ok" style="font-size:0.7rem;margin-top:2px;display:inline-block" title="Recommended by Reporting Manager">Mgr Approved</div>
-              {% elif item.status == 'pending_manager' %}
+              {% if item.manager_status == 'approved' and item.manager_action_by %}
+                <div class="chip chip-ok" style="font-size:0.7rem;margin-top:2px;display:inline-block" title="Recommended by Reporting Manager{% if item.manager_action_name %} ({{ item.manager_action_name }}){% endif %}">Mgr Approved</div>
+              {% elif item.manager_status == 'bypassed_by_hr' %}
+                <div class="chip chip-info" style="font-size:0.7rem;margin-top:2px;display:inline-block" title="Approved directly by HR without manager review">HR Direct</div>
+              {% elif item.status == 'pending_manager' or item.manager_status == 'pending' %}
                 <div class="chip chip-warn" style="font-size:0.7rem;margin-top:2px;display:inline-block">Awaiting Mgr</div>
               {% endif %}
             </td>

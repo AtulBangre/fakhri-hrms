@@ -106,7 +106,7 @@ def daily_rows(storage: Storage, settings: Settings, day: date | None = None) ->
     rows = storage.query(
         """
         SELECT e.id AS employee_id, e.code, e.name, e.department, e.designation, e.face_id, e.photo_filename,
-               e.shift_id, a.id AS attendance_id, a.status, a.check_in, a.check_out, a.late_minutes,
+               e.shift_id, e.remote_work_enabled, a.id AS attendance_id, a.status, a.check_in, a.check_out, a.late_minutes,
                a.worked_minutes, a.leave_type, a.source, a.device_label, a.note, a.late_fine,
                a.punch_in_photo, a.punch_out_photo
         FROM employees e
@@ -140,6 +140,8 @@ def daily_rows(storage: Storage, settings: Settings, day: date | None = None) ->
         row["is_late"] = bool(row["late_minutes"])
         row["source_label"] = orgtime.source_label(row)
         row["user_note"] = orgtime.user_note(row)
+        row["remote_work_enabled"] = bool(row.get("remote_work_enabled"))
+        row["is_remote_punch"] = bool((row.get("device_label") or "").startswith("Remote")) or (bool(row.get("check_in")) and bool(row.get("remote_work_enabled")))
     return rows
 
 
@@ -318,6 +320,7 @@ def employee_month_days(storage: Storage, settings: Settings, employee: dict, pe
                 "punch_out_photo": record.get("punch_out_photo") if record else None,
                 "late_minutes": record["late_minutes"] if record else 0,
                 "late_fine": record.get("late_fine") if record else 0,
+                "early_leave_approved": bool(record.get("early_leave_approved")) if record else False,
                 "leave_type": orgtime.LEAVE_LABELS.get(record["leave_type"], "") if record else "",
                 "note": orgtime.user_note(record) if record else None,
                 "source": orgtime.source_label(record) if record and cls != "not_employed" else None,
@@ -532,7 +535,8 @@ def mark_by_face(
             worked = orgtime.minutes_between(existing["check_in"], now_clock)
             half_day_threshold = orgtime.shift_for(storage, employee)["half_day_minutes"]
             new_status = status
-            if status == orgtime.STATUS_PRESENT and worked is not None and worked < half_day_threshold:
+            is_early_approved = bool(existing.get("early_leave_approved"))
+            if status == orgtime.STATUS_PRESENT and worked is not None and worked < half_day_threshold and not is_early_approved:
                 new_status = orgtime.STATUS_HALF_DAY
             storage.execute(
                 """
@@ -595,7 +599,7 @@ def mark_by_face(
             )
 
         # Row exists without a check-in (e.g. HR marked absent, then the person showed up).
-        emp_shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee["shift_id"],)) if employee.get("shift_id") else None
+        emp_shift = orgtime.shift_for(storage, employee)
         assessed = orgtime.late_assessment(storage, moment, shift=emp_shift)
         status_in = orgtime.STATUS_HALF_DAY if assessed["half_day"] else orgtime.STATUS_PRESENT
         note = "face scan overrode a manual entry"
@@ -636,7 +640,7 @@ def mark_by_face(
     elif kind == orgtime.STATUS_HOLIDAY:
         note = "worked on a holiday"
     else:
-        emp_shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee["shift_id"],)) if employee.get("shift_id") else None
+        emp_shift = orgtime.shift_for(storage, employee)
         assessed = orgtime.late_assessment(storage, moment, shift=emp_shift)  # no late rules on an off day
     late = assessed["late_minutes"]
     status_in = orgtime.STATUS_HALF_DAY if assessed["half_day"] else orgtime.STATUS_PRESENT
@@ -702,8 +706,11 @@ def mark_manual(
     check_out: str | None = None,
     leave_type: str | None = None,
     note: str | None = None,
+    late_fine: float | str | None = None,
+    waive_fine: bool = False,
     actor: str | None = None,
     release_leave: bool = False,
+    early_leave: bool = False,
 ) -> dict:
     """HR override / correction for any employee-day.
 
@@ -746,7 +753,7 @@ def mark_manual(
     worked = orgtime.minutes_between(check_in, check_out) if (check_in and check_out) else None
     existing = get_row(storage, employee_id, day)
     late, fine = 0, 0.0
-    emp_shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee["shift_id"],)) if employee.get("shift_id") else None
+    emp_shift = orgtime.shift_for(storage, employee)
     if check_in and orgtime.day_kind(storage, day) == "working":
         assessed = orgtime.late_assessment(storage, datetime.combine(day, orgtime.parse_clock(check_in)), shift=emp_shift)
         late, fine = assessed["late_minutes"], assessed["fine"]
@@ -765,7 +772,22 @@ def mark_manual(
                 if note == "late arrival — half day":
                     note = None
 
+    if early_leave:
+        status = orgtime.STATUS_PRESENT
+        fine = 0.0
+        if not note:
+            note = "Approved Early Leave"
+        elif "Early Leave" not in note:
+            note = f"{note} · Approved Early Leave".strip(" ·")
+    elif waive_fine:
+        fine = 0.0
+        if not note:
+            note = "Fine waived by HR"
+    elif late_fine is not None and str(late_fine).strip() != "":
+        fine = max(0.0, float(late_fine))
+
     now = utcnow_iso()
+    early_val = 1 if early_leave else (1 if (existing and existing.get("early_leave_approved") and status == orgtime.STATUS_PRESENT) else 0)
     if existing and existing.get("leave_id"):
         if not release_leave:
             raise LeaveDayConflict(
@@ -778,26 +800,57 @@ def mark_manual(
             """
             UPDATE attendance SET status = ?, check_in = ?, check_out = ?, late_minutes = ?, late_fine = ?,
                                   worked_minutes = ?, leave_type = ?, source = 'manual', note = ?,
-                                  leave_id = NULL, updated_at = ?
+                                  leave_id = NULL, early_leave_approved = ?, updated_at = ?
             WHERE id = ?
             """,
-            (status, check_in, check_out, late, fine, worked, leave_type, note, now, existing["id"]),
+            (status, check_in, check_out, late, fine, worked, leave_type, note, early_val, now, existing["id"]),
         )
     else:
         storage.execute(
             """
             INSERT INTO attendance (employee_id, work_date, status, check_in, check_out, late_minutes, late_fine,
-                                    worked_minutes, leave_type, source, note, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?, 'manual', ?,?,?)
+                                    worked_minutes, leave_type, source, note, early_leave_approved, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?, 'manual', ?,?,?,?)
             """,
             (employee_id, day.isoformat(), status, check_in, check_out, late, fine, worked, leave_type,
-             note, now, now),
+             note, early_val, now, now),
         )
     storage.audit(actor=actor, action="mark_attendance", entity="employee", entity_id=employee_id,
                   detail=f"{day.isoformat()} → {status}")
     row = get_row(storage, employee_id, day)
     assert row is not None
     return row
+
+
+def waive_fine(
+    storage: Storage,
+    *,
+    employee_id: int,
+    work_date: str,
+    reason: str | None = None,
+    actor: str | None = None,
+) -> dict:
+    """Waive an attendance late fine for an employee-day."""
+    day = orgtime.parse_date(work_date)
+    locks.assert_period_open(storage, day)
+    existing = get_row(storage, employee_id, day)
+    if not existing:
+        raise employees_service.ValidationError(f"No attendance entry found on {work_date}.")
+    old_fine = float(existing.get("late_fine") or 0.0)
+    now = utcnow_iso()
+    user_note = (reason or "").strip() or "Fine waived by HR"
+    combined_note = (existing.get("note") or "")
+    if user_note not in combined_note:
+        combined_note = f"{combined_note} · {user_note}".strip(" ·")
+    storage.execute(
+        "UPDATE attendance SET late_fine = 0, note = ?, updated_at = ? WHERE id = ?",
+        (combined_note, now, existing["id"]),
+    )
+    storage.audit(actor=actor, action="waive_fine", entity="attendance", entity_id=existing["id"],
+                  detail=f"employee_id={employee_id} date={work_date} old_fine={old_fine} reason={user_note}")
+    updated = get_row(storage, employee_id, day)
+    assert updated is not None
+    return updated
 
 
 class LeaveDayConflict(employees_service.ValidationError):
@@ -960,7 +1013,7 @@ def monthly_register(
     for person in staff:
         window = employment_window(storage, person, start, end)
         tally = {key: 0 for key in DAY_CLASSES}
-        totals = {"late": 0, "worked_minutes": 0}
+        totals = {"late": 0, "worked_minutes": 0, "fines": 0.0}
         cells = []
         for day, day_date in zip(days, orgtime.each_day(start, end)):
             record = rows_by_key.get((person["id"], day["iso"]))
@@ -970,17 +1023,25 @@ def monthly_register(
             tally[cls] += 1
             cell = {"status": _CLASS_STATUS[cls], "cls": cls, "code": _CLASS_CODE[cls], "css": _CLASS_CSS[cls]}
             if record and cls != "not_employed":
+                fine_amount = float(record.get("late_fine") or 0.0)
                 cell.update(
                     check_in=orgtime.format_clock(record["check_in"]),
                     check_out=orgtime.format_clock(record["check_out"]),
                     late_minutes=record["late_minutes"], worked_minutes=record["worked_minutes"],
+                    late_fine=fine_amount,
+                    has_fine=(fine_amount > 0),
+                    early_leave_approved=bool(record.get("early_leave_approved")),
                     leave_type=record["leave_type"], note=record["note"], title=_cell_title(record),
                 )
                 if record["late_minutes"]:
                     totals["late"] += 1
+                if fine_amount > 0:
+                    totals["fines"] += fine_amount
                 if record["worked_minutes"]:
                     totals["worked_minutes"] += int(record["worked_minutes"])
             else:
+                cell["late_fine"] = 0.0
+                cell["has_fine"] = False
                 cell["title"] = {
                     "week_off": "Weekly off", "holiday": day["holiday_name"] or "Holiday",
                     "pending": "Not marked yet", "future": "Not marked yet",
@@ -989,6 +1050,7 @@ def monthly_register(
             cells.append(cell)
 
         figures = pay_figures(tally, totals["late"], marks_per_half_lop)
+        totals["fines"] = round(totals["fines"], 2)
         totals.update(
             present=tally["present"], half_day=tally["half_paid"] + tally["half_unpaid"],
             leave=tally["leave_paid"] + tally["leave_unpaid"], unpaid_leave=tally["leave_unpaid"],
@@ -1003,7 +1065,10 @@ def monthly_register(
         present = sum(1 for row in register_rows if row["cells"][index]["status"] == orgtime.STATUS_PRESENT)
         half = sum(1 for row in register_rows if row["cells"][index]["status"] == orgtime.STATUS_HALF_DAY)
         on_leave = sum(1 for row in register_rows if row["cells"][index]["status"] == orgtime.STATUS_LEAVE)
-        day_totals.append({"present": present, "half_day": half, "leave": on_leave})
+        fined = sum(1 for row in register_rows if row["cells"][index].get("has_fine"))
+        day_totals.append({"present": present, "half_day": half, "leave": on_leave, "fined": fined})
+
+    grand_total_fines = round(sum(row["totals"]["fines"] for row in register_rows), 2)
 
     return {
         "period": period,
@@ -1011,6 +1076,7 @@ def monthly_register(
         "days": days,
         "day_totals": day_totals,
         "rows": register_rows,
+        "total_fines": grand_total_fines,
         "department": department,
         "departments": employees_service.departments(storage),
         "shift_names": sorted({row["shift"]["name"] or DEFAULT_SHIFT_LABEL for row in register_rows}),
@@ -1171,9 +1237,7 @@ def recalculate_employee_attendance(
     start_date = start_date or today.replace(day=1)
     end_date = end_date or orgtime.month_bounds(today.strftime("%Y-%m"))[1]
 
-    emp_shift = None
-    if employee.get("shift_id"):
-        emp_shift = storage.query_one("SELECT * FROM shifts WHERE id = ?", (employee["shift_id"],))
+    emp_shift = orgtime.shift_for(storage, employee)
 
     rows = storage.query(
         """

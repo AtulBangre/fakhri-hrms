@@ -43,6 +43,7 @@
         <label for="statusQuickFilter">Filter Exceptions</label>
         <select id="statusQuickFilter">
           <option value="">All statuses</option>
+          <option value="FINE">Has Fine (₹)</option>
           <option value="A">Has Absent (A)</option>
           <option value="½">Has Half-Day (½)</option>
           <option value="L">Has Leave (L)</option>
@@ -69,18 +70,20 @@
         {% endfor %}
         <th title="Present + ½ half days + paid leave">Payable</th>
         <th title="Absent + unpaid leave">LOP</th>
+        <th title="Total late arrival fines for this month">Fines (₹)</th>
       </tr>
     </thead>
     <tbody>
       {% for row in register.rows %}
         <tr class="emp-row" data-shift="{{ row.shift.name or 'Company shift' }}" data-search="{{ (row.employee.name ~ ' ' ~ row.employee.code ~ ' ' ~ (row.employee.department or '')) | lower }}"
-            data-codes="{% for c in row.cells %}{{ c.code }} {% endfor %}">
+            data-codes="{% for c in row.cells %}{{ c.code }} {% endfor %}"
+            data-has-fine="{{ 'true' if (row.totals.fines and row.totals.fines > 0) else 'false' }}">
           <td class="sticky-col">
             <a href="/employees/{{ row.employee.id }}"><strong>{{ row.employee.name }}</strong></a>
             <span class="sub muted" style="display:block">{{ row.employee.code }}{% if row.employee.department %} · {{ row.employee.department }}{% endif %}</span>
           </td>
           {% for cell, day in row.cells | zip(register.days) %}
-            <td class="cell {{ cell.css }} interactive-cell {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
+            <td class="cell {{ cell.css }} interactive-cell {{ 'has-fine' if cell.has_fine }} {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
                 data-emp-id="{{ row.employee.id }}"
                 data-emp-name="{{ row.employee.name }}"
                 data-date="{{ day.iso }}"
@@ -88,6 +91,8 @@
                 data-code="{{ cell.code }}"
                 data-in="{{ cell.check_in if cell.check_in and cell.check_in != '—' else '' }}"
                 data-out="{{ cell.check_out if cell.check_out and cell.check_out != '—' else '' }}"
+                data-fine="{{ cell.late_fine or 0 }}"
+                data-early-leave="{{ '1' if cell.early_leave_approved else '0' }}"
                 data-today="{{ 'true' if day.is_today else 'false' }}"
                 data-shift-start="{{ row.shift.start_time }}"
                 data-shift-end="{{ row.shift.end_time }}"
@@ -97,6 +102,9 @@
           {% endfor %}
           <td class="num"><strong>{{ row.totals.payable_days | number }}</strong></td>
           <td class="num">{{ row.totals.lop_days | number }}</td>
+          <td class="num" style="color:{{ 'var(--danger)' if row.totals.fines else 'inherit' }};font-weight:{{ '600' if row.totals.fines else 'normal' }};">
+            {% if row.totals.fines %}₹{{ row.totals.fines | plain }}{% else %}—{% endif %}
+          </td>
         </tr>
       {% else %}
         <tr><td class="sticky-col empty-state">No employees to show.</td></tr>
@@ -106,12 +114,15 @@
       <tr>
         <td class="sticky-col">Present on this day</td>
         {% for total in register.day_totals %}
-          <td title="{{ total.present }} present · {{ total.half_day }} half day · {{ total.leave }} leave"
+          <td title="{{ total.present }} present · {{ total.half_day }} half day · {{ total.leave }} leave{% if total.fined %} · {{ total.fined }} fined{% endif %}"
               class="{{ 'weekend' if register.days[loop.index0].is_week_off or register.days[loop.index0].is_holiday }}">
             {{ total.present or '' }}
           </td>
         {% endfor %}
         <td colspan="2"></td>
+        <td class="num" style="color:var(--danger);font-weight:700;">
+          {% if register.total_fines %}₹{{ register.total_fines | plain }}{% else %}—{% endif %}
+        </td>
       </tr>
     </tfoot>
   </table>
@@ -129,6 +140,7 @@
       <span class="chip chip-muted">H · holiday</span>
       <span class="chip chip-ghost">· · not marked</span>
       <span class="chip chip-ghost">– · not employed</span>
+      <span class="chip chip-danger" style="position:relative;padding-left:1.35rem;"><span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);width:6px;height:6px;background:#ef4444;border-radius:50%;"></span>● · fined day</span>
     </div>
     <div class="card-foot small muted">Tip: Click any attendance cell above to instantly adjust or regularize that day's record.</div>
   </div>
@@ -200,6 +212,33 @@
           <label for="modalNote">Reason / Note</label>
           <input id="modalNote" name="note" type="text" placeholder="e.g. Regularized by HR or approved half-day">
         </div>
+
+        <div class="card mb-2" style="background:var(--subtle);padding:0.75rem;border-radius:var(--radius);border:1px solid var(--border);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+            <div>
+              <span style="font-size:0.75rem;font-weight:600;color:var(--muted);display:block;">Late Arrival Fine / Penalty</span>
+              <span id="modalFineCurrentBadge" class="chip chip-ghost" style="font-size:0.78rem;margin-top:2px;">No fine</span>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:0.85rem;flex-wrap:wrap;">
+              <div class="field" style="margin-bottom:0;">
+                <label for="modalLateFine" style="font-size:0.75rem;">Fine Amount (₹)</label>
+                <input id="modalLateFine" name="late_fine" type="number" min="0" step="any" style="width:110px;padding:0.3rem 0.5rem;" placeholder="₹0">
+              </div>
+              <label class="checkline" style="font-size:0.82rem;margin-bottom:0;cursor:pointer;padding-bottom:0.4rem;">
+                <input type="checkbox" id="modalWaiveFine" name="waive_fine" value="1">
+                <strong style="color:var(--danger);">Waive Fine (₹0)</strong>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-2" style="background:var(--subtle);padding:0.75rem;border-radius:var(--radius);border:1px solid var(--border);">
+          <label class="checkline" style="font-size:0.85rem;margin-bottom:0;cursor:pointer;">
+            <input type="checkbox" id="modalEarlyLeave" name="early_leave" value="1">
+            <strong>Approved Early Leave / Short Leave</strong>
+            <span class="sub" style="display:block;margin-left:1.5rem;font-size:0.75rem;color:var(--muted);">Full day Present, no late/early fine, no half-day downgrade, 0 leave deducted</span>
+          </label>
+        </div>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn" id="cancelModalBtn">Cancel</button>
@@ -224,7 +263,12 @@
         var searchTxt = row.getAttribute("data-search") || "";
         var codes = row.getAttribute("data-codes") || "";
         var matchesText = !query || searchTxt.indexOf(query) !== -1;
-        var matchesStatus = !requiredCode || codes.indexOf(requiredCode) !== -1;
+        var matchesStatus = true;
+        if (requiredCode === "FINE") {
+          matchesStatus = row.getAttribute("data-has-fine") === "true";
+        } else if (requiredCode) {
+          matchesStatus = codes.indexOf(requiredCode) !== -1;
+        }
         var matchesShift = !shiftFilter || !shiftFilter.value || row.getAttribute("data-shift") === shiftFilter.value;
         row.style.display = (matchesText && matchesStatus && matchesShift) ? "" : "none";
       });
@@ -238,6 +282,34 @@
     var modal = document.getElementById("quickMarkModal");
     var closeBtn = document.getElementById("closeModalBtn");
     var cancelBtn = document.getElementById("cancelModalBtn");
+    var waiveCheckbox = document.getElementById("modalWaiveFine");
+    var earlyCheckbox = document.getElementById("modalEarlyLeave");
+
+    if (waiveCheckbox) {
+      waiveCheckbox.addEventListener("change", function() {
+        var fineInput = document.getElementById("modalLateFine");
+        var noteInput = document.getElementById("modalNote");
+        if (this.checked) {
+          if (fineInput) fineInput.value = "0";
+          if (noteInput && !noteInput.value) noteInput.value = "Fine waived by HR";
+        }
+      });
+    }
+
+    if (earlyCheckbox) {
+      earlyCheckbox.addEventListener("change", function() {
+        if (this.checked) {
+          var statusSelect = document.getElementById("modalStatus");
+          if (statusSelect) statusSelect.value = "present";
+          var fineInput = document.getElementById("modalLateFine");
+          if (fineInput) fineInput.value = "0";
+          var waiveBox = document.getElementById("modalWaiveFine");
+          if (waiveBox) waiveBox.checked = true;
+          var noteInput = document.getElementById("modalNote");
+          if (noteInput && !noteInput.value) noteInput.value = "Approved Early Leave";
+        }
+      });
+    }
 
     function closeModal() {
       if (modal) modal.classList.remove("open");
@@ -261,12 +333,25 @@
         var date = cell.getAttribute("data-date");
         var status = cell.getAttribute("data-status");
         var code = cell.getAttribute("data-code");
+        var fineVal = parseFloat(cell.getAttribute("data-fine") || "0");
 
         document.getElementById("modalEmpId").value = empId || "";
         document.getElementById("modalWorkDate").value = date || "";
         document.getElementById("modalEmpNameDisplay").textContent = empName || "—";
         document.getElementById("modalDateDisplay").textContent = date || "—";
         document.getElementById("modalCurrentCodeDisplay").textContent = code || "—";
+
+        var fineBadge = document.getElementById("modalFineCurrentBadge");
+        var fineInput = document.getElementById("modalLateFine");
+        var waiveBox = document.getElementById("modalWaiveFine");
+
+        if (fineInput) fineInput.value = fineVal > 0 ? fineVal : "";
+        if (waiveBox) waiveBox.checked = false;
+        if (earlyCheckbox) earlyCheckbox.checked = cell.getAttribute("data-early-leave") === "1";
+        if (fineBadge) {
+          fineBadge.textContent = fineVal > 0 ? ("₹" + fineVal.toFixed(2) + " active fine") : "No fine";
+          fineBadge.className = fineVal > 0 ? "chip chip-danger" : "chip chip-ghost";
+        }
         
         // Start from this person's record and shift, never the last cell opened.
         var form = modal.querySelector("form");

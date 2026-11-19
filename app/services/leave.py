@@ -186,11 +186,13 @@ def apply_leave(
     if leave_type in orgtime.PAID_LEAVE_TYPES and not allow_negative:
         _check_balance(storage, settings, employee_id, days, leave_type=leave_type)
 
-    manager_status = "approved"
-    if status == "pending":
-        if employee.get("manager_id"):
+    manager_status = "na"
+    if employee.get("manager_id"):
+        if status == "pending":
             manager_status = "pending"
             status = "pending_manager"
+        else:
+            manager_status = "bypassed_by_hr"
 
     now = utcnow_iso()
     att_json = json.dumps(attachments) if isinstance(attachments, list) else attachments
@@ -204,7 +206,15 @@ def apply_leave(
          requested_by, now, now if status == "approved" else None, manager_status, att_json),
     )
     leave_id = int(cursor.lastrowid)
-    leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (leave_id,))
+    leave = storage.query_one(
+        """
+        SELECT l.*, e.manager_id
+        FROM leave_requests l
+        JOIN employees e ON e.id = l.employee_id
+        WHERE l.id = ?
+        """,
+        (leave_id,),
+    )
     assert leave is not None
 
     applied: list[dict[str, Any]] = []
@@ -326,7 +336,15 @@ def approve_leave(
 
     ``force`` re-stamps an already-approved record (useful after fixing a clash).
     """
-    leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (leave_id,))
+    leave = storage.query_one(
+        """
+        SELECT l.*, e.manager_id
+        FROM leave_requests l
+        JOIN employees e ON e.id = l.employee_id
+        WHERE l.id = ?
+        """,
+        (leave_id,),
+    )
     if leave is None:
         raise employees_service.ValidationError(f"Leave #{leave_id} not found.")
     if leave["status"] == "cancelled":
@@ -347,8 +365,12 @@ def approve_leave(
             + ", ".join(f"{s['date']} ({s['why']})" for s in skipped) + ". Reject the request instead."
         )
     _charge_applied(storage, leave, applied)
+    mgr_sql = ""
+    if not leave.get("manager_action_by"):
+        new_mgr_status = "bypassed_by_hr" if leave.get("manager_id") else "na"
+        mgr_sql = f", manager_status = '{new_mgr_status}'"
     storage.execute(
-        "UPDATE leave_requests SET status = 'approved', decided_at = ? WHERE id = ?",
+        f"UPDATE leave_requests SET status = 'approved', decided_at = ?{mgr_sql} WHERE id = ?",
         (utcnow_iso(), leave_id),
     )
     storage.audit(
@@ -363,7 +385,15 @@ def approve_leave(
 def reject_leave(
     storage: Storage, *, leave_id: int, actor: str | None = None, reason: str | None = None
 ) -> dict[str, Any]:
-    leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (leave_id,))
+    leave = storage.query_one(
+        """
+        SELECT l.*, e.manager_id
+        FROM leave_requests l
+        JOIN employees e ON e.id = l.employee_id
+        WHERE l.id = ?
+        """,
+        (leave_id,),
+    )
     if leave is None:
         raise employees_service.ValidationError(f"Leave #{leave_id} not found.")
     if leave["status"] == "approved":
@@ -386,7 +416,15 @@ def reject_leave(
 
 def cancel_leave(storage: Storage, leave_id: int, *, actor: str | None = None, allow_past: bool | None = None) -> dict[str, Any]:
     """Cancel a leave record and remove the attendance rows it created."""
-    leave = storage.query_one("SELECT * FROM leave_requests WHERE id = ?", (leave_id,))
+    leave = storage.query_one(
+        """
+        SELECT l.*, e.manager_id
+        FROM leave_requests l
+        JOIN employees e ON e.id = l.employee_id
+        WHERE l.id = ?
+        """,
+        (leave_id,),
+    )
     if leave is None:
         raise employees_service.ValidationError(f"Leave #{leave_id} not found.")
     if leave["status"] == "cancelled":

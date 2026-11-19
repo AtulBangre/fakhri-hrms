@@ -361,21 +361,54 @@ def shift_for(storage: Storage, employee: dict | None, shifts: dict[int, dict] |
     """The shift that applies to an employee: their assigned one, else the company's.
 
     Every screen and rule that needs a person's timing should read it from here.
+    Supports individual employee-level custom shift timings and grace period overrides.
     """
+    base: dict[str, Any] | None = None
     shift_id = employee.get("shift_id") if employee else None
     if shift_id:
         shift = shifts.get(shift_id) if shifts is not None else storage.query_one(
             "SELECT * FROM shifts WHERE id = ?", (shift_id,)
         )
         if shift:
-            return shift
-    return {
-        "name": None,
-        "start_time": storage.get_setting("shift_start", "09:30"),
-        "end_time": storage.get_setting("shift_end", "18:30"),
-        "grace_minutes": storage.get_int("late_grace_minutes", 15),
-        "half_day_minutes": storage.get_int("half_day_min_minutes", 240),
-    }
+            base = dict(shift)
+
+    if base is None:
+        base = {
+            "id": None,
+            "name": None,
+            "start_time": storage.get_setting("shift_start", "09:30"),
+            "end_time": storage.get_setting("shift_end", "18:30"),
+            "grace_minutes": storage.get_int("late_grace_minutes", 15),
+            "half_day_minutes": storage.get_int("half_day_min_minutes", 240),
+        }
+    else:
+        if base.get("grace_minutes") is None:
+            base["grace_minutes"] = storage.get_int("late_grace_minutes", 15)
+        if base.get("half_day_minutes") is None:
+            base["half_day_minutes"] = storage.get_int("half_day_min_minutes", 240)
+
+    # Employee-level flexibility (Tarika 2)
+    is_custom_grace = False
+    is_custom_shift = False
+    if employee:
+        if employee.get("custom_shift_start"):
+            base["start_time"] = str(employee["custom_shift_start"]).strip()
+            is_custom_shift = True
+        if employee.get("custom_shift_end"):
+            base["end_time"] = str(employee["custom_shift_end"]).strip()
+            is_custom_shift = True
+        cgm = employee.get("custom_grace_minutes")
+        if cgm is not None and str(cgm).strip() != "":
+            try:
+                base["grace_minutes"] = int(cgm)
+                is_custom_grace = True
+            except (ValueError, TypeError):
+                pass
+
+    base["is_custom_shift"] = is_custom_shift
+    base["is_custom_grace"] = is_custom_grace
+    base["is_custom_timing"] = is_custom_shift or is_custom_grace
+    return base
 
 
 def shift_start_minutes(storage: Storage) -> int:

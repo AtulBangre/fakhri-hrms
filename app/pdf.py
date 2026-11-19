@@ -222,7 +222,11 @@ def render_payslip(
     if late_fine > 0:
         pdf.amount_row("Late arrival fines", _money(late_fine))
     pdf.amount_row("Salary advance", _money(slip.get("advance")))
-    pdf.amount_row("Other deductions", _money(slip.get("other_deduction")))
+    other_amt = float(slip.get("other_deduction") or 0)
+    other_label = "Other deductions"
+    if slip.get("other_deduction_note"):
+        other_label += f" ({str(slip['other_deduction_note'])[:35]})"
+    pdf.amount_row(other_label, _money(other_amt))
     pdf.amount_row("Total deductions", _money(slip.get("total_deductions")), bold=True)
     pdf.set_y(max(left_end, pdf.get_y()) + 2)
 

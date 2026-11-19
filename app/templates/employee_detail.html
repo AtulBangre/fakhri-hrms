@@ -14,6 +14,12 @@
       {% if employee.remote_work_enabled %}
         <span class="chip chip-ok" style="margin-left:.35rem;background:#EBF5EC;color:#1E7E34;font-weight:600">Remote (WFH)</span>
       {% endif %}
+      {% if employee.custom_grace_minutes is not none and employee.custom_grace_minutes != '' %}
+        <span class="chip chip-info" style="margin-left:.35rem;" title="Individual custom grace period">Grace: {{ employee.custom_grace_minutes }}m</span>
+      {% endif %}
+      {% if employee.custom_shift_start or employee.custom_shift_end %}
+        <span class="chip chip-info" style="margin-left:.35rem;" title="Individual custom shift timings">Shift: {{ employee.custom_shift_start or '—' }} – {{ employee.custom_shift_end or '—' }}</span>
+      {% endif %}
     </div>
   </div>
   <div class="page-actions">
@@ -30,374 +36,884 @@
     <a class="btn" href="/attendance?day={{ today.isoformat() }}">Attendance board</a>
     <a class="btn" href="/employees/{{ employee.id }}/payslips">Payslips</a>
     <a class="btn" href="/tax/employee/{{ employee.id }}">Tax / TDS</a>
-    <a class="btn" href="/employees/{{ employee.id }}/edit">Edit details</a>
+    <a class="btn btn-primary" href="/employees/{{ employee.id }}/edit">Edit details</a>
   </div>
 </div>
 
+<!-- 360° Profile Tab Navigation -->
+<div class="profile-nav-tabs" role="tablist">
+  <button type="button" class="profile-tab-btn active" data-tab="overview" role="tab" aria-selected="true">
+    <span>📌 Overview &amp; Bio</span>
+  </button>
+  <button type="button" class="profile-tab-btn" data-tab="attendance" role="tab" aria-selected="false">
+    <span>⏱️ Attendance</span>
+    {% if summary.late_marks and summary.late_marks > 0 %}
+      <span class="tab-badge" style="background:#fef3c7;color:#92400e">{{ summary.late_marks }} late</span>
+    {% endif %}
+  </button>
+  <button type="button" class="profile-tab-btn" data-tab="leave" role="tab" aria-selected="false">
+    <span>🏖️ Leave &amp; Balance</span>
+    <span class="tab-badge">{{ balance.total_available | number }}d</span>
+  </button>
+  <button type="button" class="profile-tab-btn" data-tab="salary" role="tab" aria-selected="false">
+    <span>💰 Salary &amp; Deductions</span>
+    {% if total_deductions_amount and total_deductions_amount > 0 %}
+      <span class="tab-badge" style="background:#fee2e2;color:#991b1b">-₹{{ total_deductions_amount | plain }}</span>
+    {% endif %}
+  </button>
+  <button type="button" class="profile-tab-btn" data-tab="documents" role="tab" aria-selected="false">
+    <span>📁 Documents &amp; KYC</span>
+    <span class="tab-badge">{{ docs | length }}</span>
+  </button>
+</div>
+
 <div class="grid grid-sidebar">
-  <div>
-    <div class="grid grid-4 mb-3">
-      <div class="stat accent">
-        <div class="label">Present this month</div>
-        <div class="value">{{ summary.present | number }}</div>
-        <div class="foot">{{ summary.half_days | number }} half day · {{ summary.late_marks }} late</div>
+  <!-- Main Tabs Body -->
+  <div class="tab-content-area">
+
+    <!-- ==================== TAB 1: OVERVIEW & BIO ==================== -->
+    <div id="tab-overview" class="tab-pane active" role="tabpanel">
+      <!-- Top Mini Stat Cards -->
+      <div class="grid grid-4 mb-3">
+        <div class="stat accent">
+          <div class="label">Service Tenure</div>
+          <div class="value">{{ balance.months_of_service }}<small style="font-size:0.8rem;font-weight:normal;color:var(--muted)"> mos</small></div>
+          <div class="foot">Joined {{ employee.joined_on | nice_date }}</div>
+        </div>
+        <div class="stat">
+          <div class="label">Leave Available</div>
+          <div class="value">{{ balance.total_available | number }}<small style="font-size:0.8rem;font-weight:normal;color:var(--muted)"> days</small></div>
+          <div class="foot">PL: {{ balance.pl_available | number }} · SL: {{ balance.sl_available | number }} · CL: {{ balance.cl_available | number }}</div>
+        </div>
+        <div class="stat">
+          <div class="label">Active Salary</div>
+          <div class="value">{{ employee.monthly_gross | money }}</div>
+          <div class="foot">Gross CTC / month</div>
+        </div>
+        <div class="stat">
+          <div class="label">Reporting Manager</div>
+          <div class="value" style="font-size:1.05rem;line-height:1.3;font-weight:600">
+            {% if manager %}{{ manager.name }}{% else %}<span class="muted">Direct (HR)</span>{% endif %}
+          </div>
+          <div class="foot">{% if manager %}{{ manager.code }}{% if manager.designation %} · {{ manager.designation }}{% endif %}{% else %}Executive Reporting{% endif %}</div>
+        </div>
       </div>
-      <div class="stat"><div class="label">Leave balance</div><div class="value">{{ balance.total_available | number }}<small style="font-size:0.8rem;font-weight:normal;color:var(--muted)"> days</small></div><div class="foot">PL: {{ balance.pl_available | number }} · SL: {{ balance.sl_available | number }} · CL: {{ balance.cl_available | number }}</div></div>
-      <div class="stat {{ 'danger' if summary.absent else 'ok' }}"><div class="label">Absent (LOP)</div><div class="value">{{ (summary.absent + summary.unpaid_leave) | number }}</div><div class="foot">{{ summary.unpaid_leave | number }} unpaid leave</div></div>
-      <div class="stat"><div class="label">Worked hours</div><div class="value">{{ (summary.worked_minutes / 60) | round(0) | int }}h</div><div class="foot">{{ period_label }}</div></div>
-    </div>
 
-    {% set upcoming_list = (salaries | selectattr('status_badge', 'equalto', 'upcoming') | list) if salaries else [] %}
-    {% set upcoming_rev = upcoming_list[0] if upcoming_list else none %}
-    <details class="card mb-3 disclosure">
-      <summary class="card-head" style="cursor:pointer;list-style:none;display:flex;align-items:center;user-select:none">
-        <h2 style="margin:0;display:flex;align-items:center;gap:.5rem">
-          <span>Salary structure &amp; revisions</span>
-          <span class="small muted" style="font-weight:normal;font-size:.82rem">(click to view / revise)</span>
-        </h2>
-        <span class="spacer"></span>
-        <span class="chip chip-primary">current active: {{ employee.monthly_gross | money }}/month</span>
-        {% if upcoming_rev %}
-          <span class="chip chip-info" style="margin-left: 0.5rem;">Upcoming: {{ upcoming_rev.monthly_gross | money }} from {{ upcoming_rev.effective_from | nice_date }}</span>
-        {% endif %}
-        <span style="font-size:.85rem;margin-left:.75rem;color:var(--muted)">▼</span>
-      </summary>
-      <div class="card-body">
-        <form method="post" action="/employees/{{ employee.id }}/salary">
-          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-          <div class="form-row cols-2">
-            <div class="field">
-              <label for="monthly_gross" style="font-weight:600">Revised Monthly gross (CTC) *</label>
-              <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="any" value="{{ employee.monthly_gross | round(0) | int }}" required style="font-size:1.1rem;font-weight:600">
-            </div>
-            <div class="field">
-              <label for="note">Reason for revision / Note</label>
-              <input id="note" name="note" type="text" placeholder="e.g. Annual raise, Appraisal, Promotion, Correction">
-            </div>
-          </div>
-
-          <!-- Salary Applicability Month Selector -->
-          <div class="field mb-3" style="background:var(--bg-hover, #f8f9fa);border:1px dashed var(--border);border-radius:var(--radius);padding:0.85rem 1rem;">
-            <label style="font-weight:600;display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-              <span>Applicable From (Effective Month) *</span>
-              <span class="small muted" id="detail_eff_hint">Full {{ month_presets.cur_month_label }} payroll will use this new salary.</span>
-            </label>
-            <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-              <button type="button" class="btn btn-sm" id="btn-eff-cur" onclick="setSalaryEffectiveMonth('{{ month_presets.cur_month_iso }}', 'Full {{ month_presets.cur_month_label }} payroll will use this new salary.')">
-                Current Month ({{ month_presets.cur_month_label }})
-              </button>
-              <button type="button" class="btn btn-sm btn-outline" id="btn-eff-next" onclick="setSalaryEffectiveMonth('{{ month_presets.next_month_iso }}', 'Upcoming increment: Current month unchanged; new rate starts in {{ month_presets.next_month_label }}.')">
-                Next Month ({{ month_presets.next_month_label }})
-              </button>
-              <button type="button" class="btn btn-sm btn-outline" id="btn-eff-prev" onclick="setSalaryEffectiveMonth('{{ month_presets.prev_month_iso }}', 'Retroactive revision: Applies to {{ month_presets.prev_month_label }} and onwards.')">
-                Previous Month ({{ month_presets.prev_month_label }})
-              </button>
-            </div>
-            <div style="display:flex;gap:0.75rem;align-items:center;">
-              <input id="effective_from" name="effective_from" type="date" value="{{ month_presets.cur_month_iso }}" onchange="onCustomDateInput(this.value)" required style="max-width:180px;">
-              <span class="small muted" id="detail_eff_subtext">Effective starting 1st of {{ month_presets.cur_month_label }}.</span>
-            </div>
-          </div>
-
-          <div class="form-row cols-3">
-            <div class="field"><label for="basic">Basic</label><input id="basic" name="basic" type="number" min="0" step="any" value="{{ salary_defaults.basic | plain }}"></div>
-            <div class="field"><label for="hra">HRA</label><input id="hra" name="hra" type="number" min="0" step="any" value="{{ salary_defaults.hra | plain }}"></div>
-            <div class="field"><label for="other_allowances">Other allowances</label><input id="other_allowances" name="other_allowances" type="number" min="0" step="any" value="{{ salary_defaults.other_allowances | plain }}"></div>
-          </div>
-          <div class="form-row cols-3">
-            <div class="field"><label for="pf">PF</label><input id="pf" name="pf" type="number" min="0" step="any" value="{{ salary_defaults.pf | plain }}"></div>
-            <div class="field"><label for="esi">ESI</label><input id="esi" name="esi" type="number" min="0" step="any" value="{{ salary_defaults.esi | plain }}"></div>
-            <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="any" value="{{ salary_defaults.professional_tax if salary_defaults.professional_tax is not none else '0' }}" placeholder="0"></div>
-          </div>
-          <div class="form-row cols-2">
-            <div class="field"><label for="statutory_mode">PF / ESI Mode</label>
-                <select id="statutory_mode" name="statutory_mode">
-                  <option value="auto" {{ 'selected' if salary_defaults.statutory_mode == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
-                  <option value="fixed" {{ 'selected' if salary_defaults.statutory_mode != 'auto' }}>Use the exact amounts above</option>
-                </select>
-                <div class="hint">Either way PF/ESI are reduced in loss-of-pay months.</div></div>
-          </div>
-          <div style="display:flex;gap:1rem;align-items:center;margin-top:0.75rem;">
-            <button class="btn btn-primary" type="submit">Save new structure</button>
-            <span class="small muted">Past payroll months remain safe with their historical salary structures.</span>
-          </div>
-        </form>
-      </div>
-    </details>
-
-    <div class="card flush mb-3">
-      <div class="card-head">
-        <h2>Salary revision history</h2>
-        <span class="spacer"></span>
-        <span class="small muted">Complete timeline with payroll applicability</span>
-      </div>
-      <div class="table-wrap">
-        <table class="data m-table">
-          <thead>
-            <tr>
-              <th>Status</th>
-              <th>Applicable From</th>
-              <th class="num">Monthly Gross</th>
-              <th class="num">Change</th>
-              <th class="num">Approx Take-Home</th>
-              <th>Reason / Note</th>
-              <th>Recorded On</th>
-            </tr>
-          </thead>
-          <tbody>
-          {% for item in salaries %}
-            <tr>
-              <td data-label="Status">
-                {% if item.status_badge == 'active' %}
-                  <span class="chip chip-success" style="font-size:0.75rem;">Active</span>
-                {% elif item.status_badge == 'upcoming' %}
-                  <span class="chip chip-info" style="font-size:0.75rem;">Upcoming ({{ item.effective_from | nice_date }})</span>
+      <!-- Job & Work Settings -->
+      <div class="card mb-3">
+        <div class="card-head">
+          <h2>Job &amp; Work Rules</h2>
+          <span class="spacer"></span>
+          <a class="btn btn-sm" href="/employees/{{ employee.id }}/edit">Update Rules</a>
+        </div>
+        <div class="card-body">
+          <div class="kv cols-2">
+            <div><span class="k">Employee Code</span><span class="v mono font-bold">{{ employee.code }}</span></div>
+            <div><span class="k">Department</span><span class="v">{{ employee.department or 'Unassigned' }}</span></div>
+            <div><span class="k">Designation</span><span class="v">{{ employee.designation or 'Unassigned' }}</span></div>
+            <div><span class="k">Employment Type</span><span class="v">{{ employee.employment_type.replace('_', ' ') | title }}</span></div>
+            <div><span class="k">Work Mode</span><span class="v">
+              {% if employee.remote_work_enabled %}
+                <span class="chip chip-ok" style="font-size:0.75rem;background:#EBF5EC;color:#1E7E34;font-weight:600">Remote (WFH enabled)</span>
+              {% else %}
+                <span class="chip chip-muted" style="font-size:0.75rem">On-site only</span>
+              {% endif %}
+            </span></div>
+            <div><span class="k">Shift Timings</span><span class="v">
+              {% if emp_shift and emp_shift.is_custom_shift %}
+                <strong>{{ emp_shift.start_time }} – {{ emp_shift.end_time }}</strong>
+                <span class="chip chip-info" style="font-size:0.7rem">Custom</span>
+              {% elif emp_shift and emp_shift.name %}
+                {{ emp_shift.name }} ({{ emp_shift.start_time }} – {{ emp_shift.end_time }})
+              {% elif emp_shift %}
+                Company default ({{ emp_shift.start_time }} – {{ emp_shift.end_time }})
+              {% else %}
+                —
+              {% endif %}
+            </span></div>
+            <div><span class="k">Grace Window</span><span class="v">
+              {% if emp_shift %}
+                <strong>{{ emp_shift.grace_minutes }} minutes</strong>
+                {% if emp_shift.is_custom_grace %}
+                  <span class="chip chip-info" style="font-size:0.7rem">Waiver override</span>
                 {% else %}
-                  <span class="chip" style="font-size:0.75rem;color:var(--muted);background:var(--bg-hover);">Superseded</span>
+                  <span class="muted small">(Default)</span>
                 {% endif %}
-              </td>
-              <td data-label="Applicable From" class="nowrap"><strong>{{ item.effective_from | nice_date }}</strong></td>
-              <td data-label="Monthly Gross" class="num font-bold">{{ item.monthly_gross | money }}</td>
-              <td data-label="Change" class="num">
-                {% if item.diff_amount > 0 %}
-                  <span style="color:var(--color-success, #16a34a);font-weight:600;">+{{ item.diff_amount | money }} (+{{ '%.1f'|format(item.diff_pct) }}%)</span>
-                {% elif item.diff_amount < 0 %}
-                  <span style="color:var(--color-danger, #dc2626);font-weight:600;">{{ item.diff_amount | money }} ({{ '%.1f'|format(item.diff_pct) }}%)</span>
+              {% else %}
+                —
+              {% endif %}
+            </span></div>
+            <div><span class="k">Self-Punch Mode</span><span class="v">{{ employee.self_punch_mode or 'inherit' }}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bank & Statutory Details Card -->
+      <div class="card mb-3">
+        <div class="card-head">
+          <h2>Bank &amp; Statutory Identifiers</h2>
+          <span class="spacer"></span>
+          <span class="small muted">Used for payroll transfers, PF &amp; ESIC returns</span>
+        </div>
+        <div class="card-body">
+          <div class="kv cols-2">
+            <div><span class="k">Bank Name</span><span class="v font-bold">{{ employee.bank_name or '—' }}</span></div>
+            <div><span class="k">Account Holder</span><span class="v">{{ employee.account_holder or employee.name }}</span></div>
+            <div>
+              <span class="k">Account Number</span>
+              <span class="v mono font-bold">
+                {% if employee.account_number %}
+                  <span class="copy-pill" onclick="copyToClipboard('{{ employee.account_number }}', this)" title="Click to copy">
+                    {{ employee.account_number }} 📋
+                  </span>
                 {% else %}
                   <span class="muted">—</span>
                 {% endif %}
-              </td>
-              <td data-label="Approx Take-Home" class="num">{{ (item.monthly_gross - item.pf - item.esi - item.professional_tax) | money }}</td>
-              <td data-label="Reason">{{ item.note or 'Initial structure' }}</td>
-              <td data-label="Recorded" class="small muted">{{ item.created_at[:10] if item.created_at else '—' }}</td>
-            </tr>
-          {% else %}
-            <tr><td colspan="7" class="empty-state">No salary recorded yet.</td></tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card flush mb-3">
-      <div class="card-head">
-        <h2>Leave</h2>
-        <span class="spacer"></span>
-        <span class="chip chip-info" title="PL: {{ balance.pl_available | number }} / {{ balance.accrued | number }} | SL: {{ balance.sl_available | number }} / {{ balance.annual_sl | number }} | CL: {{ balance.cl_available | number }} / {{ balance.annual_cl | number }}">Total available: {{ balance.total_available | number }} days (PL: {{ balance.pl_available | number }}, SL: {{ balance.sl_available | number }}, CL: {{ balance.cl_available | number }})</span>
-      </div>
-      <div class="table-wrap">
-        <table class="data m-table">
-          <thead><tr><th>Dates</th><th>Type</th><th class="num">Days</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-          {% for item in leaves %}
-            <tr>
-              <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
-              <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
-              <td data-label="Days" class="num">{{ item.days | number }}</td>
-              <td data-label="Status">{{ item.status }}</td>
-              <td class="actions-cell">
-                {% if item.status == 'approved' %}
-                  {% if item.to_date >= today.isoformat() %}
-                    <form method="post" action="/leave/{{ item.id }}/cancel" data-confirm="Cancel this leave and restore the attendance days?">
-                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                      <input type="hidden" name="period" value="{{ period }}">
-                      <button class="btn btn-sm btn-danger" type="submit">Cancel</button>
-                    </form>
-                  {% else %}
-                    <span class="small muted" title="Past approved leave cannot be cancelled">Past leave</span>
-                  {% endif %}
+              </span>
+            </div>
+            <div>
+              <span class="k">IFSC Code</span>
+              <span class="v mono font-bold">
+                {% if employee.ifsc %}
+                  <span class="copy-pill" onclick="copyToClipboard('{{ employee.ifsc }}', this)" title="Click to copy">
+                    {{ employee.ifsc }} 📋
+                  </span>
+                {% else %}
+                  <span class="muted">—</span>
                 {% endif %}
-              </td>
-            </tr>
-          {% else %}
-            <tr><td colspan="5" class="empty-state">No leave taken.</td></tr>
-          {% endfor %}
-          </tbody>
-        </table>
+              </span>
+            </div>
+            <div>
+              <span class="k">PAN Number</span>
+              <span class="v mono font-bold">
+                {% if employee.pan %}
+                  <span class="copy-pill" onclick="copyToClipboard('{{ employee.pan }}', this)" title="Click to copy">
+                    {{ employee.pan }} 📋
+                  </span>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </span>
+            </div>
+            <div>
+              <span class="k">Aadhaar (ID)</span>
+              <span class="v mono font-bold">{{ masked_aadhaar or '—' }}</span>
+            </div>
+            <div>
+              <span class="k">PF UAN</span>
+              <span class="v mono">
+                {% if employee.uan %}
+                  <span class="copy-pill" onclick="copyToClipboard('{{ employee.uan }}', this)" title="Click to copy">
+                    {{ employee.uan }} 📋
+                  </span>
+                {% else %}
+                  <span class="muted">Not configured</span>
+                {% endif %}
+              </span>
+            </div>
+            <div>
+              <span class="k">ESIC IP</span>
+              <span class="v mono">
+                {% if employee.esic_ip %}
+                  <span class="copy-pill" onclick="copyToClipboard('{{ employee.esic_ip }}', this)" title="Click to copy">
+                    {{ employee.esic_ip }} 📋
+                  </span>
+                {% else %}
+                  <span class="muted">Not covered</span>
+                {% endif %}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <!-- Personal & Emergency Contact -->
+      <div class="card mb-3">
+        <div class="card-head"><h2>Personal &amp; Emergency Details</h2></div>
+        <div class="card-body">
+          <div class="kv cols-2">
+            <div><span class="k">Email</span><span class="v">{% if employee.email %}<a href="mailto:{{ employee.email }}">{{ employee.email }}</a>{% else %}—{% endif %}</span></div>
+            <div><span class="k">Mobile Phone</span><span class="v">{% if employee.phone %}<a href="tel:{{ employee.phone }}">{{ employee.phone }}</a>{% else %}—{% endif %}</span></div>
+            <div><span class="k">Date of Birth</span><span class="v">{{ employee.date_of_birth | nice_date if employee.date_of_birth else '—' }}</span></div>
+            <div><span class="k">Anniversary</span><span class="v">{{ employee.anniversary | nice_date if employee.anniversary else '—' }}</span></div>
+            <div><span class="k">Emergency Contact</span><span class="v font-bold" style="color:var(--ink)">{{ employee.emergency_contact or '—' }}</span></div>
+            <div><span class="k">Residential Address</span><span class="v">{{ employee.address or '—' }}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Assigned Company Assets -->
+      <div class="card mb-3">
+        <div class="card-head">
+          <h2>Assigned Hardware &amp; Assets</h2>
+          <span class="spacer"></span>
+          <span class="chip">{{ assigned_assets | length }} assigned</span>
+        </div>
+        <div class="card-body">
+          {% if assigned_assets %}
+            <div class="table-wrap">
+              <table class="data m-table">
+                <thead>
+                  <tr>
+                    <th>Asset Tag</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Serial Number</th>
+                    <th>Assigned On</th>
+                    <th>Condition / Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for a in assigned_assets %}
+                    <tr>
+                      <td data-label="Tag" class="mono font-bold">{{ a.tag }}</td>
+                      <td data-label="Name"><strong>{{ a.name }}</strong></td>
+                      <td data-label="Category"><span class="chip chip-info" style="font-size:0.75rem">{{ a.category_label }}</span></td>
+                      <td data-label="Serial" class="mono small">{{ a.serial or '—' }}</td>
+                      <td data-label="Assigned">{{ a.assigned_on | nice_date }}</td>
+                      <td data-label="Notes" class="small muted">{{ a.condition_note or '—' }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="empty-state" style="padding:1.25rem">
+              No hardware or company assets currently assigned to this person.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Direct Reports / Team Members (if Manager) -->
+      {% if direct_reports and direct_reports | length > 0 %}
+      <div class="card mb-3">
+        <div class="card-head">
+          <h2>Team &amp; Direct Reports</h2>
+          <span class="spacer"></span>
+          <span class="chip chip-success">{{ direct_reports | length }} members report to {{ employee.name }}</span>
+        </div>
+        <div class="card-body">
+          <div class="grid grid-3" style="gap:0.75rem">
+            {% for r in direct_reports %}
+              <div style="display:flex;align-items:center;gap:0.65rem;padding:0.6rem 0.85rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)">
+                {% if r.photo_filename %}
+                  <img src="/employees/{{ r.id }}/avatar" alt="{{ r.name }}" style="width:40px;height:40px;border-radius:50%;object-fit:cover">
+                {% else %}
+                  <span class="avatar" style="width:40px;height:40px;font-size:0.9rem">{{ r.name | initials }}</span>
+                {% endif %}
+                <div style="min-width:0;flex:1">
+                  <a href="/employees/{{ r.id }}" style="text-decoration:none;font-weight:600;display:block;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    {{ r.name }}
+                  </a>
+                  <div class="small muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    {{ r.code }} · {{ r.designation or 'Team Member' }}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
     </div>
 
-    <div class="card flush mb-3">
-      <div class="card-head">
-        <h2>Attendance history · {{ period_label }}</h2>
-        <span class="spacer"></span>
-        {% if period == today.strftime('%Y-%m') and today_kind == 'working' and (not today_row or today_row.status != 'present') %}
-          <form method="post" action="/attendance/mark" style="display:inline;margin-right:.5rem">
-            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-            <input type="hidden" name="employee_id" value="{{ employee.id }}">
-            <input type="hidden" name="work_date" value="{{ today_iso }}">
-            <input type="hidden" name="status" value="present">
-            <input type="hidden" name="check_in" value="{{ shift_start }}">
-            <input type="hidden" name="check_out" value="{{ shift_end }}">
-            <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}">
-            <button class="btn btn-sm btn-primary" type="submit">Mark Present Today</button>
+    <!-- ==================== TAB 2: ATTENDANCE & TIMESHEETS ==================== -->
+    <div id="tab-attendance" class="tab-pane" role="tabpanel">
+      <!-- Attendance Month KPIs -->
+      <div class="grid grid-4 mb-3">
+        <div class="stat accent">
+          <div class="label">Present Days</div>
+          <div class="value">{{ summary.present | number }}</div>
+          <div class="foot">{{ summary.half_days | number }} half day · {{ summary.late_marks }} late</div>
+        </div>
+        <div class="stat {{ 'danger' if summary.absent else 'ok' }}">
+          <div class="label">Absent (LOP)</div>
+          <div class="value">{{ (summary.absent + summary.unpaid_leave) | number }}</div>
+          <div class="foot">{{ summary.unpaid_leave | number }} unpaid leave</div>
+        </div>
+        <div class="stat {{ 'danger' if summary.late_fines else '' }}">
+          <div class="label">Late Marks &amp; Fines</div>
+          <div class="value">{{ summary.late_marks }}</div>
+          <div class="foot font-bold" style="color:var(--primary)">₹{{ summary.late_fines | plain }} total fines</div>
+        </div>
+        <div class="stat">
+          <div class="label">Worked Hours</div>
+          <div class="value">{{ (summary.worked_minutes / 60) | round(0) | int }}h</div>
+          <div class="foot">{{ period_label }}</div>
+        </div>
+      </div>
+
+      <!-- Attendance Ledger -->
+      <div class="card flush mb-3">
+        <div class="card-head">
+          <h2>Daily attendance · {{ period_label }}</h2>
+          <span class="spacer"></span>
+          {% if period == today.strftime('%Y-%m') and today_kind == 'working' and (not today_row or today_row.status != 'present') %}
+            <form method="post" action="/attendance/mark" style="display:inline;margin-right:.5rem">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input type="hidden" name="employee_id" value="{{ employee.id }}">
+              <input type="hidden" name="work_date" value="{{ today_iso }}">
+              <input type="hidden" name="status" value="present">
+              <input type="hidden" name="check_in" value="{{ shift_start }}">
+              <input type="hidden" name="check_out" value="{{ shift_end }}">
+              <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}#attendance">
+              <button class="btn btn-sm btn-primary" type="submit">Mark Present Today</button>
+            </form>
+          {% endif %}
+          <form class="inline-form" method="get" action="/employees/{{ employee.id }}#attendance">
+            <input name="period" type="month" value="{{ period }}" aria-label="Month" onchange="this.form.submit()" style="width:auto">
           </form>
-        {% endif %}
-        <form class="inline-form" method="get" action="/employees/{{ employee.id }}">
-          <input name="period" type="month" value="{{ period }}" aria-label="Month" onchange="this.form.submit()" style="width:auto">
-        </form>
-      </div>
-      <div class="table-wrap m-scroll-y">
-        <table class="data m-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Status</th>
-              <th>In</th>
-              <th>Out</th>
-              <th>Worked</th>
-              <th class="m-hide">Late</th>
-              <th class="m-hide">Source / Note</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-          {% for item in attendance_days %}
-            {% if not item.is_future %}
-            <tr {% if item.is_today %}style="background:var(--primary-soft)"{% endif %}>
-              <td data-label="Date" class="nowrap">
-                <strong>{{ item.day.strftime('%d %b') }}</strong>
-                <span class="sub">{{ item.weekday }}{% if item.is_today %} · today{% endif %}</span>
-              </td>
-              <td data-label="Status">
-                <span class="{{ item.status | chip }}">{{ item.status_label }}</span>
-                {% if item.leave_type %}<span class="sub muted">{{ item.leave_type }}</span>{% endif %}
-              </td>
-              <td data-label="In">
-                <div class="punch">
-                  <span>{{ item.check_in }}</span>
-                  {% if item.punch_in_photo %}
-                    <a class="m-hide" href="/attendance/photos/{{ item.punch_in_photo }}" target="_blank" title="Punch-in photo">
-                      <img src="/attendance/photos/{{ item.punch_in_photo }}" alt="In">
-                    </a>
-                  {% endif %}
-                </div>
-                {% if item.late_minutes %}<span class="sub m-only m-late" title="{{ item.late_minutes }} minutes late">+{{ item.late_minutes }}m</span>{% endif %}
-              </td>
-              <td data-label="Out">
-                <div class="punch">
-                  <span>{{ item.check_out }}</span>
-                  {% if item.punch_out_photo %}
-                    <a class="m-hide" href="/attendance/photos/{{ item.punch_out_photo }}" target="_blank" title="Punch-out photo">
-                      <img src="/attendance/photos/{{ item.punch_out_photo }}" alt="Out">
-                    </a>
-                  {% endif %}
-                </div>
-              </td>
-              <td data-label="Worked" class="nowrap">{{ item.worked }}</td>
-              <td data-label="Late" class="m-hide">
-                {% if item.late_minutes %}
-                  <span class="chip chip-warn">{{ item.late_minutes }}m{% if item.late_fine %} · ₹{{ item.late_fine | plain }}{% endif %}</span>
-                {% else %}—{% endif %}
-              </td>
-              <td data-label="Source / Note" class="small m-hide">
-                {% if item.note %}{{ item.note }}{% elif item.source %}<span class="muted">{{ item.source }}</span>{% else %}—{% endif %}
-              </td>
-              <td class="actions-cell">
-                {% if item.is_fixable %}
-                  {% if item.status not in ('present', 'week_off', 'holiday') and not item.is_off %}
-                    <form class="m-hide" method="post" action="/attendance/mark" style="display:inline">
-                      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                      <input type="hidden" name="employee_id" value="{{ employee.id }}">
-                      <input type="hidden" name="work_date" value="{{ item.iso }}">
-                      <input type="hidden" name="status" value="present">
-                      <input type="hidden" name="check_in" value="{{ item.raw_in or shift_start }}">
-                      <input type="hidden" name="check_out" value="{{ item.raw_out or ('' if item.is_today else shift_end) }}">
-                      <input type="hidden" name="note" value="marked present by HR">
-                      <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}">
-                      <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present">Mark Present</button>
-                    </form>
-                  {% endif %}
-                  <button class="btn btn-sm" type="button" data-toggle-row="fix-att-{{ item.iso }}" aria-label="Fix or edit {{ item.day.strftime('%d %b') }}"><span class="m-hide">Fix / Edit</span><span class="m-only">Edit</span></button>
-                {% endif %}
-              </td>
-            </tr>
-            {% if item.is_fixable %}
-            <tr id="fix-att-{{ item.iso }}" class="hidden">
-              <td colspan="8" class="fix-cell">
-                {% if item.note or item.source or item.punch_in_photo or item.punch_out_photo %}
-                  <div class="m-only m-detail-grid">
-                    {% if item.note or item.source %}<div class="wide"><span class="k">Source / note</span>{{ item.note or item.source }}</div>{% endif %}
-                    {% if item.punch_in_photo or item.punch_out_photo %}
-                      <div class="wide"><span class="k">Photos</span>
-                        {% if item.punch_in_photo %}<a href="/attendance/photos/{{ item.punch_in_photo }}" target="_blank">In photo</a>{% endif %}
-                        {% if item.punch_out_photo %}<a href="/attendance/photos/{{ item.punch_out_photo }}" target="_blank" style="margin-left:.6rem">Out photo</a>{% endif %}
-                      </div>
+        </div>
+        <div class="table-wrap m-scroll-y">
+          <table class="data m-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Status</th>
+                <th>In</th>
+                <th>Out</th>
+                <th>Worked</th>
+                <th class="m-hide">Late</th>
+                <th class="m-hide">Source / Note</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for item in attendance_days %}
+              {% if not item.is_future %}
+              <tr {% if item.is_today %}style="background:var(--primary-soft)"{% endif %}>
+                <td data-label="Date" class="nowrap">
+                  <strong>{{ item.day.strftime('%d %b') }}</strong>
+                  <span class="sub">{{ item.weekday }}{% if item.is_today %} · today{% endif %}</span>
+                </td>
+                <td data-label="Status">
+                  <span class="{{ item.status | chip }}">{{ item.status_label }}</span>
+                  {% if item.early_leave_approved %}<span class="chip chip-info" style="font-size:0.7rem;margin-top:2px;display:inline-block" title="Official Early Leave Approved — No fine / No leave deduction">Early Leave</span>{% endif %}
+                  {% if item.leave_type %}<span class="sub muted">{{ item.leave_type }}</span>{% endif %}
+                </td>
+                <td data-label="In">
+                  <div class="punch">
+                    <span>{{ item.check_in }}</span>
+                    {% if item.punch_in_photo %}
+                      <a class="m-hide" href="/attendance/photos/{{ item.punch_in_photo }}" target="_blank" title="Punch-in photo">
+                        <img src="/attendance/photos/{{ item.punch_in_photo }}" alt="In">
+                      </a>
                     {% endif %}
                   </div>
-                {% endif %}
-                <form method="post" action="/attendance/mark" class="attendance-edit-form"
-                      data-is-today="{{ 'true' if item.is_today else 'false' }}"
-                      data-shift-start="{{ shift_start }}"
-                      data-shift-end="{{ shift_end }}"
-                      data-original-in="{{ item.raw_in or '' }}"
-                      data-original-out="{{ item.raw_out or '' }}">
-                  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                  <input type="hidden" name="employee_id" value="{{ employee.id }}">
-                  <input type="hidden" name="work_date" value="{{ item.iso }}">
-                  <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}">
-                  <div style="font-size:.9rem;font-weight:600;margin-bottom:.6rem;color:var(--ink)">
-                    Edit attendance for {{ item.day.strftime('%A, %d %B %Y') }}
+                  {% if item.late_minutes %}<span class="sub m-only m-late" title="{{ item.late_minutes }} minutes late">+{{ item.late_minutes }}m</span>{% endif %}
+                </td>
+                <td data-label="Out">
+                  <div class="punch">
+                    <span>{{ item.check_out }}</span>
+                    {% if item.punch_out_photo %}
+                      <a class="m-hide" href="/attendance/photos/{{ item.punch_out_photo }}" target="_blank" title="Punch-out photo">
+                        <img src="/attendance/photos/{{ item.punch_out_photo }}" alt="Out">
+                      </a>
+                    {% endif %}
                   </div>
-                  <div class="form-row cols-4 m-cols-2">
-                    <div class="field">
-                      <label>Status</label>
-                      <select name="status" class="att-status-select">
-                        {% for val in all_statuses %}
-                          <option value="{{ val }}" {{ 'selected' if item.raw_status == val or (not item.raw_status and item.status == val) }}>{{ status_labels.get(val, val) }}</option>
-                        {% endfor %}
-                      </select>
+                </td>
+                <td data-label="Worked" class="nowrap">{{ item.worked }}</td>
+                <td data-label="Late" class="m-hide">
+                  {% if item.late_minutes %}
+                    <span class="chip chip-warn">{{ item.late_minutes }}m{% if item.late_fine %} · ₹{{ item.late_fine | plain }}{% endif %}</span>
+                  {% else %}—{% endif %}
+                </td>
+                <td data-label="Source / Note" class="small m-hide">
+                  {% if item.note %}{{ item.note }}{% elif item.source %}<span class="muted">{{ item.source }}</span>{% else %}—{% endif %}
+                </td>
+                <td class="actions-cell">
+                  {% if item.is_fixable %}
+                    {% if item.status not in ('present', 'week_off', 'holiday') and not item.is_off %}
+                      <form class="m-hide" method="post" action="/attendance/mark" style="display:inline">
+                        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                        <input type="hidden" name="employee_id" value="{{ employee.id }}">
+                        <input type="hidden" name="work_date" value="{{ item.iso }}">
+                        <input type="hidden" name="status" value="present">
+                        <input type="hidden" name="check_in" value="{{ item.raw_in or shift_start }}">
+                        <input type="hidden" name="check_out" value="{{ item.raw_out or ('' if item.is_today else shift_end) }}">
+                        <input type="hidden" name="note" value="marked present by HR">
+                        <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}#attendance">
+                        <button class="btn btn-sm btn-primary" type="submit" title="Quick mark present">Mark Present</button>
+                      </form>
+                    {% endif %}
+                    <button class="btn btn-sm" type="button" data-toggle-row="fix-att-{{ item.iso }}" aria-label="Fix or edit {{ item.day.strftime('%d %b') }}"><span class="m-hide">Fix / Edit</span><span class="m-only">Edit</span></button>
+                  {% endif %}
+                </td>
+              </tr>
+              {% if item.is_fixable %}
+              <tr id="fix-att-{{ item.iso }}" class="hidden">
+                <td colspan="8" class="fix-cell">
+                  {% if item.note or item.source or item.punch_in_photo or item.punch_out_photo %}
+                    <div class="m-only m-detail-grid">
+                      {% if item.note or item.source %}<div class="wide"><span class="k">Source / note</span>{{ item.note or item.source }}</div>{% endif %}
+                      {% if item.punch_in_photo or item.punch_out_photo %}
+                        <div class="wide"><span class="k">Photos</span>
+                          {% if item.punch_in_photo %}<a href="/attendance/photos/{{ item.punch_in_photo }}" target="_blank">In photo</a>{% endif %}
+                          {% if item.punch_out_photo %}<a href="/attendance/photos/{{ item.punch_out_photo }}" target="_blank" style="margin-left:.6rem">Out photo</a>{% endif %}
+                        </div>
+                      {% endif %}
                     </div>
-                    <div class="field field-check-in">
-                      <label>Check in</label>
-                      <input name="check_in" type="time" value="{{ item.raw_in or ('' if item.status in ('absent', 'leave') else shift_start) }}">
+                  {% endif %}
+                  <form method="post" action="/attendance/mark" class="attendance-edit-form"
+                        data-is-today="{{ 'true' if item.is_today else 'false' }}"
+                        data-shift-start="{{ shift_start }}"
+                        data-shift-end="{{ shift_end }}"
+                        data-original-in="{{ item.raw_in or '' }}"
+                        data-original-out="{{ item.raw_out or '' }}">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <input type="hidden" name="employee_id" value="{{ employee.id }}">
+                    <input type="hidden" name="work_date" value="{{ item.iso }}">
+                    <input type="hidden" name="return_url" value="/employees/{{ employee.id }}?period={{ period }}#attendance">
+                    <div style="font-size:.9rem;font-weight:600;margin-bottom:.6rem;color:var(--ink)">
+                      Edit attendance for {{ item.day.strftime('%A, %d %B %Y') }}
                     </div>
-                    <div class="field field-check-out">
-                      <label>Check out</label>
-                      <input name="check_out" type="time" value="{{ item.raw_out or ('' if item.is_today or item.status in ('absent', 'leave') else shift_end) }}">
+                    <div class="form-row cols-4 m-cols-2">
+                      <div class="field">
+                        <label>Status</label>
+                        <select name="status" class="att-status-select">
+                          {% for val in all_statuses %}
+                            <option value="{{ val }}" {{ 'selected' if item.raw_status == val or (not item.raw_status and item.status == val) }}>{{ status_labels.get(val, val) }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                      <div class="field field-check-in">
+                        <label>Check in</label>
+                        <input name="check_in" type="time" value="{{ item.raw_in or ('' if item.status in ('absent', 'leave') else shift_start) }}">
+                      </div>
+                      <div class="field field-check-out">
+                        <label>Check out</label>
+                        <input name="check_out" type="time" value="{{ item.raw_out or ('' if item.is_today or item.status in ('absent', 'leave') else shift_end) }}">
+                      </div>
+                      <div class="field field-leave-type">
+                        <label>Leave type (if half/leave)</label>
+                        <select name="leave_type">
+                          <option value="">—</option>
+                          {% for lt in leave_types %}
+                            <option value="{{ lt }}" {{ 'selected' if item.raw_leave_type == lt }}>{{ leave_labels[lt] }}</option>
+                          {% endfor %}
+                        </select>
+                      </div>
                     </div>
-                    <div class="field field-leave-type">
-                      <label>Leave type (if half/leave)</label>
-                      <select name="leave_type">
-                        <option value="">—</option>
-                        {% for lt in leave_types %}
-                          <option value="{{ lt }}" {{ 'selected' if item.raw_leave_type == lt }}>{{ leave_labels[lt] }}</option>
-                        {% endfor %}
-                      </select>
+                    <div class="form-row cols-2 mt-1">
+                      <div class="field">
+                        <label>Reason / Note for correction</label>
+                        <input name="note" type="text" placeholder="e.g. scanner missed / HR correction" value="{{ item.note or '' }}">
+                      </div>
+                      <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end;gap:4px">
+                        <label class="checkline small" style="margin-bottom:0">
+                          <input type="checkbox" name="early_leave" value="1" {{ 'checked' if item.early_leave_approved }}> <strong>Approved Early Leave</strong> (Full day Present, no fine)
+                        </label>
+                        <label class="checkline small" style="margin-bottom:.5rem">
+                          <input type="checkbox" name="release_leave" value="1"> If on approved leave, return day to balance
+                        </label>
+                      </div>
                     </div>
-                  </div>
-                  <div class="form-row cols-2 mt-1">
-                    <div class="field">
-                      <label>Reason / Note for correction</label>
-                      <input name="note" type="text" placeholder="e.g. scanner missed / HR correction" value="{{ item.note or '' }}">
+                    <div class="form-actions mt-1">
+                      <button class="btn btn-primary btn-sm" type="submit">Save correction</button>
+                      <button class="btn btn-sm btn-ghost" type="button" data-toggle-row="fix-att-{{ item.iso }}">Cancel</button>
                     </div>
-                    <div class="field" style="display:flex;align-items:flex-end">
-                      <label class="checkline small" style="margin-bottom:.5rem">
-                        <input type="checkbox" name="release_leave" value="1"> If on approved leave, return day to balance
-                      </label>
-                    </div>
-                  </div>
-                  <div class="form-actions mt-1">
-                    <button class="btn btn-primary btn-sm" type="submit">Save correction</button>
-                    <button class="btn btn-sm btn-ghost" type="button" data-toggle-row="fix-att-{{ item.iso }}">Cancel</button>
-                  </div>
-                </form>
-              </td>
-            </tr>
-            {% endif %}
-            {% endif %}
-          {% else %}
-            <tr><td colspan="8" class="empty-state">No attendance records for this period.</td></tr>
-          {% endfor %}
-          </tbody>
-        </table>
+                  </form>
+                </td>
+              </tr>
+              {% endif %}
+              {% endif %}
+            {% else %}
+              <tr><td colspan="8" class="empty-state">No attendance records for this period.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
+
+    <!-- ==================== TAB 3: LEAVE & BALANCES ==================== -->
+    <div id="tab-leave" class="tab-pane" role="tabpanel">
+      <!-- Leave Balance Breakdown Cards -->
+      <div class="grid grid-4 mb-3">
+        <div class="stat accent">
+          <div class="label">Total Available</div>
+          <div class="value">{{ balance.total_available | number }}<small style="font-size:0.8rem;font-weight:normal;color:var(--muted)"> days</small></div>
+          <div class="foot">Across PL, SL &amp; CL</div>
+        </div>
+        <div class="stat">
+          <div class="label">Paid Leave (PL)</div>
+          <div class="value">{{ balance.pl_available | number }}</div>
+          <div class="foot">{{ balance.accrued | number }} accrued · {{ balance.used_pl | number }} taken</div>
+        </div>
+        <div class="stat">
+          <div class="label">Sick Leave (SL)</div>
+          <div class="value">{{ balance.sl_available | number }}</div>
+          <div class="foot">Annual quota: {{ balance.annual_sl | number }}d</div>
+        </div>
+        <div class="stat">
+          <div class="label">Casual Leave (CL)</div>
+          <div class="value">{{ balance.cl_available | number }}</div>
+          <div class="foot">Annual quota: {{ balance.annual_cl | number }}d</div>
+        </div>
+      </div>
+
+      <!-- Leave Requests History -->
+      <div class="card flush mb-3">
+        <div class="card-head">
+          <h2>Leave Request History</h2>
+          <span class="spacer"></span>
+          <span class="chip chip-info">Total available: {{ balance.total_available | number }} days</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data m-table">
+            <thead>
+              <tr>
+                <th>Dates</th>
+                <th>Type</th>
+                <th class="num">Days</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for item in leaves %}
+              <tr>
+                <td data-label="Dates">{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</td>
+                <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
+                <td data-label="Days" class="num font-bold">{{ item.days | number }}</td>
+                <td data-label="Status">
+                  <span class="chip {{ 'chip-ok' if item.status == 'approved' else ('chip-warn' if item.status == 'pending' else 'chip-danger') }}">{{ item.status }}</span>
+                </td>
+                <td class="actions-cell">
+                  {% if item.status == 'approved' %}
+                    {% if item.to_date >= today.isoformat() %}
+                      <form method="post" action="/leave/{{ item.id }}/cancel" data-confirm="Cancel this leave and restore the attendance days?">
+                        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                        <input type="hidden" name="period" value="{{ period }}">
+                        <button class="btn btn-sm btn-danger" type="submit">Cancel</button>
+                      </form>
+                    {% else %}
+                      <span class="small muted" title="Past approved leave cannot be cancelled">Past leave</span>
+                    {% endif %}
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="empty-state">No leave taken yet.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 4: SALARY, DEDUCTIONS & PAYROLL ==================== -->
+    <div id="tab-salary" class="tab-pane" role="tabpanel">
+      <!-- Active CTC Breakdown & Month Deductions -->
+      <div class="grid grid-2 mb-3">
+        <div class="card">
+          <div class="card-head">
+            <h2>Current Salary Structure</h2>
+            <span class="spacer"></span>
+            <span class="chip chip-primary">{{ employee.monthly_gross | money }}/month</span>
+          </div>
+          <div class="card-body">
+            <div class="kv cols-2">
+              <div><span class="k">Basic Salary</span><span class="v font-bold">{{ salary_defaults.basic | money }}</span></div>
+              <div><span class="k">HRA</span><span class="v">{{ salary_defaults.hra | money }}</span></div>
+              <div><span class="k">Other Allowances</span><span class="v">{{ salary_defaults.other_allowances | money }}</span></div>
+              <div><span class="k">Gross CTC</span><span class="v font-bold" style="color:var(--primary)">{{ employee.monthly_gross | money }}</span></div>
+              <div><span class="k">Provident Fund (PF)</span><span class="v">{{ salary_defaults.pf | money }}</span></div>
+              <div><span class="k">ESIC</span><span class="v">{{ salary_defaults.esi | money }}</span></div>
+              <div><span class="k">Professional Tax</span><span class="v">{{ salary_defaults.professional_tax | money }}</span></div>
+              <div><span class="k">Statutory Mode</span><span class="v">{{ salary_defaults.statutory_mode }}</span></div>
+            </div>
+            <div style="margin-top:1rem;display:flex;gap:0.5rem">
+              <a class="btn btn-sm btn-block" href="/employees/{{ employee.id }}/payslips">View All Payslips</a>
+              <a class="btn btn-sm btn-block" href="/tax/employee/{{ employee.id }}">Tax / TDS Breakdown</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Monthly Deductions & Fines Breakdown for Period -->
+        <div class="card">
+          <div class="card-head">
+            <h2>Deductions &amp; Fines · {{ period_label }}</h2>
+            <span class="spacer"></span>
+            <span class="chip {{ 'chip-danger' if total_deductions_amount > 0 else 'chip-ghost' }}">Total: ₹{{ total_deductions_amount | plain }}</span>
+          </div>
+          <div class="card-body">
+            <p class="small muted mb-2">Itemized fines and deductions calculated for {{ period_label }} payroll:</p>
+            <table class="data small mb-2" style="width:100%">
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th>Reason / Source</th>
+                  <th class="num">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% if summary.late_fines and summary.late_fines > 0 %}
+                <tr>
+                  <td><span class="chip chip-warn" style="font-size:0.7rem">Late fine</span></td>
+                  <td>Attendance scans ({{ summary.late_marks }} late days)</td>
+                  <td class="num font-bold" style="color:#b91c1c">₹{{ summary.late_fines | plain }}</td>
+                </tr>
+                {% endif %}
+                {% for d in emp_deductions %}
+                <tr>
+                  <td><span class="chip chip-info" style="font-size:0.7rem">{{ d.category_label or d.category }}</span></td>
+                  <td>{{ d.reason }}</td>
+                  <td class="num font-bold" style="color:#b91c1c">₹{{ d.amount | plain }}</td>
+                </tr>
+                {% endfor %}
+                {% if not summary.late_fines and not emp_deductions %}
+                <tr>
+                  <td colspan="3" class="empty-state" style="padding:0.75rem">No active fines or deductions for this month.</td>
+                </tr>
+                {% endif %}
+              </tbody>
+              {% if total_deductions_amount > 0 %}
+              <tfoot>
+                <tr style="font-weight:bold;background:var(--subtle)">
+                  <td colspan="2">Total Deductions for {{ period_label }}</td>
+                  <td class="num" style="color:#b91c1c">₹{{ total_deductions_amount | plain }}</td>
+                </tr>
+              </tfoot>
+              {% endif %}
+            </table>
+            <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+              <a class="btn btn-sm btn-block" href="/deductions?period={{ period }}&amp;employee_id={{ employee.id }}">Open Deductions Hub</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Salary Revision Form (Collapsible) -->
+      {% set upcoming_list = (salaries | selectattr('status_badge', 'equalto', 'upcoming') | list) if salaries else [] %}
+      {% set upcoming_rev = upcoming_list[0] if upcoming_list else none %}
+      <details class="card mb-3 disclosure">
+        <summary class="card-head" style="cursor:pointer;list-style:none;display:flex;align-items:center;user-select:none">
+          <h2 style="margin:0;display:flex;align-items:center;gap:.5rem">
+            <span>Revise Salary Structure (Annual raise / Appraisal)</span>
+            <span class="small muted" style="font-weight:normal;font-size:.82rem">(click to view / edit)</span>
+          </h2>
+          <span class="spacer"></span>
+          <span class="chip chip-primary">active: {{ employee.monthly_gross | money }}</span>
+          {% if upcoming_rev %}
+            <span class="chip chip-info" style="margin-left: 0.5rem;">Upcoming: {{ upcoming_rev.monthly_gross | money }} from {{ upcoming_rev.effective_from | nice_date }}</span>
+          {% endif %}
+          <span style="font-size:.85rem;margin-left:.75rem;color:var(--muted)">▼</span>
+        </summary>
+        <div class="card-body">
+          <form method="post" action="/employees/{{ employee.id }}/salary">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <div class="form-row cols-2">
+              <div class="field">
+                <label for="monthly_gross" style="font-weight:600">Revised Monthly gross (CTC) *</label>
+                <input id="monthly_gross" name="monthly_gross" type="number" min="0" step="any" value="{{ employee.monthly_gross | round(0) | int }}" required style="font-size:1.1rem;font-weight:600">
+              </div>
+              <div class="field">
+                <label for="note">Reason for revision / Note</label>
+                <input id="note" name="note" type="text" placeholder="e.g. Annual raise, Appraisal, Promotion, Correction">
+              </div>
+            </div>
+
+            <!-- Salary Applicability Month Selector -->
+            <div class="field mb-3" style="background:var(--bg-hover, #f8f9fa);border:1px dashed var(--border);border-radius:var(--radius);padding:0.85rem 1rem;">
+              <label style="font-weight:600;display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                <span>Applicable From (Effective Month) *</span>
+                <span class="small muted" id="detail_eff_hint">Full {{ month_presets.cur_month_label }} payroll will use this new salary.</span>
+              </label>
+              <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+                <button type="button" class="btn btn-sm" id="btn-eff-cur" onclick="setSalaryEffectiveMonth('{{ month_presets.cur_month_iso }}', 'Full {{ month_presets.cur_month_label }} payroll will use this new salary.')">
+                  Current Month ({{ month_presets.cur_month_label }})
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btn-eff-next" onclick="setSalaryEffectiveMonth('{{ month_presets.next_month_iso }}', 'Upcoming increment: Current month unchanged; new rate starts in {{ month_presets.next_month_label }}.')">
+                  Next Month ({{ month_presets.next_month_label }})
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btn-eff-prev" onclick="setSalaryEffectiveMonth('{{ month_presets.prev_month_iso }}', 'Retroactive revision: Applies to {{ month_presets.prev_month_label }} and onwards.')">
+                  Previous Month ({{ month_presets.prev_month_label }})
+                </button>
+              </div>
+              <div style="display:flex;gap:0.75rem;align-items:center;">
+                <input id="effective_from" name="effective_from" type="date" value="{{ month_presets.cur_month_iso }}" onchange="onCustomDateInput(this.value)" required style="max-width:180px;">
+                <span class="small muted" id="detail_eff_subtext">Effective starting 1st of {{ month_presets.cur_month_label }}.</span>
+              </div>
+            </div>
+
+            <div class="form-row cols-3">
+              <div class="field"><label for="basic">Basic</label><input id="basic" name="basic" type="number" min="0" step="any" value="{{ salary_defaults.basic | plain }}"></div>
+              <div class="field"><label for="hra">HRA</label><input id="hra" name="hra" type="number" min="0" step="any" value="{{ salary_defaults.hra | plain }}"></div>
+              <div class="field"><label for="other_allowances">Other allowances</label><input id="other_allowances" name="other_allowances" type="number" min="0" step="any" value="{{ salary_defaults.other_allowances | plain }}"></div>
+            </div>
+            <div class="form-row cols-3">
+              <div class="field"><label for="pf">PF</label><input id="pf" name="pf" type="number" min="0" step="any" value="{{ salary_defaults.pf | plain }}"></div>
+              <div class="field"><label for="esi">ESI</label><input id="esi" name="esi" type="number" min="0" step="any" value="{{ salary_defaults.esi | plain }}"></div>
+              <div class="field"><label for="professional_tax">Professional tax</label><input id="professional_tax" name="professional_tax" type="number" min="0" step="any" value="{{ salary_defaults.professional_tax if salary_defaults.professional_tax is not none else '0' }}" placeholder="0"></div>
+            </div>
+            <div class="form-row cols-2">
+              <div class="field"><label for="statutory_mode">PF / ESI Mode</label>
+                  <select id="statutory_mode" name="statutory_mode">
+                    <option value="fixed" {{ 'selected' if salary_defaults.statutory_mode != 'auto' }}>No automatic deduction (Use exact amounts above, default ₹0)</option>
+                    <option value="auto" {{ 'selected' if salary_defaults.statutory_mode == 'auto' }}>Calculate (12% PF on basic · 0.75% ESI up to ₹21,000)</option>
+                  </select>
+                  <div class="hint">Either way PF/ESI are reduced in loss-of-pay months.</div></div>
+            </div>
+            <div style="display:flex;gap:1rem;align-items:center;margin-top:0.75rem;">
+              <button class="btn btn-primary" type="submit">Save new structure</button>
+              <span class="small muted">Past payroll months remain safe with their historical salary structures.</span>
+            </div>
+          </form>
+        </div>
+      </details>
+
+      <!-- Salary Revision Timeline History -->
+      <div class="card flush mb-3">
+        <div class="card-head">
+          <h2>Salary Revision History</h2>
+          <span class="spacer"></span>
+          <span class="small muted">Complete timeline with payroll applicability</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data m-table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Applicable From</th>
+                <th class="num">Monthly Gross</th>
+                <th class="num">Change</th>
+                <th class="num">Approx Take-Home</th>
+                <th>Reason / Note</th>
+                <th>Recorded On</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for item in salaries %}
+              <tr>
+                <td data-label="Status">
+                  {% if item.status_badge == 'active' %}
+                    <span class="chip chip-success" style="font-size:0.75rem;">Active</span>
+                  {% elif item.status_badge == 'upcoming' %}
+                    <span class="chip chip-info" style="font-size:0.75rem;">Upcoming ({{ item.effective_from | nice_date }})</span>
+                  {% else %}
+                    <span class="chip" style="font-size:0.75rem;color:var(--muted);background:var(--bg-hover);">Superseded</span>
+                  {% endif %}
+                </td>
+                <td data-label="Applicable From" class="nowrap"><strong>{{ item.effective_from | nice_date }}</strong></td>
+                <td data-label="Monthly Gross" class="num font-bold">{{ item.monthly_gross | money }}</td>
+                <td data-label="Change" class="num">
+                  {% if item.diff_amount > 0 %}
+                    <span style="color:var(--color-success, #16a34a);font-weight:600;">+{{ item.diff_amount | money }} (+{{ '%.1f'|format(item.diff_pct) }}%)</span>
+                  {% elif item.diff_amount < 0 %}
+                    <span style="color:var(--color-danger, #dc2626);font-weight:600;">{{ item.diff_amount | money }} ({{ '%.1f'|format(item.diff_pct) }}%)</span>
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endif %}
+                </td>
+                <td data-label="Approx Take-Home" class="num">{{ (item.monthly_gross - item.pf - item.esi - item.professional_tax) | money }}</td>
+                <td data-label="Reason">{{ item.note or 'Initial structure' }}</td>
+                <td data-label="Recorded" class="small muted">{{ item.created_at[:10] if item.created_at else '—' }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="7" class="empty-state">No salary recorded yet.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 5: DOCUMENTS & KYC VAULT ==================== -->
+    <div id="tab-documents" class="tab-pane" role="tabpanel">
+      <!-- Upload Document Card -->
+      <div class="card mb-3">
+        <div class="card-head">
+          <h2>Upload to Document Vault</h2>
+          <span class="spacer"></span>
+          <span class="small muted">Aadhaar, PAN, Offer letter, Resume, Certificates</span>
+        </div>
+        <div class="card-body">
+          <form method="post" action="/employees/{{ employee.id }}/documents" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <div class="form-row cols-3">
+              <div class="field">
+                <label for="doc_category">Document Category *</label>
+                <select id="doc_category" name="category" required>
+                  {% for key, label in doc_categories.items() %}
+                    <option value="{{ key }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <label for="doc_title">Title / Description</label>
+                <input id="doc_title" name="title" type="text" placeholder="e.g. Signed Offer Letter, Degree Certificate">
+              </div>
+              <div class="field">
+                <label for="doc_file">File (PDF, PNG, JPG) *</label>
+                <input id="doc_file" name="file" type="file" required>
+              </div>
+            </div>
+            <div class="field">
+              <label for="doc_notes">Notes / Remarks</label>
+              <input id="doc_notes" name="notes" type="text" placeholder="Optional notes for HR audit">
+            </div>
+            <div class="form-actions mt-2">
+              <button class="btn btn-primary btn-sm" type="submit">Upload Document</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Uploaded Documents Ledger -->
+      <div class="card flush mb-3">
+        <div class="card-head">
+          <h2>Employee Documents ({{ docs | length }})</h2>
+          <span class="spacer"></span>
+          <a class="btn btn-sm" href="/documents">Global Vault</a>
+        </div>
+        <div class="table-wrap">
+          <table class="data m-table">
+            <thead>
+              <tr>
+                <th>Document Title</th>
+                <th>Category</th>
+                <th>Filename</th>
+                <th>Size</th>
+                <th>Uploaded By</th>
+                <th>Uploaded Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for d in docs %}
+              <tr>
+                <td data-label="Title"><strong>{{ d.title }}</strong></td>
+                <td data-label="Category"><span class="chip chip-info" style="font-size:0.75rem">{{ d.category_label }}</span></td>
+                <td data-label="Filename" class="mono small">{{ d.filename }}</td>
+                <td data-label="Size" class="small muted">{{ (d.size / 1024) | round(1) }} KB</td>
+                <td data-label="Uploaded By" class="small">{{ d.uploaded_by or 'system' }}</td>
+                <td data-label="Date" class="small">{{ d.uploaded_at[:10] }}</td>
+                <td class="actions-cell">
+                  <a class="btn btn-sm btn-outline" href="/documents/{{ d.id }}/file" target="_blank">Download</a>
+                  <form method="post" action="/employees/{{ employee.id }}/documents/{{ d.id }}/delete" style="display:inline" data-confirm="Delete this document permanently?">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+                    <button class="btn btn-sm btn-ghost" type="submit" style="color:var(--danger)">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="7" class="empty-state">No documents uploaded for this employee yet.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 
+  <!-- Persistent Sidebar: Face Enrolment, Portal Credentials & Lifecycle -->
   <div>
+    <!-- Face Enrolment Card -->
     <div class="card mb-3">
-      <div class="card-head"><h3>Face enrolment</h3></div>
+      <div class="card-head"><h3>Face Enrolment</h3></div>
       <div class="card-body">
         {% if employee.face_id %}
           <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem;padding:.5rem;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border)">
@@ -453,8 +969,9 @@
       </div>
     </div>
 
+    <!-- Employee Portal Card -->
     <div class="card mb-3">
-      <div class="card-head"><h3>Employee portal</h3>
+      <div class="card-head"><h3>Employee Portal</h3>
         {% if ess_user %}<span class="spacer"></span>
           <span class="chip {{ 'chip-ok' if ess_user.active else 'chip-muted' }}">{{ 'active' if ess_user.active else 'disabled' }}</span>
         {% endif %}
@@ -465,8 +982,7 @@
             <div><span class="k">Username</span><span class="v mono">{{ ess_user.username }}</span></div>
             <div><span class="k">Last sign-in</span><span class="v">{{ ess_user.last_login_at | nice_date('%d %b %Y %H:%M') if ess_user.last_login_at else 'never' }}</span></div>
           </div>
-          <p class="small muted">They can see their own attendance, payslips and leave balance, and apply for leave
-            (it arrives in your approval queue). They cannot see anyone else's data.</p>
+          <p class="small muted">They can see their own attendance, payslips and leave balance, and apply for leave.</p>
           <details class="disclosure" style="margin-bottom:.5rem">
             <summary>Reset their password</summary>
             <div class="card-body">
@@ -475,7 +991,7 @@
                 <div class="field">
                   <label for="portal-pass">New password</label>
                   <input id="portal-pass" name="password" type="text" minlength="8" autocomplete="off" placeholder="At least 8 characters" required>
-                  <div class="hint">The current password cannot be viewed. It is stored in a form nobody can read. The new one is shown once after you save.</div>
+                  <div class="hint">The current password cannot be viewed. The new one is shown once after you save.</div>
                 </div>
                 <div class="form-actions">
                   <button class="btn btn-sm" type="button" data-fill-password="portal-pass" data-value="{{ suggested_password }}">Generate password</button>
@@ -492,15 +1008,13 @@
             </form>
           {% endif %}
         {% else %}
-          <p class="small muted">Give this person their own login: they can then check attendance, print payslips and
-            request leave without asking HR.</p>
+          <p class="small muted">Give this person their own login to check attendance, payslips and apply for leave.</p>
           <form method="post" action="/employees/{{ employee.id }}/portal">
             <input type="hidden" name="_csrf" value="{{ csrf_token }}">
             <div class="field">
               <label for="portal-pass">Password</label>
               <input id="portal-pass" name="password" type="text" minlength="8" autocomplete="off" placeholder="At least 8 characters" required>
-              <div class="hint">Username will be <span class="mono">{{ employee.code | lower }}</span>.
-                The password is shown once after you save.</div>
+              <div class="hint">Username will be <span class="mono">{{ employee.code | lower }}</span>.</div>
             </div>
             <div class="form-actions">
               <button class="btn" type="button" data-fill-password="portal-pass" data-value="{{ suggested_password }}">Generate password</button>
@@ -511,48 +1025,15 @@
       </div>
     </div>
 
+    <!-- Notes & Lifecycle Card -->
     <div class="card mb-3">
-      <div class="card-head"><h3>Contact</h3></div>
+      <div class="card-head"><h3>HR Notes &amp; Lifecycle</h3></div>
       <div class="card-body">
-        <div class="kv">
-          <div><span class="k">Code</span><span class="v mono">{{ employee.code }}</span></div>
-          <div><span class="k">Email</span><span class="v">{{ employee.email or '—' }}</span></div>
-          <div><span class="k">Phone</span><span class="v">{{ employee.phone or '—' }}</span></div>
-          <div><span class="k">DOB</span><span class="v">{{ employee.date_of_birth | nice_date if employee.date_of_birth else '—' }}</span></div>
-          <div><span class="k">Anniversary</span><span class="v">{{ employee.anniversary | nice_date if employee.anniversary else '—' }}</span></div>
-          <div><span class="k">Type</span><span class="v">{{ employee.employment_type.replace('_', ' ') }}</span></div>
-          <div><span class="k">Joined</span><span class="v">{{ employee.joined_on | nice_date }}</span></div>
-          <div><span class="k">Service</span><span class="v">{{ balance.months_of_service }} months</span></div>
-          <div><span class="k">Manager</span><span class="v">
-            {% if manager %}
-              <div>
-                <a href="/employees/{{ manager.id }}"><strong>{{ manager.name }}</strong></a>
-                <span class="muted small">({{ manager.code }})</span>
-              </div>
-              {% if manager.email %}
-                <div class="small muted" style="margin-top:2px">
-                  <a href="mailto:{{ manager.email }}" style="color:var(--brand);text-decoration:none">{{ manager.email }}</a>
-                </div>
-              {% endif %}
-            {% else %}
-              <span class="muted">None (Direct)</span>
-            {% endif %}
-          </span></div>
-          <div><span class="k">Work mode</span><span class="v">
-            {% if employee.remote_work_enabled %}
-              <span class="chip chip-ok" style="font-size:0.75rem">Remote (WFH enabled)</span>
-            {% else %}
-              <span class="chip chip-muted" style="font-size:0.75rem">On-site only</span>
-            {% endif %}
-          </span></div>
-        </div>
-        {% if employee.notes %}<hr class="divider"><div class="small muted">{{ employee.notes }}</div>{% endif %}
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h3>Lifecycle</h3></div>
-      <div class="card-body">
+        {% if employee.notes %}
+          <div class="small muted mb-2" style="background:var(--subtle);padding:0.5rem 0.75rem;border-radius:var(--radius)">
+            <strong>Memo:</strong> {{ employee.notes }}
+          </div>
+        {% endif %}
         {% if exit_record and exit_record.status in ('requested', 'approved', 'settled') %}
           <a class="btn btn-block mb-2" href="/exits/{{ exit_record.id }}">Exit: {{ exit_record.status }} · LWD {{ exit_record.last_working_day | nice_date }}</a>
         {% elif employee.status == 'active' %}
@@ -578,12 +1059,70 @@
         </form>
       </div>
     </div>
+
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+  // 1. Tab Switching & URL Hash synchronization
+  function switchTab(tabId) {
+    var tabs = document.querySelectorAll('.profile-tab-btn');
+    var panes = document.querySelectorAll('.tab-pane');
+    tabs.forEach(function(btn) {
+      if (btn.getAttribute('data-tab') === tabId) {
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+      } else {
+        btn.classList.remove('active');
+        btn.setAttribute('aria-selected', 'false');
+      }
+    });
+    panes.forEach(function(pane) {
+      if (pane.id === 'tab-' + tabId) {
+        pane.classList.add('active');
+      } else {
+        pane.classList.remove('active');
+      }
+    });
+    if (window.location.hash !== '#' + tabId) {
+      history.replaceState(null, null, '#' + tabId);
+    }
+  }
+
+  document.querySelectorAll('.profile-tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tabId = this.getAttribute('data-tab');
+      if (tabId) switchTab(tabId);
+    });
+  });
+
+  // Activate tab based on URL hash on load
+  document.addEventListener('DOMContentLoaded', function() {
+    var hash = window.location.hash ? window.location.hash.substring(1) : '';
+    if (hash && document.getElementById('tab-' + hash)) {
+      switchTab(hash);
+    } else {
+      switchTab('overview');
+    }
+  });
+
+  // 2. 1-Click Copy Helper
+  function copyToClipboard(text, el) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(function() {
+      var orig = el.innerHTML;
+      el.innerHTML = text + " ✓ Copied!";
+      setTimeout(function() {
+        el.innerHTML = orig;
+      }, 1800);
+    }).catch(function(err) {
+      console.error("Copy failed", err);
+    });
+  }
+
+  // 3. Salary Effective Month helpers
   function setSalaryEffectiveMonth(isoDate, hintText) {
     var input = document.getElementById('effective_from');
     if (input) input.value = isoDate;
@@ -592,7 +1131,6 @@
     var sub = document.getElementById('detail_eff_subtext');
     if (sub) sub.textContent = "Effective from " + isoDate + " in payroll calculations.";
 
-    // toggle active styling on buttons
     ['btn-eff-cur', 'btn-eff-next', 'btn-eff-prev'].forEach(function(id) {
       var btn = document.getElementById(id);
       if (btn) btn.classList.add('btn-outline');
@@ -613,11 +1151,14 @@
     if (sub) sub.textContent = "Selected effective date: " + val;
   }
 
+  // 4. Face Enrolment
   document.addEventListener('DOMContentLoaded', function () {
-    FakhriHRMS.initFaceEnrolment({
-      endpoint: "/employees/{{ employee.id }}/face",
-      csrf: "{{ csrf_token }}"
-    });
+    if (window.FakhriHRMS && window.FakhriHRMS.initFaceEnrolment) {
+      FakhriHRMS.initFaceEnrolment({
+        endpoint: "/employees/{{ employee.id }}/face",
+        csrf: "{{ csrf_token }}"
+      });
+    }
   });
 </script>
 {% endblock %}

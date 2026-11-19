@@ -25,6 +25,7 @@ EMPLOYMENT_LABELS = {
 EDITABLE_FIELDS = (
     "code", "name", "email", "phone", "department", "designation",
     "joined_on", "employment_type", "status", "notes",
+    "custom_grace_minutes", "custom_shift_start", "custom_shift_end",
 )
 
 #: Personal / bank fields an employee may request to change (approved by HR).
@@ -94,6 +95,7 @@ def _employee_filters(
     department: str | None,
     status: str,
     shift_id: str | int | None = None,
+    work_mode: str | None = None,
 ) -> tuple[str, list[Any]]:
     """Shared WHERE clause, so a list and its count always agree."""
     clauses: list[str] = []
@@ -104,6 +106,12 @@ def _employee_filters(
     if department:
         clauses.append("e.department = ? COLLATE NOCASE")
         params.append(department.strip())
+    if work_mode:
+        wm = str(work_mode).strip().lower()
+        if wm in ("remote", "wfh"):
+            clauses.append("e.remote_work_enabled = 1")
+        elif wm in ("office", "onsite", "on_site"):
+            clauses.append("COALESCE(e.remote_work_enabled, 0) = 0")
     if shift_id is not None and str(shift_id).strip() and str(shift_id).strip().lower() != "all":
         try:
             sid = int(str(shift_id).strip())
@@ -130,13 +138,14 @@ def list_employees(
     q: str | None = None,
     department: str | None = None,
     shift_id: str | int | None = None,
+    work_mode: str | None = None,
     status: str = "active",
     limit: int = 50,
     offset: int = 0,
     sort: str = "name",
     direction: str = "asc",
 ) -> list[dict[str, Any]]:
-    where, params = _employee_filters(storage, q, department, status, shift_id)
+    where, params = _employee_filters(storage, q, department, status, shift_id, work_mode=work_mode)
     params.extend([limit, offset])
     # Only names from our own table reach the SQL. Blanks stay last in both directions.
     column = EMPLOYEE_SORTS.get(sort, EMPLOYEE_SORTS["name"])
@@ -162,8 +171,9 @@ def count_employees(
     q: str | None = None,
     department: str | None = None,
     shift_id: str | int | None = None,
+    work_mode: str | None = None,
 ) -> int:
-    where, params = _employee_filters(storage, q, department, status, shift_id)
+    where, params = _employee_filters(storage, q, department, status, shift_id, work_mode=work_mode)
     return int(storage.scalar(f"SELECT COUNT(*) AS n FROM employees e {where}", params))
 
 
@@ -217,12 +227,14 @@ def departments(storage: Storage) -> list[str]:
 def stats(storage: Storage) -> dict[str, Any]:
     total = int(storage.scalar("SELECT COUNT(*) AS n FROM employees"))
     active = int(storage.scalar("SELECT COUNT(*) AS n FROM employees WHERE status = 'active'"))
+    remote = int(storage.scalar("SELECT COUNT(*) AS n FROM employees WHERE status = 'active' AND remote_work_enabled = 1"))
     enrolled = int(storage.scalar("SELECT COUNT(*) AS n FROM employees WHERE face_id IS NOT NULL"))
     payroll = float(storage.scalar("SELECT COALESCE(SUM(monthly_gross),0) AS n FROM employees WHERE status = 'active'"))
     return {
         "total": total,
         "active": active,
         "inactive": total - active,
+        "remote_work": remote,
         "face_enrolled": enrolled,
         "missing_face": active - enrolled,
         "monthly_payroll": payroll,
@@ -344,7 +356,10 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
 
     extra = {field: data[field] for field in PROFILE_FIELDS
              if field not in ("email", "phone") and data.get(field)}
-    for field in ("shift_id", "manager_id", "custom_pl_accrual", "custom_sl_quota", "custom_cl_quota", "self_punch_mode", "remote_work_enabled"):
+    for field in (
+        "shift_id", "manager_id", "custom_pl_accrual", "custom_sl_quota", "custom_cl_quota",
+        "self_punch_mode", "remote_work_enabled", "custom_grace_minutes", "custom_shift_start", "custom_shift_end",
+    ):
         if field in data and data[field] is not None and str(data[field]).strip() != "":
             extra[field] = data[field]
     if extra:
@@ -438,6 +453,29 @@ def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) ->
     if "remote_work_enabled" in data:
         rwe = data["remote_work_enabled"]
         updates["remote_work_enabled"] = 1 if rwe in (1, "1", True, "true", "on") else 0
+
+    if "custom_grace_minutes" in data:
+        cgm = data["custom_grace_minutes"]
+        if cgm is not None and str(cgm).strip() != "":
+            try:
+                cgm_val = int(cgm)
+                if cgm_val < 0 or cgm_val > 720:
+                    raise ValidationError("Custom grace period must be between 0 and 720 minutes.")
+                updates["custom_grace_minutes"] = cgm_val
+            except ValueError as exc:
+                if isinstance(exc, ValidationError):
+                    raise
+                raise ValidationError("Custom grace minutes must be a valid number.") from exc
+        else:
+            updates["custom_grace_minutes"] = None
+
+    if "custom_shift_start" in data:
+        css = data["custom_shift_start"]
+        updates["custom_shift_start"] = str(css).strip() if css and str(css).strip() else None
+
+    if "custom_shift_end" in data:
+        cse = data["custom_shift_end"]
+        updates["custom_shift_end"] = str(cse).strip() if cse and str(cse).strip() else None
 
     if not updates:
         return

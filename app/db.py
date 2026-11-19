@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS attendance (
     source         TEXT NOT NULL DEFAULT 'face',
     device_label   TEXT,
     note           TEXT,
+    early_leave_approved INTEGER NOT NULL DEFAULT 0,
     created_at     TEXT NOT NULL,
     updated_at     TEXT NOT NULL,
     UNIQUE(employee_id, work_date)
@@ -556,6 +557,22 @@ CREATE TABLE IF NOT EXISTS loan_repayments (
     note           TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_loan_repayments ON loan_repayments(loan_id);
+
+CREATE TABLE IF NOT EXISTS monthly_deductions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    period      TEXT NOT NULL,
+    work_date   TEXT,
+    category    TEXT NOT NULL DEFAULT 'other',
+    amount      REAL NOT NULL DEFAULT 0,
+    reason      TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'active',
+    created_by  TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_deductions_period ON monthly_deductions(period, status);
+CREATE INDEX IF NOT EXISTS idx_deductions_emp ON monthly_deductions(employee_id, period);
 """
 
 
@@ -848,6 +865,7 @@ class Storage:
             ("late_fine", "REAL NOT NULL DEFAULT 0"),
             ("punch_in_photo", "TEXT"),
             ("punch_out_photo", "TEXT"),
+            ("early_leave_approved", "INTEGER NOT NULL DEFAULT 0"),
         ],
         "employees": [
             ("address", "TEXT"),
@@ -869,6 +887,9 @@ class Storage:
             ("date_of_birth", "TEXT"),
             ("anniversary", "TEXT"),
             ("remote_work_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("custom_grace_minutes", "INTEGER"),
+            ("custom_shift_start", "TEXT"),
+            ("custom_shift_end", "TEXT"),
             ("uan", "TEXT"),
             ("esic_ip", "TEXT"),
         ],
