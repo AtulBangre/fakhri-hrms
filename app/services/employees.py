@@ -359,6 +359,7 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
     for field in (
         "shift_id", "manager_id", "custom_pl_accrual", "custom_sl_quota", "custom_cl_quota",
         "self_punch_mode", "remote_work_enabled", "custom_grace_minutes", "custom_shift_start", "custom_shift_end",
+        "retention_enabled", "retention_percent", "retention_months",
     ):
         if field in data and data[field] is not None and str(data[field]).strip() != "":
             extra[field] = data[field]
@@ -476,6 +477,36 @@ def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) ->
     if "custom_shift_end" in data:
         cse = data["custom_shift_end"]
         updates["custom_shift_end"] = str(cse).strip() if cse and str(cse).strip() else None
+
+    if "retention_enabled" in data:
+        re = data["retention_enabled"]
+        updates["retention_enabled"] = 1 if re in (1, "1", True, "true", "on") else 0
+
+    if "retention_percent" in data:
+        rp = data["retention_percent"]
+        if rp is not None and str(rp).strip() != "":
+            try:
+                rp_val = float(rp)
+                if rp_val < 0 or rp_val > 100:
+                    raise ValidationError("Retention percentage must be between 0 and 100.")
+                updates["retention_percent"] = rp_val
+            except ValueError as exc:
+                if isinstance(exc, ValidationError):
+                    raise
+                raise ValidationError("Retention percentage must be a valid number.") from exc
+
+    if "retention_months" in data:
+        rm = data["retention_months"]
+        if rm is not None and str(rm).strip() != "":
+            try:
+                rm_val = int(rm)
+                if rm_val < 1 or rm_val > 60:
+                    raise ValidationError("Retention months must be between 1 and 60.")
+                updates["retention_months"] = rm_val
+            except ValueError as exc:
+                if isinstance(exc, ValidationError):
+                    raise
+                raise ValidationError("Retention months must be an integer.") from exc
 
     if not updates:
         return

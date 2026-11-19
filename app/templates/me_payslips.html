@@ -13,6 +13,21 @@
   </div>
 </div>
 
+{% set total_retention = slips | map(attribute='retention_amount') | select('number') | sum %}
+{% if total_retention > 0 %}
+<div class="card mb-3" style="background:var(--primary-soft);border:1px solid var(--primary-soft-border);padding:1rem;">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+    <div>
+      <strong style="color:var(--primary);font-size:1rem;">Salary Retention Fund Balance</strong>
+      <div class="small muted">Accumulated security deposit held by company · 100% refundable during Full & Final (F&F) Settlement</div>
+    </div>
+    <div style="font-size:1.25rem;font-weight:700;color:var(--primary);">
+      ₹{{ '{:,.2f}'.format(total_retention) }}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="payslip-cards-grid mobile-only">
   {% for slip in slips %}
     <div class="card me-wallet-pass mb-3">

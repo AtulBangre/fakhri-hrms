@@ -13,6 +13,27 @@
   </div>
 </div>
 
+{% set total_retention = slips | map(attribute='retention_amount') | select('number') | sum %}
+{% if total_retention > 0 or employee.retention_enabled %}
+<div class="card mb-3" style="background:var(--subtle);border:1px solid var(--border);padding:1rem;">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+    <div>
+      <strong style="color:var(--primary);font-size:1rem;">Salary Retention Fund Ledger</strong>
+      <div class="small muted">
+        {% if employee.retention_enabled %}
+          Plan: {{ employee.retention_percent | round(0) | int }}% of Monthly Gross for first {{ employee.retention_months }} months ·
+        {% endif %}
+        100% refundable at Full & Final (F&F) Settlement
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <span class="muted small" style="display:block;">Total Accumulated:</span>
+      <strong style="font-size:1.25rem;color:var(--primary);">₹{{ '{:,.2f}'.format(total_retention) }}</strong>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="card flush">
   <div class="table-wrap">
     <table class="data stack">

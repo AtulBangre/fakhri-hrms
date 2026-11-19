@@ -623,6 +623,17 @@
               <div><span class="k">ESIC</span><span class="v">{{ salary_defaults.esi | money }}</span></div>
               <div><span class="k">Professional Tax</span><span class="v">{{ salary_defaults.professional_tax | money }}</span></div>
               <div><span class="k">Statutory Mode</span><span class="v">{{ salary_defaults.statutory_mode }}</span></div>
+              {% if employee.retention_enabled %}
+              <div style="grid-column: 1 / -1; margin-top: 0.5rem; padding: 0.6rem; background: var(--subtle); border-radius: var(--radius); border: 1px solid var(--border);">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                    <strong style="color:var(--primary); font-size:0.85rem;">Salary Retention Fund Active</strong>
+                    <div class="small muted">{{ employee.retention_percent | round(0) | int }}% of Monthly Gross for first {{ employee.retention_months }} months (Refundable at F&F)</div>
+                  </div>
+                  <span class="chip chip-info" style="font-size:0.75rem;">₹{{ ((employee.monthly_gross * (employee.retention_percent / 100)) | round(0) | int) }}/mo</span>
+                </div>
+              </div>
+              {% endif %}
             </div>
             <div style="margin-top:1rem;display:flex;gap:0.5rem">
               <a class="btn btn-sm btn-block" href="/employees/{{ employee.id }}/payslips">View All Payslips</a>

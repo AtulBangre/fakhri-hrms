@@ -222,6 +222,11 @@ def render_payslip(
     if late_fine > 0:
         pdf.amount_row("Late arrival fines", _money(late_fine))
     pdf.amount_row("Salary advance", _money(slip.get("advance")))
+    retention_amt = float(slip.get("retention_amount") or 0)
+    if retention_amt > 0:
+        ret_month = slip.get("retention_month_num")
+        label = f"Retention Fund (M{ret_month})" if ret_month else "Salary Retention Fund"
+        pdf.amount_row(label, _money(retention_amt))
     other_amt = float(slip.get("other_deduction") or 0)
     other_label = "Other deductions"
     if slip.get("other_deduction_note"):

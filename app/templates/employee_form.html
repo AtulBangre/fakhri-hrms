@@ -375,6 +375,59 @@
               <div class="hint">Either way PF/ESI are reduced in loss-of-pay months.</div></div>
           </div>
 
+          <!-- Salary Retention Fund (Security Deposit) -->
+          <div style="border-top:1px dashed var(--border-color, #e2e8f0);margin-top:1.25rem;padding-top:1.25rem;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+              <div>
+                <strong style="font-size:0.95rem;color:var(--text, #1e293b);display:block;">Salary Retention Fund (Security Deposit)</strong>
+                <span class="small muted">Hold a fixed percentage of Monthly Gross for initial months, refunded during Full & Final (F&F) Settlement</span>
+              </div>
+              <label class="checkline" style="margin-bottom:0;cursor:pointer;">
+                <input type="checkbox" id="retentionToggle" name="retention_enabled" value="1" {{ 'checked' if f.get('retention_enabled') }}>
+                <strong>Enable Retention Hold</strong>
+              </label>
+            </div>
+
+            <div id="retentionConfigPanel" style="display:{{ 'block' if f.get('retention_enabled') else 'none' }};margin-top:1rem;background:var(--subtle);padding:0.9rem;border-radius:var(--radius);border:1px solid var(--border);">
+              <div class="form-row cols-2 mb-2">
+                <div class="field" style="margin-bottom:0;">
+                  <label for="retention_percent" style="font-size:0.85rem;font-weight:600;">Deduction Percentage (%)</label>
+                  <input id="retention_percent" name="retention_percent" type="number" min="1" max="100" step="any" value="{{ f.get('retention_percent') or '20' }}" style="font-weight:600;">
+                  <div class="hint">Default 20% of Monthly Gross (CTC)</div>
+                </div>
+                <div class="field" style="margin-bottom:0;">
+                  <label for="retention_months" style="font-size:0.85rem;font-weight:600;">Holding Duration (Months)</label>
+                  <input id="retention_months" name="retention_months" type="number" min="1" max="24" step="1" value="{{ f.get('retention_months') or '3' }}" style="font-weight:600;">
+                  <div class="hint">Default 3 consecutive payroll months</div>
+                </div>
+              </div>
+
+              <!-- Live Calculation Preview Card -->
+              <div style="background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);padding:0.75rem;margin-top:0.75rem;">
+                <div style="font-size:0.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">
+                  Expected Retention Schedule (Live Preview)
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:0.75rem;font-size:0.85rem;">
+                  <div>
+                    <span class="muted" style="display:block;font-size:0.75rem;">Monthly Gross (CTC):</span>
+                    <strong id="retentionGrossDisplay" style="color:var(--ink);">₹0</strong>
+                  </div>
+                  <div>
+                    <span class="muted" style="display:block;font-size:0.75rem;">Monthly Deduction:</span>
+                    <strong id="retentionMonthlyDisplay" style="color:var(--danger);">- ₹0 / mo</strong>
+                  </div>
+                  <div>
+                    <span class="muted" style="display:block;font-size:0.75rem;">Total Held at F&F:</span>
+                    <strong id="retentionTotalDisplay" style="color:var(--success);">₹0</strong>
+                  </div>
+                </div>
+                <div class="small muted mt-2" style="font-size:0.75rem;border-top:1px dashed var(--border);padding-top:0.4rem;">
+                  ℹ️ Monthly deduction is fixed based on Monthly Gross. Month 4 onwards deduction will automatically stop.
+                </div>
+              </div>
+            </div>
+          </div>
+
           {% if employee %}
           <div style="border-top:1px dashed var(--border-color, #e2e8f0);margin-top:1.25rem;padding-top:1.25rem;">
             <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.75rem;">
@@ -482,6 +535,39 @@
     grossInput.addEventListener('change', updateTraineeUI);
   }
   updateTraineeUI();
+
+  // Salary Retention Fund synchronizer
+  var retToggle = document.getElementById('retentionToggle');
+  var retPanel = document.getElementById('retentionConfigPanel');
+  var retPercentInput = document.getElementById('retention_percent');
+  var retMonthsInput = document.getElementById('retention_months');
+  var retGrossDisp = document.getElementById('retentionGrossDisplay');
+  var retMonthlyDisp = document.getElementById('retentionMonthlyDisplay');
+  var retTotalDisp = document.getElementById('retentionTotalDisplay');
+
+  function updateRetentionPreview() {
+    if (!retToggle || !retPanel) return;
+    if (retToggle.checked) {
+      retPanel.style.display = 'block';
+      var gross = parseFloat((grossInput && grossInput.value) || 0) || 0;
+      var pct = parseFloat((retPercentInput && retPercentInput.value) || 20) || 20;
+      var months = parseInt((retMonthsInput && retMonthsInput.value) || 3, 10) || 3;
+      var monthlyDeduct = Math.round((gross * (pct / 100)) * 100) / 100;
+      var totalHeld = Math.round((monthlyDeduct * months) * 100) / 100;
+
+      if (retGrossDisp) retGrossDisp.textContent = '₹' + gross.toLocaleString('en-IN');
+      if (retMonthlyDisp) retMonthlyDisp.textContent = '- ₹' + monthlyDeduct.toLocaleString('en-IN') + ' / mo';
+      if (retTotalDisp) retTotalDisp.textContent = '₹' + totalHeld.toLocaleString('en-IN');
+    } else {
+      retPanel.style.display = 'none';
+    }
+  }
+
+  if (retToggle) retToggle.addEventListener('change', updateRetentionPreview);
+  if (retPercentInput) retPercentInput.addEventListener('input', updateRetentionPreview);
+  if (retMonthsInput) retMonthsInput.addEventListener('input', updateRetentionPreview);
+  if (grossInput) grossInput.addEventListener('input', updateRetentionPreview);
+  updateRetentionPreview();
 })();
 
 function setFormEffectiveMonth(isoDate, hintText) {

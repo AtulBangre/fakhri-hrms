@@ -399,6 +399,9 @@ async def create(
         "custom_grace_minutes": int(text("custom_grace_minutes")) if text("custom_grace_minutes") else None,
         "custom_shift_start": text("custom_shift_start") or None,
         "custom_shift_end": text("custom_shift_end") or None,
+        "retention_enabled": 1 if text("retention_enabled") in ("1", "on", "true") else 0,
+        "retention_percent": _as_float(text("retention_percent", "20")),
+        "retention_months": int(text("retention_months", "3")) if text("retention_months") else 3,
         **{field: text(field) for field in IDENTITY_FIELDS},
         "skip_documents": text("skip_documents"), "create_login": text("create_login"),
         "send_welcome": text("send_welcome"), "portal_username": text("portal_username"),
@@ -755,6 +758,9 @@ def update(
     effective_from: str = Form(""),
     salary_note: str = Form(""),
     recalculate_current_month: str = Form("0"),
+    retention_enabled: str = Form("0"),
+    retention_percent: str = Form("20"),
+    retention_months: str = Form("3"),
 ):
     from ..auth import verify_form_csrf
 
@@ -781,6 +787,9 @@ def update(
         "custom_shift_end": custom_shift_end.strip() or None,
         "uan": uan.strip() or None,
         "esic_ip": esic_ip.strip() or None,
+        "retention_enabled": 1 if retention_enabled in ("1", "on", "true") else 0,
+        "retention_percent": _as_float(retention_percent) if retention_percent.strip() else 20.0,
+        "retention_months": int(retention_months) if retention_months.strip() else 3,
     }
     if aadhaar.strip():  # empty means "keep what is on file"
         data["aadhaar"] = aadhaar

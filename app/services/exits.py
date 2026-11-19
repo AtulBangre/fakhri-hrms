@@ -368,6 +368,15 @@ def compute_fnf(storage: Storage, settings: Settings, exit_row: dict[str, Any]) 
     if claims:
         earn("Approved expense claims", sum(float(c["amount"]) for c in claims), f"{len(claims)} claim(s)")
 
+    # 5. Salary Retention Fund refund (held during initial months)
+    retention_res = storage.query(
+        "SELECT COALESCE(SUM(retention_amount), 0) as total_held, COUNT(*) as count FROM payslips WHERE employee_id = ? AND retention_amount > 0",
+        (employee["id"],),
+    )
+    total_retention = float(retention_res[0]["total_held"]) if retention_res else 0.0
+    if total_retention > 0:
+        earn("Refund of Salary Retention Fund", total_retention, f"Accumulated retention from initial {retention_res[0]['count']} month(s)")
+
     if float(exit_row.get("extra_earnings") or 0):
         earn("Other earnings (HR)", float(exit_row["extra_earnings"]), exit_row.get("fnf_note") or "")
 

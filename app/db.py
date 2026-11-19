@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS employees (
     employment_type  TEXT NOT NULL DEFAULT 'full_time',
     status           TEXT NOT NULL DEFAULT 'active',
     monthly_gross    REAL NOT NULL DEFAULT 0,
+    retention_enabled INTEGER NOT NULL DEFAULT 0,
+    retention_percent REAL NOT NULL DEFAULT 20.0,
+    retention_months INTEGER NOT NULL DEFAULT 3,
     face_id          TEXT,
     face_enrolled_at TEXT,
     notes            TEXT,
@@ -147,6 +150,8 @@ CREATE TABLE IF NOT EXISTS payslips (
     pf               REAL NOT NULL DEFAULT 0,
     esi              REAL NOT NULL DEFAULT 0,
     professional_tax REAL NOT NULL DEFAULT 0,
+    retention_amount REAL NOT NULL DEFAULT 0,
+    retention_month_num INTEGER NOT NULL DEFAULT 0,
     total_deductions REAL NOT NULL DEFAULT 0,
     net_pay          REAL NOT NULL DEFAULT 0,
     status           TEXT NOT NULL DEFAULT 'draft',
@@ -832,6 +837,8 @@ class Storage:
             ("hold_reason", "TEXT"),
             ("loan_id", "INTEGER"),
             ("loan_emi", "REAL NOT NULL DEFAULT 0"),
+            ("retention_amount", "REAL NOT NULL DEFAULT 0"),
+            ("retention_month_num", "INTEGER NOT NULL DEFAULT 0"),
         ],
         "leave_requests": [
             ("manager_status", "TEXT NOT NULL DEFAULT 'approved'"),
@@ -895,6 +902,9 @@ class Storage:
             ("custom_shift_end", "TEXT"),
             ("uan", "TEXT"),
             ("esic_ip", "TEXT"),
+            ("retention_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("retention_percent", "REAL NOT NULL DEFAULT 20.0"),
+            ("retention_months", "INTEGER NOT NULL DEFAULT 3"),
         ],
     }
 

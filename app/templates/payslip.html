@@ -75,6 +75,15 @@
             {% if slip.tds %}<tr><td>Income tax (TDS)</td><td class="num">{{ slip.tds | money }}</td></tr>{% endif %}
             {% if slip.late_fine %}<tr><td>Late arrival fines</td><td class="num">{{ slip.late_fine | money }}</td></tr>{% endif %}
             <tr><td>Salary advance recovered</td><td class="num">{{ slip.advance | money }}</td></tr>
+            {% if slip.retention_amount and slip.retention_amount > 0 %}
+            <tr>
+              <td>
+                Salary Retention Fund {% if slip.retention_month_num %}(Month {{ slip.retention_month_num }}){% endif %}
+                <span class="sub muted" style="display:block;font-size:0.75rem;">Refundable during Full & Final (F&F) Settlement</span>
+              </td>
+              <td class="num">{{ slip.retention_amount | money }}</td>
+            </tr>
+            {% endif %}
             <tr>
               <td>Other deductions{% if slip.other_deduction_note %}<span class="sub muted" style="display:block;font-size:0.75rem;">{{ slip.other_deduction_note }}</span>{% endif %}</td>
               <td class="num">{{ slip.other_deduction | money }}</td>

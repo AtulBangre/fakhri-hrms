@@ -840,6 +840,106 @@ def test_inactive_employees_are_excluded_by_default(storage: Storage, settings, 
     assert len(payroll.list_slips(storage, "2026-01")) == 3
 
 
+def test_salary_retention_fund_payroll_and_fnf(storage: Storage, settings):
+    from app.services import exits as exits_service
+
+    # Create new joiner with ₹30,000 Gross CTC and 20% retention for 3 months
+    emp_id = employees_service.create_employee(
+        storage,
+        {
+            "name": "Karan Mehra",
+            "department": "Engineering",
+            "designation": "Software Engineer",
+            "joined_on": "2026-01-01",
+            "monthly_gross": 30000.0,
+            "retention_enabled": 1,
+            "retention_percent": 20.0,
+            "retention_months": 3,
+        },
+    )
+    karan = employees_service.get_employee(storage, emp_id)
+    assert karan["retention_enabled"] == 1
+    assert karan["retention_percent"] == 20.0
+    assert karan["retention_months"] == 3
+
+    # Mark present for Jan 2026
+    for day in range(1, 32):
+        try:
+            attendance_service.mark_manual(storage, employee_id=emp_id, work_date=f"2026-01-{day:02d}", status="present")
+        except Exception:
+            pass
+
+    # Month 1: 2026-01 (Gross = ₹30,000, 20% = ₹6,000)
+    slip1 = payroll.compute_slip(storage, settings, karan, "2026-01")
+    assert slip1["monthly_gross"] == 30000.0
+    assert slip1["retention_amount"] == 6000.0
+    assert slip1["retention_month_num"] == 1
+    assert slip1["total_deductions"] >= 6000.0
+
+    # Generate payroll run for 2026-01
+    payroll.generate_run(storage, settings, "2026-01")
+    run1_slips = {s["employee_id"]: s for s in payroll.list_slips(storage, "2026-01")}
+    assert run1_slips[emp_id]["retention_amount"] == 6000.0
+    assert run1_slips[emp_id]["retention_month_num"] == 1
+
+    # Mark present for Feb 2026
+    for day in range(1, 29):
+        try:
+            attendance_service.mark_manual(storage, employee_id=emp_id, work_date=f"2026-02-{day:02d}", status="present")
+        except Exception:
+            pass
+
+    # Month 2: 2026-02
+    slip2 = payroll.compute_slip(storage, settings, karan, "2026-02")
+    assert slip2["retention_amount"] == 6000.0
+    assert slip2["retention_month_num"] == 2
+    payroll.generate_run(storage, settings, "2026-02")
+
+    # Mark present for March 2026, but with 3 days absent (LOP)
+    for day in range(1, 32):
+        try:
+            st = "absent" if day <= 3 else "present"
+            attendance_service.mark_manual(storage, employee_id=emp_id, work_date=f"2026-03-{day:02d}", status=st)
+        except Exception:
+            pass
+
+    # Month 3: 2026-03 (Even with 3 days LOP, deduction remains fixed ₹6,000 based on Monthly Gross!)
+    slip3 = payroll.compute_slip(storage, settings, karan, "2026-03")
+    assert slip3["lop_days"] > 0
+    assert slip3["earned_gross"] < 30000.0
+    assert slip3["retention_amount"] == 6000.0  # Still fixed ₹6,000!
+    assert slip3["retention_month_num"] == 3
+    payroll.generate_run(storage, settings, "2026-03")
+
+    # Month 4: 2026-04 (Retention period completed! Auto-stops to ₹0)
+    for day in range(1, 31):
+        try:
+            attendance_service.mark_manual(storage, employee_id=emp_id, work_date=f"2026-04-{day:02d}", status="present")
+        except Exception:
+            pass
+    slip4 = payroll.compute_slip(storage, settings, karan, "2026-04")
+    assert slip4["retention_amount"] == 0.0
+    assert slip4["retention_month_num"] == 0
+
+    # Full & Final Settlement (F&F)
+    # Karan resigns; verify F&F automatically refunds all 3 months of retention (₹18,000)
+    exit_row = exits_service.record_exit(
+        storage,
+        settings,
+        employee_id=emp_id,
+        exit_type="resignation",
+        resignation_date="2026-04-10",
+        last_working_day="2026-04-30",
+        reason="Career change",
+    )
+    fnf = exits_service.compute_fnf(storage, settings, exit_row)
+    retention_refund = next((item for item in fnf["earnings"] if "Salary Retention Fund" in item["label"]), None)
+    assert retention_refund is not None
+    assert retention_refund["amount"] == 18000.0  # ₹6,000 * 3 months
+    assert fnf["net"] > 18000.0
+
+
+
 # ------------------------------------------------------------------- face glue
 def test_face_service_identification_flags():
     from app.face import IdentificationResult

@@ -292,7 +292,28 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
     # late-arrival fines, never more than the month can carry
     late_fine = min(effective_late_fine, max(0.0, earned_gross - pf - esi - professional_tax - tds))
     other_deduction = min(ledger_other_deductions, max(0.0, earned_gross - pf - esi - professional_tax - tds - late_fine))
-    total_deductions = pf + esi + professional_tax + tds + late_fine + other_deduction
+
+    # Salary Retention Fund (Monthly Gross based fixed deduction for initial X months)
+    retention_amount = 0.0
+    retention_month_num = 0
+    if employee.get("retention_enabled"):
+        percent = float(employee.get("retention_percent") or 20.0)
+        max_months = int(employee.get("retention_months") or 3)
+        prev_slips = storage.query(
+            """
+            SELECT COUNT(*) AS count
+            FROM payslips p
+            WHERE p.employee_id = ? AND p.retention_amount > 0 AND p.period < ?
+            """,
+            (employee["id"], period),
+        )
+        months_done = prev_slips[0]["count"] if prev_slips else 0
+        if months_done < max_months:
+            retention_month_num = months_done + 1
+            fixed_deduct = round(monthly_gross * (percent / 100.0), 2)
+            retention_amount = min(fixed_deduct, max(0.0, earned_gross - pf - esi - professional_tax - tds - late_fine - other_deduction))
+
+    total_deductions = pf + esi + professional_tax + tds + late_fine + other_deduction + retention_amount
     claims = approved_claims(storage, employee["id"], period)
 
     return {
@@ -318,6 +339,8 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
         "late_fine": round(late_fine, 2),
         "other_deduction": round(other_deduction, 2),
         "other_deduction_note": other_notes or None,
+        "retention_amount": round(retention_amount, 2),
+        "retention_month_num": retention_month_num,
         "total_deductions": round(total_deductions, 2),
         "reimbursement": round(sum(float(c["amount"]) for c in claims), 2),
         "claim_ids": [c["id"] for c in claims],
@@ -408,7 +431,7 @@ def generate_run(
                 if not emp_kept or "advance" not in emp_kept or emp_kept.get("advance") is None:
                     calc["advance"] = loan_emi
                     calc["advance_note"] = f"Loan #{active_loan['id']} ({active_loan['loan_type'].replace('_', ' ').title()}) EMI: ₹{loan_emi:,.0f}"
-                    calc["total_deductions"] = round(calc["pf"] + calc["esi"] + calc["professional_tax"] + calc["tds"] + calc["late_fine"] + calc["advance"] + calc["other_deduction"], 2)
+                    calc["total_deductions"] = round(calc["pf"] + calc["esi"] + calc["professional_tax"] + calc["tds"] + calc["late_fine"] + calc["advance"] + calc["other_deduction"] + calc.get("retention_amount", 0.0), 2)
                     calc.update(_settle(calc["earned_gross"], calc["bonus"], calc["reimbursement"], calc["total_deductions"]))
 
             storage.execute_tx(
@@ -417,8 +440,9 @@ def generate_run(
                                       lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
                                       professional_tax, tds, total_deductions, net_pay, created_at, updated_at,
                                       bonus, advance, other_deduction, tds_override, note, reimbursement, rounding,
-                                      late_fine, status, hold_reason, loan_id, loan_emi, advance_note, other_deduction_note)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                      late_fine, status, hold_reason, loan_id, loan_emi, advance_note, other_deduction_note,
+                                      retention_amount, retention_month_num)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
@@ -428,6 +452,7 @@ def generate_run(
                     calc["bonus"], calc["advance"], calc["other_deduction"], calc["tds_override"], calc["note"],
                     calc["reimbursement"], calc["rounding"], calc["late_fine"],
                     emp_status, emp_hold, loan_id, loan_emi, calc.get("advance_note"), calc.get("other_deduction_note"),
+                    calc.get("retention_amount", 0.0), calc.get("retention_month_num", 0),
                 ),
             )
             if calc["claim_ids"]:
@@ -469,7 +494,7 @@ def _apply_adjustments(calc: dict[str, Any], kept: dict[str, Any] | None) -> Non
     override = kept.get("tds_override")
     tds = float(override) if override is not None else calc["tds"]
     note = kept.get("note")
-    statutory = calc["pf"] + calc["esi"] + calc["professional_tax"] + tds + calc.get("late_fine", 0.0)
+    statutory = calc["pf"] + calc["esi"] + calc["professional_tax"] + tds + calc.get("late_fine", 0.0) + calc.get("retention_amount", 0.0)
     available = calc["earned_gross"] + bonus + calc["reimbursement"] - statutory
     if advance + other > max(0.0, available):
         # attendance changed since HR typed these: recover only what this month can carry
@@ -536,7 +561,7 @@ def update_slip(
             raise employees_service.ValidationError(f"{label.replace('_', ' ').title()} cannot be negative.")
 
     total_deductions = (slip["pf"] + slip["esi"] + slip["professional_tax"] + tds + advance + other_deduction
-                        + float(slip.get("late_fine") or 0))
+                        + float(slip.get("late_fine") or 0) + float(slip.get("retention_amount") or 0))
     reimbursement = float(slip.get("reimbursement") or 0)
     shortfall = total_deductions - (slip["earned_gross"] + bonus + reimbursement)
     if shortfall > 0.005:
