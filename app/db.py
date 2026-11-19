@@ -867,6 +867,9 @@ class Storage:
             ("punch_out_photo", "TEXT"),
             ("early_leave_approved", "INTEGER NOT NULL DEFAULT 0"),
         ],
+        "monthly_deductions": [
+            ("work_date", "TEXT"),
+        ],
         "employees": [
             ("address", "TEXT"),
             ("bank_name", "TEXT"),
