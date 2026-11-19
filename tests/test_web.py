@@ -639,6 +639,20 @@ def test_payroll_csv_export(hr_client: TestClient, staff):
     assert "Aarav Sharma" in export.text
 
 
+def test_retention_funds_dashboard_page(hr_client: TestClient, storage, staff):
+    employees_service.update_employee(
+        storage,
+        staff[0]["id"],
+        {"retention_enabled": 1, "retention_percent": 20.0, "retention_months": 3},
+    )
+    page = hr_client.get("/payroll/retention")
+    assert page.status_code == 200
+    assert "Salary Retention Funds" in page.text
+    assert "Currently Held" in page.text
+    assert "Upcoming to be Held" in page.text
+    assert staff[0]["name"] in page.text
+
+
 # -------------------------------------------------------------------- kiosk
 def test_kiosk_scan_marks_attendance(client: TestClient, storage, staff, fake_face, assets, hr_user, kiosk_user, app):
     fake_face.identify_result = IdentificationResult(

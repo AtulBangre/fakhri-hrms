@@ -996,3 +996,134 @@ def export_esic_return(storage: Storage, period: str) -> str:
         lines.append(",".join(_csv_safe(v) for v in fields))
     return "\n".join(lines) + "\n"
 
+
+def retention_fund_analytics(storage: Storage) -> dict[str, Any]:
+    """Compile company-wide analytics and individual ledger for Salary Retention Funds."""
+    rows = storage.query(
+        """
+        SELECT e.id, e.code, e.name, e.department, e.designation, e.monthly_gross, e.status, e.joined_on,
+               e.retention_enabled, e.retention_percent, e.retention_months
+        FROM employees e
+        WHERE e.retention_enabled = 1
+           OR e.id IN (SELECT DISTINCT employee_id FROM payslips WHERE retention_amount > 0)
+        ORDER BY e.name COLLATE NOCASE
+        """
+    )
+
+    records = []
+    total_currently_held = 0.0
+    total_upcoming_held = 0.0
+    total_upcoming_disbursement = 0.0
+    total_disbursed = 0.0
+    active_plans_count = 0
+    matured_plans_count = 0
+    exiting_plans_count = 0
+
+    for emp in rows:
+        gross = float(emp.get("monthly_gross") or 0.0)
+        percent = float(emp.get("retention_percent") or 20.0)
+        months_cfg = int(emp.get("retention_months") or 3)
+        monthly_deduct = round(gross * (percent / 100.0), 2)
+        target_total = round(monthly_deduct * months_cfg, 2)
+
+        slips = storage.query(
+            """
+            SELECT p.id, p.period, p.retention_amount, p.retention_month_num, r.status AS run_status
+            FROM payslips p
+            JOIN payroll_runs r ON p.run_id = r.id
+            WHERE p.employee_id = ? AND p.retention_amount > 0
+            ORDER BY p.period ASC
+            """,
+            (emp["id"],),
+        )
+
+        held_so_far = round(sum(float(s["retention_amount"]) for s in slips), 2)
+        months_completed = len(slips)
+
+        # Check exit / F&F status
+        exit_row = storage.query_one(
+            "SELECT status, last_working_day, resignation_date FROM employee_exits WHERE employee_id = ? ORDER BY id DESC LIMIT 1",
+            (emp["id"],),
+        )
+        is_exiting = False
+        is_settled = False
+        lwd = None
+        if exit_row:
+            lwd = exit_row.get("last_working_day")
+            if exit_row.get("status") == "settled":
+                is_settled = True
+            elif exit_row.get("status") in ("pending", "approved"):
+                is_exiting = True
+
+        # Calculate upcoming held (future scheduled deductions)
+        upcoming_held = 0.0
+        if emp.get("retention_enabled") and emp.get("status") == "active" and not is_settled and not is_exiting:
+            if months_completed < months_cfg:
+                rem_months = months_cfg - months_completed
+                upcoming_held = round(monthly_deduct * rem_months, 2)
+
+        # Status & categorization
+        if is_settled:
+            status_label = "Refunded at F&F"
+            status_chip = "chip-ghost"
+            total_disbursed += held_so_far
+        elif is_exiting:
+            status_label = "Upcoming F&F Refund"
+            status_chip = "chip-danger"
+            total_currently_held += held_so_far
+            total_upcoming_disbursement += held_so_far
+            exiting_plans_count += 1
+        elif months_completed >= months_cfg:
+            status_label = "Fully Matured (Safe)"
+            status_chip = "chip-ok"
+            total_currently_held += held_so_far
+            matured_plans_count += 1
+        elif emp.get("retention_enabled"):
+            status_label = f"Month {months_completed + 1} of {months_cfg} (Active)"
+            status_chip = "chip-primary"
+            total_currently_held += held_so_far
+            total_upcoming_held += upcoming_held
+            active_plans_count += 1
+        else:
+            status_label = "Paused / Inactive"
+            status_chip = "chip-warn"
+            total_currently_held += held_so_far
+
+        pct_progress = min(100, int(round((months_completed / months_cfg * 100)))) if months_cfg else 100
+
+        records.append({
+            "employee_id": emp["id"],
+            "code": emp["code"],
+            "name": emp["name"],
+            "department": emp.get("department") or "—",
+            "monthly_gross": gross,
+            "retention_percent": percent,
+            "retention_months": months_cfg,
+            "monthly_deduct": monthly_deduct,
+            "target_total": target_total,
+            "held_so_far": held_so_far,
+            "upcoming_held": upcoming_held,
+            "months_completed": months_completed,
+            "progress_percent": pct_progress,
+            "status_label": status_label,
+            "status_chip": status_chip,
+            "is_exiting": is_exiting,
+            "is_settled": is_settled,
+            "last_working_day": lwd,
+            "history": slips,
+        })
+
+    return {
+        "records": records,
+        "total_currently_held": round(total_currently_held, 2),
+        "total_upcoming_held": round(total_upcoming_held, 2),
+        "total_target_pool": round(total_currently_held + total_upcoming_held, 2),
+        "total_upcoming_disbursement": round(total_upcoming_disbursement, 2),
+        "total_disbursed": round(total_disbursed, 2),
+        "active_plans_count": active_plans_count,
+        "matured_plans_count": matured_plans_count,
+        "exiting_plans_count": exiting_plans_count,
+        "total_enrolled": len(records),
+    }
+
+

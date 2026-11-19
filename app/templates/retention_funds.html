@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Salary Retention Funds · {{ org_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div class="titles">
+    <h1>Salary Retention Funds</h1>
+    <div class="sub">Company-wide holding ledger · Fixed Monthly Gross deductions refundable at Full &amp; Final (F&amp;F) Settlement</div>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/payroll">← Payroll Runs</a>
+    <a class="btn btn-primary" href="/employees/new">+ Enroll New Employee</a>
+  </div>
+</div>
+
+{% if analytics.total_upcoming_disbursement > 0 %}
+<div class="card mb-3" style="background:#fff1f2;border:1px solid #fecdd3;padding:1rem;">
+  <div style="display:flex;align-items:center;gap:0.75rem;">
+    <span style="font-size:1.5rem;">⚠️</span>
+    <div style="flex:1;">
+      <strong style="color:#be123c;font-size:0.95rem;">Upcoming F&amp;F Disbursements Alert</strong>
+      <div class="small" style="color:#9f1239;">
+        <strong>{{ analytics.exiting_plans_count }}</strong> employee(s) currently in Resignation / Exit process have a total of 
+        <strong>₹{{ '{:,.2f}'.format(analytics.total_upcoming_disbursement) }}</strong> in accumulated retention funds scheduled for refund in upcoming Full &amp; Final settlements.
+      </div>
+    </div>
+    <a class="btn btn-sm btn-outline" href="/exits" style="border-color:#be123c;color:#be123c;">View Exits &amp; F&amp;F</a>
+  </div>
+</div>
+{% endif %}
+
+<!-- Top KPI Analytics Grid -->
+<div class="stats-grid mb-3" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1rem;">
+  <div class="stat-card card">
+    <div class="stat-label muted small">Currently Held (Actual Pool)</div>
+    <div class="stat-val font-bold" style="font-size:1.6rem;color:var(--primary);margin:0.25rem 0;">
+      ₹{{ '{:,.2f}'.format(analytics.total_currently_held) }}
+    </div>
+    <div class="stat-foot muted small">Safe in company custody ({{ analytics.total_enrolled }} employees)</div>
+  </div>
+
+  <div class="stat-card card">
+    <div class="stat-label muted small">Upcoming to be Held (Future Inflow)</div>
+    <div class="stat-val font-bold" style="font-size:1.6rem;color:#d97706;margin:0.25rem 0;">
+      ₹{{ '{:,.2f}'.format(analytics.total_upcoming_held) }}
+    </div>
+    <div class="stat-foot muted small">Remaining deductions from {{ analytics.active_plans_count }} active plan(s)</div>
+  </div>
+
+  <div class="stat-card card">
+    <div class="stat-label muted small">Total Target Commitment</div>
+    <div class="stat-val font-bold" style="font-size:1.6rem;color:var(--ink);margin:0.25rem 0;">
+      ₹{{ '{:,.2f}'.format(analytics.total_target_pool) }}
+    </div>
+    <div class="stat-foot muted small">Currently Held + Upcoming to be Held</div>
+  </div>
+
+  <div class="stat-card card">
+    <div class="stat-label muted small">Upcoming F&amp;F Payouts</div>
+    <div class="stat-val font-bold" style="font-size:1.6rem;color:#dc2626;margin:0.25rem 0;">
+      ₹{{ '{:,.2f}'.format(analytics.total_upcoming_disbursement) }}
+    </div>
+    <div class="stat-foot muted small">{{ analytics.exiting_plans_count }} employee(s) exiting service</div>
+  </div>
+</div>
+
+<!-- Ledger Card & Table -->
+<div class="card flush">
+  <div class="card-head" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:0.75rem 1rem;">
+    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+      <h2 style="margin:0;font-size:1.1rem;">Employee Retention Ledger ({{ analytics.records | length }})</h2>
+      <div class="btn-group" style="display:flex;gap:0.35rem;">
+        <button type="button" class="btn btn-sm btn-outline active-filter-btn" onclick="filterLedger('all', this)">All ({{ analytics.records | length }})</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="filterLedger('active', this)">Active ({{ analytics.active_plans_count }})</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="filterLedger('matured', this)">Matured ({{ analytics.matured_plans_count }})</button>
+        {% if analytics.exiting_plans_count > 0 %}
+        <button type="button" class="btn btn-sm btn-outline" onclick="filterLedger('exiting', this)">Exiting ({{ analytics.exiting_plans_count }})</button>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <input type="text" id="ledgerSearchInput" placeholder="Quick search employee..." class="form-control" style="width:220px;padding:0.35rem 0.6rem;font-size:0.85rem;" oninput="searchLedger(this.value)">
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data stack" id="retentionTable">
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Department</th>
+          <th class="num">Monthly Gross</th>
+          <th>Holding Plan</th>
+          <th style="min-width:140px;">Progress</th>
+          <th class="num" style="color:var(--primary);">Currently Held</th>
+          <th class="num" style="color:#d97706;">Upcoming Held</th>
+          <th class="num">Target Total</th>
+          <th>Status</th>
+          <th class="actions-cell"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in analytics.records %}
+        <tr class="ledger-row" 
+            data-search="{{ r.name | lower }} {{ r.code | lower }} {{ r.department | lower }}"
+            data-category="{% if r.is_exiting %}exiting{% elif r.is_settled %}settled{% elif r.months_completed >= r.retention_months %}matured{% else %}active{% endif %}">
+          <td data-label="Employee">
+            <a href="/employees/{{ r.employee_id }}" style="font-weight:600;color:var(--ink);text-decoration:none;">
+              {{ r.name }}
+            </a>
+            <span class="mono muted small" style="display:block;font-size:0.75rem;">{{ r.code }}</span>
+          </td>
+          <td data-label="Department">{{ r.department }}</td>
+          <td data-label="Monthly Gross" class="num font-bold">₹{{ '{:,.2f}'.format(r.monthly_gross) }}</td>
+          <td data-label="Holding Plan">
+            <span style="font-weight:600;">{{ r.retention_percent | round(0) | int }}%</span>
+            <span class="muted small">for {{ r.retention_months }} mo</span>
+            <span class="sub muted" style="display:block;font-size:0.75rem;">₹{{ '{:,.0f}'.format(r.monthly_deduct) }}/month</span>
+          </td>
+          <td data-label="Progress">
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;margin-bottom:2px;">
+              <span><strong>{{ r.months_completed }}</strong> of {{ r.retention_months }} mo</span>
+              <span class="muted">{{ r.progress_percent }}%</span>
+            </div>
+            <div style="background:var(--subtle);border-radius:4px;height:6px;width:100%;overflow:hidden;border:1px solid var(--border);">
+              <div style="background:{% if r.progress_percent >= 100 %}var(--success, #16a34a){% else %}var(--primary){% endif %};height:100%;width:{{ r.progress_percent }}%;"></div>
+            </div>
+          </td>
+          <td data-label="Currently Held" class="num" style="font-weight:700;color:var(--primary);">
+            ₹{{ '{:,.2f}'.format(r.held_so_far) }}
+          </td>
+          <td data-label="Upcoming Held" class="num" style="font-weight:700;color:#d97706;">
+            {% if r.upcoming_held > 0 %}
+              ₹{{ '{:,.2f}'.format(r.upcoming_held) }}
+            {% else %}
+              <span class="muted" style="font-weight:normal;">₹0.00</span>
+            {% endif %}
+          </td>
+          <td data-label="Target Total" class="num font-bold">
+            ₹{{ '{:,.2f}'.format(r.target_total) }}
+          </td>
+          <td data-label="Status">
+            <span class="chip {{ r.status_chip }}" style="font-size:0.75rem;">
+              {{ r.status_label }}
+            </span>
+            {% if r.last_working_day %}
+              <span class="sub muted" style="display:block;font-size:0.72rem;">LWD: {{ r.last_working_day }}</span>
+            {% endif %}
+          </td>
+          <td class="actions-cell">
+            <a class="btn btn-sm btn-outline" href="/employees/{{ r.employee_id }}/payslips" title="View payslip history">History</a>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="10" class="empty-state" style="padding:2rem;">
+            No employees enrolled in Salary Retention Funds yet. When you onboard new employees with retention enabled, they will appear here automatically.
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  var currentCategory = 'all';
+  var currentSearch = '';
+
+  function filterLedger(cat, btn) {
+    currentCategory = cat;
+    document.querySelectorAll('.active-filter-btn').forEach(function(b) {
+      b.classList.remove('active-filter-btn');
+      b.style.fontWeight = 'normal';
+    });
+    if (btn) {
+      btn.classList.add('active-filter-btn');
+      btn.style.fontWeight = 'bold';
+    }
+    applyLedgerFilters();
+  }
+
+  function searchLedger(val) {
+    currentSearch = (val || '').toLowerCase().trim();
+    applyLedgerFilters();
+  }
+
+  function applyLedgerFilters() {
+    var rows = document.querySelectorAll('#retentionTable tbody tr.ledger-row');
+    rows.forEach(function(row) {
+      var cat = row.getAttribute('data-category');
+      var search = row.getAttribute('data-search') || '';
+      var matchesCat = (currentCategory === 'all') || (cat === currentCategory);
+      var matchesSearch = !currentSearch || (search.indexOf(currentSearch) !== -1);
+      row.style.display = (matchesCat && matchesSearch) ? '' : 'none';
+    });
+  }
+</script>
+{% endblock %}

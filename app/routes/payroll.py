@@ -24,6 +24,23 @@ def _as_float(value: str | None) -> float:
         return 0.0
 
 
+@router.get("/retention")
+def retention_dashboard(
+    request: Request,
+    user: SessionUser = Depends(require_hr),
+    storage=Depends(get_storage),
+    settings=Depends(get_settings_dep),
+):
+    analytics = payroll.retention_fund_analytics(storage)
+    return render(
+        request,
+        "retention_funds.html",
+        active="retention",
+        user=user,
+        analytics=analytics,
+    )
+
+
 @router.get("")
 def index(
     request: Request,
