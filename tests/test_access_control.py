@@ -129,9 +129,17 @@ def test_employee_sees_only_their_own_face_photo(ess_client: TestClient, staff, 
     assert ess_client.get(f"/employees/{staff[1]['id']}/avatar").status_code == 404
 
 
-def test_hr_and_the_gate_can_see_face_photos(client: TestClient, staff, avatar, hr_user, kiosk_user):
+def test_hr_and_the_gate_can_see_face_photos(client: TestClient, storage, settings, staff, avatar, hr_user,
+                                             kiosk_user):
+    from app.services import attendance as attendance_service, orgtime
+
     client.post("/login", data={"username": KIOSK_USERNAME, "password": KIOSK_PASSWORD})
-    assert client.get(f"/employees/{staff[0]['id']}/avatar").content == JPEG  # the confirmation card
+    # the gate only gets the face of someone who has just scanned (the confirmation card)
+    assert client.get(f"/employees/{staff[0]['id']}/avatar").status_code == 404
+    attendance_service.mark_manual(storage, employee_id=staff[0]["id"], work_date=orgtime.today_str(settings),
+                                   status="present", check_in="09:30")
+    assert client.get(f"/employees/{staff[0]['id']}/avatar").content == JPEG
+    assert client.get(f"/employees/{staff[1]['id']}/avatar").status_code == 404
     client.post("/logout", data={"_csrf": csrf_of(client, "/kiosk")})
     client.post("/login", data={"username": HR_USERNAME, "password": HR_PASSWORD})
     assert client.get(f"/employees/{staff[0]['id']}/avatar").content == JPEG

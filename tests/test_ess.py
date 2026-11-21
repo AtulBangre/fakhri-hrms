@@ -443,7 +443,7 @@ def test_hr_rejects_a_request_without_touching_attendance(
         follow_redirects=False,
     )
     page = ess_client.get("/me/leave")
-    assert "rejected" in page.text
+    assert "rejected" in page.text.lower()
 
 
 def test_employee_can_withdraw_a_pending_request(ess_client: TestClient, ess_credentials, storage):
@@ -568,7 +568,7 @@ def test_hr_can_disable_a_portal_login(hr_client: TestClient, storage, staff):
 def test_employee_page_shows_the_portal_card(hr_client: TestClient, storage, staff):
     auth.ensure_employee_login(storage, staff[0], password="portal-pass-1")
     page = hr_client.get(f"/employees/{staff[0]['id']}")
-    assert "Employee portal" in page.text
+    assert "employee portal" in page.text.lower()
     assert staff[0]["code"].lower() in page.text
 
 

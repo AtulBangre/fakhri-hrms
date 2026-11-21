@@ -19,6 +19,10 @@ The rules implemented here (and asserted in the test suite):
 
 from __future__ import annotations
 
+from .csvsafe import csv_cell
+
+import sqlite3
+
 import json
 import logging
 import time
@@ -458,6 +462,7 @@ def mark_by_face(
     similarity: float | None = None,
     source: str = "face",
     photo_bytes: bytes | None = None,
+    _retry: bool = False,
 ) -> MarkOutcome:
     """Apply the check-in / check-out state machine for one scan."""
     moment = moment or orgtime.local_now(settings)
@@ -565,6 +570,10 @@ def mark_by_face(
                     employee=employee, attendance=existing, status=status,
                     check_in=existing.get("check_in"), check_out=existing.get("check_out"),
                 )
+            corrected = _correct_early_check_out(storage, settings, employee, existing, day, now_clock,
+                                                 source=source, device_label=device_label)
+            if corrected is not None:
+                return corrected
             return MarkOutcome(
                 ok=False, action="already_done", kind="info",
                 message=f"{employee['name']}'s attendance is already complete for today.",
@@ -648,15 +657,26 @@ def mark_by_face(
         note = "late arrival — half day"
 
     now = utcnow_iso()
-    storage.execute(
-        """
-        INSERT INTO attendance (employee_id, work_date, status, check_in, late_minutes, late_fine, source,
-                                punch_in_photo, device_label, note, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (employee["id"], day.isoformat(), status_in, now_clock, late, assessed["fine"], source,
-         in_photo, device_label, note, now, now),
-    )
+    try:
+        storage.execute(
+            """
+            INSERT INTO attendance (employee_id, work_date, status, check_in, late_minutes, late_fine, source,
+                                    punch_in_photo, device_label, note, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (employee["id"], day.isoformat(), status_in, now_clock, late, assessed["fine"], source,
+             in_photo, device_label, note, now, now),
+        )
+    except sqlite3.IntegrityError:
+        # Another scan of the same person (second gate, double tap) inserted the row a
+        # moment ago. Replay against that row: it reports "checked in a moment ago".
+        if _retry:
+            raise
+        if in_photo:
+            from ..uploads import delete_file
+            delete_file(settings, "punches", in_photo)
+        return mark_by_face(storage, settings, employee, device_label=device_label, moment=moment,
+                            similarity=similarity, source=source, photo_bytes=None, _retry=True)
     created = get_row(storage, employee["id"], day)
     return MarkOutcome(
         ok=True, action="check_in", kind="success",
@@ -666,6 +686,43 @@ def mark_by_face(
         employee=employee, attendance=created, similarity=similarity,
         status=status_in, check_in=now_clock, late_minutes=late,
         late_fine=assessed["fine"], late_half_day=assessed["half_day"],
+    )
+
+
+def _correct_early_check_out(storage: Storage, settings: Settings, employee: dict, existing: dict, day: date,
+                             now_clock: str, *, source: str, device_label: str | None) -> MarkOutcome | None:
+    """A later scan replaces a check-out recorded *before the shift ended*.
+
+    Walking past the gate at lunch must not lock the day as a half day. A check-out at
+    or after shift end stays final (a third scan in the evening is still refused).
+    """
+    shift = orgtime.shift_for(storage, employee)
+    shift_end = str(shift.get("end_time") or "")[:5]
+    old_out = str(existing.get("check_out") or "")
+    if not shift_end or not existing.get("check_in") or old_out[:5] >= shift_end or now_clock <= old_out:
+        return None
+    worked = orgtime.minutes_between(existing["check_in"], now_clock)
+    status = existing["status"]
+    shift_start = str(shift.get("start_time") or "")[:5]
+    full_day_mins = orgtime.minutes_between(shift_start, shift_end) if shift_start and shift_end else None
+    is_full_day = (now_clock[:5] >= shift_end) or (full_day_mins is not None and worked is not None and worked >= full_day_mins)
+    if status == orgtime.STATUS_HALF_DAY and not existing.get("leave_type") and is_full_day:
+        # only undo a half day the early check-out caused, never one from a late arrival
+        clock = orgtime.parse_clock(existing["check_in"])
+        arrived = datetime.combine(day, clock, tzinfo=settings.tz) if clock else None
+        if arrived is None or not orgtime.late_assessment(storage, arrived, shift=shift)["half_day"]:
+            status = orgtime.STATUS_PRESENT
+    storage.execute(
+        "UPDATE attendance SET check_out = ?, worked_minutes = ?, status = ?, source = ?, device_label = ?, "
+        "note = TRIM(COALESCE(note, '') || ' check-out corrected from ' || ?), updated_at = ? WHERE id = ?",
+        (now_clock, worked, status, source, device_label, old_out[:5], utcnow_iso(), existing["id"]),
+    )
+    updated = get_row(storage, employee["id"], day)
+    return MarkOutcome(
+        ok=True, action="check_out", kind="success",
+        message=f"{employee['name']}'s check-out updated to {orgtime.format_clock(now_clock)}",
+        employee=employee, attendance=updated, status=status,
+        check_in=existing["check_in"], check_out=now_clock, worked_minutes=worked,
     )
 
 
@@ -711,6 +768,7 @@ def mark_manual(
     actor: str | None = None,
     release_leave: bool = False,
     early_leave: bool = False,
+    allow_negative: bool = False,
 ) -> dict:
     """HR override / correction for any employee-day.
 
@@ -725,7 +783,10 @@ def mark_manual(
     if leave_type not in orgtime.ALL_LEAVE_TYPES:
         leave_type = None
     if status == orgtime.STATUS_LEAVE and leave_type is None:
-        leave_type = "paid"
+        # never assume "paid": that pays the day in full and charges no bucket
+        raise employees_service.ValidationError(
+            "Choose the leave type (paid, sick, casual or unpaid) for a leave day."
+        )
     # A half day keeps no leave type unless HR picks one: the other half is then
     # unpaid (0.5 LOP), never silently paid leave (PAY-01).
     if status not in (orgtime.STATUS_LEAVE, orgtime.STATUS_HALF_DAY):
@@ -788,32 +849,50 @@ def mark_manual(
 
     now = utcnow_iso()
     early_val = 1 if early_leave else (1 if (existing and existing.get("early_leave_approved") and status == orgtime.STATUS_PRESENT) else 0)
-    if existing and existing.get("leave_id"):
+    # A leave day (or a half day with a leave type) is booked as a real leave request,
+    # so it is checked against the bucket and taken from the balance like any other leave.
+    books_leave = leave_type is not None and status in (orgtime.STATUS_LEAVE, orgtime.STATUS_HALF_DAY)
+    same_booking = bool(
+        books_leave and existing and existing.get("leave_id")
+        and existing.get("status") == status and existing.get("leave_type") == leave_type
+    )
+    if existing and existing.get("leave_id") and not same_booking:
         if not release_leave:
             raise LeaveDayConflict(
                 f"{orgtime.human_date(day)} is on approved leave (#{existing['leave_id']}). Confirm that the leave "
                 "day should be given back to the balance, then save again."
             )
         _release_leave_day(storage, existing, actor=actor)
+    leave_id = existing.get("leave_id") if same_booking else None
+    if books_leave and not same_booking:
+        from . import leave as leave_service  # leave builds on this module
+
+        leave_id = leave_service.book_hr_day(
+            storage, storage.settings, employee_id=employee_id, day=day, leave_type=leave_type,
+            days=0.5 if status == orgtime.STATUS_HALF_DAY else 1.0, reason=note, actor=actor,
+            allow_negative=allow_negative,
+        )
     if existing:
         storage.execute(
             """
             UPDATE attendance SET status = ?, check_in = ?, check_out = ?, late_minutes = ?, late_fine = ?,
                                   worked_minutes = ?, leave_type = ?, source = 'manual', note = ?,
-                                  leave_id = NULL, early_leave_approved = ?, updated_at = ?
+                                  leave_id = ?, early_leave_approved = ?, updated_at = ?
             WHERE id = ?
             """,
-            (status, check_in, check_out, late, fine, worked, leave_type, note, early_val, now, existing["id"]),
+            (status, check_in, check_out, late, fine, worked, leave_type, note, leave_id, early_val, now,
+             existing["id"]),
         )
     else:
         storage.execute(
             """
             INSERT INTO attendance (employee_id, work_date, status, check_in, check_out, late_minutes, late_fine,
-                                    worked_minutes, leave_type, source, note, early_leave_approved, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?, 'manual', ?,?,?,?)
+                                    worked_minutes, leave_type, source, note, leave_id, early_leave_approved,
+                                    created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?, 'manual', ?,?,?,?,?)
             """,
             (employee_id, day.isoformat(), status, check_in, check_out, late, fine, worked, leave_type,
-             note, early_val, now, now),
+             note, leave_id, early_val, now, now),
         )
     storage.audit(actor=actor, action="mark_attendance", entity="employee", entity_id=employee_id,
                   detail=f"{day.isoformat()} → {status}")
@@ -1212,10 +1291,7 @@ def summary_csv(register: dict) -> str:
 
 
 def _csv_safe(value: object) -> str:
-    text = "" if value is None else str(value)
-    if any(ch in text for ch in (",", '"', "\n")):
-        return '"' + text.replace('"', '""') + '"'
-    return text
+    return csv_cell(value)  # formula-safe; see services/csvsafe.py
 
 
 def recalculate_employee_attendance(

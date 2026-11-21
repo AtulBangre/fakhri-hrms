@@ -16,10 +16,13 @@ and reported back so HR can see exactly which dates were charged.
 
 from __future__ import annotations
 
+from .csvsafe import csv_cell
+
 from datetime import date, datetime
 import csv
 import io
 import json
+import re
 import xml.etree.ElementTree as ET
 import xml.sax.saxutils
 import zipfile
@@ -166,6 +169,8 @@ def apply_leave(
     existing pending/approved leave is refused.
     """
     employee = employees_service.require_employee(storage, employee_id)
+    if not leave_type:
+        raise employees_service.ValidationError("Choose a leave type: paid, sick, casual or unpaid.")
     if leave_type not in orgtime.ALL_LEAVE_TYPES:
         raise employees_service.ValidationError(f"Unknown leave type '{leave_type}'.")
     if status not in ("approved", "pending"):
@@ -184,10 +189,10 @@ def apply_leave(
     locks.assert_period_open(storage, start, end)
     _check_overlap(storage, employee_id, start, end)
     if leave_type in orgtime.PAID_LEAVE_TYPES and not allow_negative:
-        _check_balance(storage, settings, employee_id, days, leave_type=leave_type)
+        check_request_balance(storage, settings, employee_id, leave_type, start, end, days)
 
     manager_status = "na"
-    if employee.get("manager_id"):
+    if employee.get("manager_id") and (status != "pending" or _manager_can_decide(storage, employee["manager_id"])):
         if status == "pending":
             manager_status = "pending"
             status = "pending_manager"
@@ -242,6 +247,62 @@ def apply_leave(
     return {"leave": leave, "applied": applied, "skipped": skipped}
 
 
+def _manager_can_decide(storage: Storage, manager_id: int) -> bool:
+    """A request only waits for a manager who still exists and is active.
+
+    Otherwise it would sit in ``pending_manager`` with nobody to act on it, so it goes
+    straight to HR instead.
+    """
+    row = storage.query_one("SELECT status FROM employees WHERE id = ?", (manager_id,))
+    return bool(row and row["status"] == "active")
+
+
+def book_hr_day(storage: Storage, settings: Settings, *, employee_id: int, day: date, leave_type: str,
+                days: float, reason: str | None = None, actor: str | None = None,
+                allow_negative: bool = False) -> int:
+    """HR marks one day as leave on the attendance board / register.
+
+    That used to write only the attendance row, so the day was paid but never taken
+    from any balance. It now becomes an approved one-day request: checked against the
+    bucket (unless HR overrides) and released again when the day is changed or cleared.
+    Returns the new leave request id; the caller links its attendance row to it.
+    """
+    if leave_type not in orgtime.ALL_LEAVE_TYPES:
+        raise employees_service.ValidationError("Choose the leave type for this day.")
+    kind = orgtime.day_kind(storage, day)
+    if kind != "working":
+        label = "a weekly off" if kind == orgtime.STATUS_WEEK_OFF else "a holiday"
+        raise employees_service.ValidationError(f"{orgtime.human_date(day)} is {label} — no leave is needed.")
+    waiting = storage.query_one(
+        "SELECT id FROM leave_requests WHERE employee_id = ? AND status IN ('pending','pending_manager') "
+        "AND from_date <= ? AND to_date >= ? LIMIT 1",
+        (employee_id, day.isoformat(), day.isoformat()),
+    )
+    if waiting:
+        raise employees_service.ValidationError(
+            f"There is a leave request (#{waiting['id']}) waiting for this day. Approve or reject it in Leave instead."
+        )
+    if leave_type in orgtime.PAID_LEAVE_TYPES and not allow_negative:
+        check_request_balance(storage, settings, employee_id, leave_type, day, day, days)
+    employee = employees_service.require_employee(storage, employee_id)
+    now = utcnow_iso()
+    cursor = storage.execute(
+        """
+        INSERT INTO leave_requests (employee_id, leave_type, from_date, to_date, days, reason, status,
+                                    applied_by, created_at, decided_at, manager_status)
+        VALUES (?,?,?,?,?,?, 'approved', NULL, ?, ?, ?)
+        """,
+        (employee_id, leave_type, day.isoformat(), day.isoformat(), days,
+         reason or "Marked by HR on the attendance board", now, now,
+         "bypassed_by_hr" if employee.get("manager_id") else "na"),
+    )
+    leave_id = int(cursor.lastrowid)
+    storage.audit(actor=actor, action="apply_leave", entity="employee", entity_id=employee_id,
+                  detail=f"{leave_type} {day.isoformat()} days={days:g} [approved, attendance board]"
+                         + (" — balance override" if allow_negative and leave_type in orgtime.PAID_LEAVE_TYPES else ""))
+    return leave_id
+
+
 def storage_settings(storage: Storage) -> Settings:
     return storage.settings
 
@@ -249,7 +310,7 @@ def storage_settings(storage: Storage) -> Settings:
 def _check_overlap(storage: Storage, employee_id: int, start: date, end: date) -> None:
     clash = storage.query_one(
         "SELECT from_date, to_date, status FROM leave_requests WHERE employee_id = ? "
-        "AND status IN ('pending','approved') AND from_date <= ? AND to_date >= ? ORDER BY from_date LIMIT 1",
+        "AND status IN ('pending','pending_manager','approved') AND from_date <= ? AND to_date >= ? ORDER BY from_date LIMIT 1",
         (employee_id, end.isoformat(), start.isoformat()),
     )
     if clash:
@@ -257,62 +318,50 @@ def _check_overlap(storage: Storage, employee_id: int, start: date, end: date) -
             "" if clash["from_date"] == clash["to_date"] else f" – {orgtime.human_date(clash['to_date'])}"
         )
         raise employees_service.ValidationError(
-            f"There is already {'a pending request' if clash['status'] == 'pending' else 'approved leave'} on {span}."
+            f"There is already {'approved leave' if clash['status'] == 'approved' else 'a pending request'} on {span}."
         )
 
 
 def _check_balance(storage: Storage, settings: Settings, employee_id: int, days: float,
-                   *, leave_type: str | None = None, ignore_pending_id: int | None = None) -> None:
-    info = balance(storage, settings, employee_id)
-    if leave_type == "sick":
-        quota_label = "sick leave"
-        available = info["sl_available"]
-        allocated = info["annual_sl"]
-        used = info["used_sl"]
-        if ignore_pending_id is not None:
-            pending_self = storage.scalar(
-                "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type = 'sick'",
-                (ignore_pending_id,), 0,
-            )
-            available += float(pending_self or 0)
-    elif leave_type == "casual":
-        quota_label = "casual leave"
-        available = info["cl_available"]
-        allocated = info["annual_cl"]
-        used = info["used_cl"]
-        if ignore_pending_id is not None:
-            pending_self = storage.scalar(
-                "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type = 'casual'",
-                (ignore_pending_id,), 0,
-            )
-            available += float(pending_self or 0)
-    elif leave_type == "paid":
-        quota_label = "paid leave"
-        available = info["pl_available"]
-        allocated = info["accrued"]
-        used = info["used_pl"]
-        if ignore_pending_id is not None:
-            pending_self = storage.scalar(
-                "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type = 'paid'",
-                (ignore_pending_id,), 0,
-            )
-            available += float(pending_self or 0)
-    else:
-        quota_label = "leave"
-        available = info["total_available"]
-        allocated = info["total_allocated"]
-        used = info["total_used"]
-        if ignore_pending_id is not None:
-            pending_self = storage.scalar(
-                "SELECT days FROM leave_requests WHERE id = ? AND status = 'pending' AND leave_type IN ('paid','sick','casual')",
-                (ignore_pending_id,), 0,
-            )
-            available += float(pending_self or 0)
+                   *, leave_type: str | None = None, ignore_pending_id: int | None = None,
+                   cycle_on: date | None = None) -> None:
+    """Refuse paid/sick/casual leave beyond one bucket (quota − taken − other pending).
 
-    if days > available + 1e-9:
+    ``cycle_on`` is a date in the leave year being charged. ``ignore_pending_id`` is the
+    request being approved: its own days in that year are already counted as pending,
+    so they are added back — using the *unclamped* balance, or a balance that is already
+    negative would look like zero and let the request through.
+    """
+    info = balance(storage, settings, employee_id, cycle_on=cycle_on)
+    kinds = {
+        "sick": ("sick leave", "sl", "annual_sl", "used_sl", ("sick",)),
+        "casual": ("casual leave", "cl", "annual_cl", "used_cl", ("casual",)),
+        "paid": ("paid leave", "pl", "accrued", "used_pl", ("paid",)),
+    }
+    if leave_type in kinds:
+        quota_label, key, allocated_key, used_key, types = kinds[leave_type]
+        net = float(info.get(f"{key}_net", info[f"{key}_available"]))
+        allocated, used = info[allocated_key], info[used_key]
+    else:
+        quota_label, types = "leave", ("paid", "sick", "casual")
+        net = sum(float(info.get(f"{k}_net", info[f"{k}_available"])) for k in ("pl", "sl", "cl"))
+        allocated, used = info["total_allocated"], info["total_used"]
+
+    lifetime = leave_type == "paid" and storage.get_setting("pl_policy_mode", "accrual") != "fixed"
+    if ignore_pending_id is not None:
+        window = ((date.min, date.max) if lifetime or leave_type not in kinds
+                  else (orgtime.parse_date(info["cycle_start"]), orgtime.parse_date(info["cycle_end"])))
+        net += _bucket_days(storage, employee_id, types, PENDING_STATUSES, *window, only_id=ignore_pending_id)
+
+    if days > net + 1e-9:
+        waiting = round(max(0.0, float(allocated) - float(used) - net), 2)  # other requests not yet decided
+        waiting_note = f", {waiting:g} awaiting approval" if waiting > 0 else ""
+        year = ""
+        if cycle_on is not None and leave_type in kinds and not lifetime:
+            year = f" for the leave year {orgtime.human_date(info['cycle_start'])} – {orgtime.human_date(info['cycle_end'])}"
         raise employees_service.ValidationError(
-            f"Not enough {quota_label} balance: {days:g} day(s) requested, {max(available, 0):g} available "
-            f"({allocated:g} quota, {used:g} taken)."
+            f"Not enough {quota_label} balance{year}: {days:g} day(s) requested, {max(net, 0):g} available "
+            f"({allocated:g} quota, {used:g} taken{waiting_note})."
         )
 
 
@@ -355,9 +404,11 @@ def approve_leave(
         raise employees_service.ValidationError("That leave is already approved.")
 
     locks.assert_period_open(storage, leave["from_date"], leave["to_date"])
-    if leave["leave_type"] in orgtime.PAID_LEAVE_TYPES and leave["status"] == "pending" and not allow_negative:
-        _check_balance(storage, storage_settings(storage), leave["employee_id"], float(leave["days"]),
-                       leave_type=leave["leave_type"], ignore_pending_id=leave_id)
+    if (leave["leave_type"] in orgtime.PAID_LEAVE_TYPES and leave["status"] in PENDING_STATUSES
+            and not allow_negative):
+        check_request_balance(storage, storage_settings(storage), leave["employee_id"], leave["leave_type"],
+                              orgtime.parse_date(leave["from_date"]), orgtime.parse_date(leave["to_date"]),
+                              float(leave["days"]), ignore_pending_id=leave_id)
     applied, skipped = stamp_attendance(storage, leave, actor=actor)
     if not applied:
         raise employees_service.ValidationError(
@@ -401,7 +452,7 @@ def reject_leave(
             "This leave is already approved — cancel it instead, which also restores the attendance days."
         )
     storage.execute(
-        "UPDATE leave_requests SET status = 'rejected', decided_at = ?, reason = COALESCE(?, reason) "
+        "UPDATE leave_requests SET status = 'rejected', decided_at = ?, decision_note = ? "
         "WHERE id = ?",
         (utcnow_iso(), reason, leave_id),
     )
@@ -537,7 +588,7 @@ def list_manager_team_leave(
         if created:
             try:
                 dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                ist_dt = dt.astimezone(zoneinfo.ZoneInfo("Asia/Kolkata"))
+                ist_dt = dt.astimezone(storage.settings.tz)
                 d["applied_label"] = ist_dt.strftime("%d %b %Y, %I:%M %p")
                 d["applied_date"] = ist_dt.strftime("%d %b %Y")
                 d["applied_time"] = ist_dt.strftime("%I:%M %p")
@@ -643,8 +694,86 @@ def count_pending(storage: Storage) -> int:
     )
 
 
-def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: date | None = None) -> dict[str, Any]:
-    """Accrued vs taken paid leave, counted from the joining date."""
+PENDING_STATUSES = ("pending", "pending_manager")
+
+
+def _days_in_window(storage: Storage, row: dict[str, Any], start: date, end: date) -> float:
+    """The part of one leave request's charged days that falls between ``start`` and ``end``."""
+    first, last = orgtime.parse_date(row["from_date"]), orgtime.parse_date(row["to_date"])
+    days = float(row["days"] or 0)
+    if first >= start and last <= end:
+        return days
+    if last < start or first > end:
+        return 0.0
+    if days == 0.5:
+        return 0.5 if start <= first <= end else 0.0
+    total = orgtime.working_days(storage, first, last)
+    if total <= 0:
+        return 0.0
+    inside = orgtime.working_days(storage, max(first, start), min(last, end))
+    return round(days * inside / total, 2)
+
+
+def _bucket_days(storage: Storage, employee_id: int, leave_types: str | tuple[str, ...], statuses: tuple[str, ...],
+                 start: date, end: date, *, only_id: int | None = None) -> float:
+    """Leave days of a type and status that fall inside one leave year (split at the edges)."""
+    types = (leave_types,) if isinstance(leave_types, str) else tuple(leave_types)
+    sql = (
+        f"SELECT id, from_date, to_date, days FROM leave_requests WHERE employee_id = ? "
+        f"AND leave_type IN ({','.join('?' for _ in types)}) AND status IN ({','.join('?' for _ in statuses)}) "
+        "AND from_date <= ? AND to_date >= ?"
+    )
+    params: list[Any] = [employee_id, *types, *statuses, end.isoformat(), start.isoformat()]
+    if only_id is not None:
+        sql += " AND id = ?"
+        params.append(only_id)
+    return round(sum(_days_in_window(storage, row, start, end) for row in storage.query(sql, params)), 2)
+
+
+def _cycle_segments(storage: Storage, start: date, end: date) -> list[tuple[date, date]]:
+    """Split a date range at leave-year boundaries."""
+    from datetime import timedelta
+
+    cycle_type = storage.get_setting("leave_carry_forward_cycle", "financial_year")
+    segments: list[tuple[date, date]] = []
+    cursor = start
+    while cursor <= end:
+        _, cycle_end = orgtime.leave_cycle_bounds(cursor, cycle_type)
+        segments.append((cursor, min(end, cycle_end)))
+        cursor = cycle_end + timedelta(days=1)
+    return segments
+
+
+def check_request_balance(storage: Storage, settings: Settings, employee_id: int, leave_type: str,
+                          start: date, end: date, days: float, *, ignore_pending_id: int | None = None) -> None:
+    """Refuse a paid/sick/casual request beyond its bucket, in every leave year it touches."""
+    if leave_type not in orgtime.PAID_LEAVE_TYPES:
+        return
+    accrual_pl = leave_type == "paid" and storage.get_setting("pl_policy_mode", "accrual") != "fixed"
+    segments = _cycle_segments(storage, start, end)
+    if accrual_pl or len(segments) == 1:
+        # accrual paid leave is one lifetime bucket; a single-year request is checked once
+        _check_balance(storage, settings, employee_id, days, leave_type=leave_type,
+                       ignore_pending_id=ignore_pending_id, cycle_on=None if accrual_pl else segments[0][0])
+        return
+    total = orgtime.working_days(storage, start, end)
+    for seg_start, seg_end in segments:
+        part = round(days * orgtime.working_days(storage, seg_start, seg_end) / total, 2) if total else 0.0
+        if part > 0:
+            _check_balance(storage, settings, employee_id, part, leave_type=leave_type,
+                           ignore_pending_id=ignore_pending_id, cycle_on=seg_start)
+
+
+def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: date | None = None,
+            cycle_on: date | None = None) -> dict[str, Any]:
+    """Accrued vs taken leave, counted from the joining date.
+
+    ``as_of`` drives paid-leave accrual (months earned so far). ``cycle_on`` picks the
+    leave year whose sick / casual / fixed paid quotas are reported: by default the
+    year of ``as_of``; a request for next year's dates passes a date in next year.
+    Used and pending days are counted by the days that fall inside that year, so a
+    leave crossing the year-end is charged to both years correctly.
+    """
     from datetime import timedelta
     employee = employees_service.require_employee(storage, employee_id)
     as_of = as_of or orgtime.today(settings)
@@ -653,7 +782,7 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
     cycle_type = storage.get_setting("leave_carry_forward_cycle", "financial_year")
     max_carry_forward = storage.get_float("leave_max_carry_forward", 0.0)
 
-    cycle_start, cycle_end = orgtime.leave_cycle_bounds(as_of, cycle_type)
+    cycle_start, cycle_end = orgtime.leave_cycle_bounds(cycle_on or as_of, cycle_type)
 
     custom_pl = employee.get("custom_pl_quota") or employee.get("custom_pl_accrual")
     joined = orgtime.parse_date(employee["joined_on"]) if employee.get("joined_on") else as_of.replace(day=1)
@@ -674,35 +803,14 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         if carry_forward_enabled and joined < cycle_start:
             prev_end = cycle_start - timedelta(days=1)
             prev_start, _ = orgtime.leave_cycle_bounds(prev_end, cycle_type)
-            prev_used = float(
-                storage.scalar(
-                    "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-                    "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'paid' "
-                    "AND from_date >= ? AND from_date <= ?",
-                    (employee_id, prev_start.isoformat(), prev_end.isoformat()),
-                ) or 0
-            )
+            prev_used = _bucket_days(storage, employee_id, "paid", ("approved",), prev_start, prev_end)
             unused_prev = max(round(annual_pl - prev_used, 2), 0.0)
             carried_forward = min(unused_prev, max_carry_forward) if max_carry_forward > 0 else unused_prev
 
         accrued = round(annual_pl + carried_forward, 2)
         accrual = round(annual_pl / 12.0, 2)
-        used_pl = float(
-            storage.scalar(
-                "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-                "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'paid' "
-                "AND from_date >= ? AND from_date <= ?",
-                (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
-            ) or 0
-        )
-        pending_pl = float(
-            storage.scalar(
-                "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-                "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'paid' "
-                "AND from_date >= ? AND from_date <= ?",
-                (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
-            ) or 0
-        )
+        used_pl = _bucket_days(storage, employee_id, "paid", ("approved",), cycle_start, cycle_end)
+        pending_pl = _bucket_days(storage, employee_id, "paid", PENDING_STATUSES, cycle_start, cycle_end)
     else:
         accrual = float(custom_pl) if custom_pl is not None and str(custom_pl).strip() != "" else storage.get_float("pl_accrual_per_month", 1.5)
         annual_pl = round(accrual * 12.0, 1)
@@ -717,45 +825,16 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         pending_pl = float(
             storage.scalar(
                 "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-                "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'paid'",
+                "WHERE employee_id = ? AND status IN ('pending','pending_manager') AND leave_type = 'paid'",
                 (employee_id,),
             ) or 0
         )
 
     # Annual quotas (Sick Leave & Casual Leave) reset each cycle
-    pending_sl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'sick' "
-            "AND from_date >= ? AND from_date <= ?",
-            (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
-        ) or 0
-    )
-    pending_cl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'pending' AND leave_type = 'casual' "
-            "AND from_date >= ? AND from_date <= ?",
-            (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
-        ) or 0
-    )
-
-    used_sl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'sick' "
-            "AND from_date >= ? AND from_date <= ?",
-            (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
-        ) or 0
-    )
-    used_cl = float(
-        storage.scalar(
-            "SELECT COALESCE(SUM(days),0) FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'approved' AND leave_type = 'casual' "
-            "AND from_date >= ? AND from_date <= ?",
-            (employee_id, cycle_start.isoformat(), cycle_end.isoformat()),
-        ) or 0
-    )
+    pending_sl = _bucket_days(storage, employee_id, "sick", PENDING_STATUSES, cycle_start, cycle_end)
+    pending_cl = _bucket_days(storage, employee_id, "casual", PENDING_STATUSES, cycle_start, cycle_end)
+    used_sl = _bucket_days(storage, employee_id, "sick", ("approved",), cycle_start, cycle_end)
+    used_cl = _bucket_days(storage, employee_id, "casual", ("approved",), cycle_start, cycle_end)
 
     used_paid = round(used_pl + used_sl + used_cl, 2)
     pending_paid = round(pending_pl + pending_sl + pending_cl, 2)
@@ -770,7 +849,7 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
     pending = float(
         storage.scalar(
             "SELECT COALESCE(SUM(days),0) AS n FROM leave_requests "
-            "WHERE employee_id = ? AND status = 'pending'",
+            "WHERE employee_id = ? AND status IN ('pending','pending_manager')",
             (employee_id,),
         )
     )
@@ -844,7 +923,13 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         "total_available": total_available,
         "total_allocated": total_allocated,
         "total_used": total_used,
+        "cycle_start": cycle_start.isoformat(),
+        "cycle_end": cycle_end.isoformat(),
         "pl_available": pl_available,
+        # unclamped (can be negative): what approval checks must use
+        "pl_net": round(accrued - used_pl - pending_pl, 2),
+        "sl_net": round(annual_sl - used_sl - pending_sl, 2),
+        "cl_net": round(annual_cl - used_cl - pending_cl, 2),
         "sl_available": sl_available,
         "cl_available": cl_available,
         "annual_sl": annual_sl,
@@ -885,10 +970,7 @@ def employee_leave_history(storage: Storage, employee_id: int, *, limit: int = 4
 
 
 def _csv_safe(value: object) -> str:
-    text = "" if value is None else str(value)
-    if any(ch in text for ch in (",", '"', "\n")):
-        return '"' + text.replace('"', '""') + '"'
-    return text
+    return csv_cell(value)  # formula-safe; see services/csvsafe.py
 
 
 def export_balances_xlsx(storage: Storage, settings: Settings) -> bytes:
@@ -1167,6 +1249,26 @@ def parse_spreadsheet_rows(file_bytes: bytes, filename: str = "") -> list[list[s
     return [row for row in reader if row and any(c.strip() for c in row)]
 
 
+def _balance_column(header: str) -> str | None:
+    """Which balance column a header names, by whole words — never by substring.
+
+    ("Employee Name" contains "pl" and "Unpaid LOP" contains "paid": substring tests
+    put names into the PL quota whenever the columns came in another order.)
+    """
+    words = set(re.findall(r"[a-z]+", header.lower()))
+    if "code" in words and (words & {"employee", "emp"} or words == {"code"}):
+        return "code"
+    if words & {"unpaid", "lop", "lwp"} or "loss of pay" in header.lower():
+        return "lop"
+    if words & {"sick", "sl"}:
+        return "sl"
+    if words & {"casual", "cl"}:
+        return "cl"
+    if words & {"pl", "privilege", "earned", "el"} or ("paid" in words and "unpaid" not in words):
+        return "pl"
+    return None
+
+
 def import_balances_data(storage: Storage, rows: list[list[str]], *, actor: str = "") -> dict[str, Any]:
     """Import leave quotas from parsed rows (from Excel or CSV).
 
@@ -1186,6 +1288,7 @@ def import_balances_data(storage: Storage, rows: list[list[str]], *, actor: str 
     col_pl: int | None = None
     col_sl: int | None = None
     col_cl: int | None = None
+    col_lop: int | None = None  # recognised so it is never mistaken for PL; not imported
 
     default_pl = storage.get_float("pl_annual_quota", 6.0)
     default_sl = storage.get_float("sl_annual_quota", 6.0)
@@ -1206,15 +1309,16 @@ def import_balances_data(storage: Storage, rows: list[list[str]], *, actor: str 
         if header is None:
             header = [c.lower() for c in clean_row]
             for idx, h in enumerate(header):
-                if h in ("employee code", "code", "emp code", "emp_code") or ("code" in h and "employee" in h):
+                kind = _balance_column(h)
+                if kind == "code" and col_code is None:
                     col_code = idx
-                elif "unpaid" in h or "lop" in h or "loss of pay" in h:
+                elif kind == "lop" and col_lop is None:
                     col_lop = idx
-                elif "sick" in h or "sl" in h:
+                elif kind == "sl" and col_sl is None:
                     col_sl = idx
-                elif "casual" in h or "cl" in h:
+                elif kind == "cl" and col_cl is None:
                     col_cl = idx
-                elif "paid" in h or "pl" in h:
+                elif kind == "pl" and col_pl is None:
                     col_pl = idx
             continue
 

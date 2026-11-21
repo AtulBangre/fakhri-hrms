@@ -90,6 +90,7 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
     """Return ``(subject, html, text)`` for a known message template."""
     base = settings.public_base_url.rstrip("/")
     org = escape(settings.org_name)
+    footer = ""  # each template may set its own; a footer passed in ctx wins
 
     if template == "welcome":
         subject = f"Welcome to {settings.org_name} — Your Employee Portal Credentials"
@@ -137,7 +138,8 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
                 f"For security, please change your password after logging in from your portal profile.</p>"
             )
         )
-        footer = "If you have questions, reply directly to this email or contact HR at hr@fakhriitservices.com."
+        footer = ("If you have questions, reply directly to this email or contact HR at "
+                  f"{escape(settings.hr_contact_email)}.")
 
     elif template == "leave_requested":
         subject = f"Leave Request: {ctx['name']} ({ctx['code']}) — {ctx['days']} day(s) {ctx['leave_type']}"
@@ -351,7 +353,7 @@ def render(template: str, settings: Settings, **ctx: Any) -> tuple[str, str, str
         subject = ctx.get("subject", "Notification")
         body = f"<p>{escape(ctx.get('message', ''))}</p>"
 
-    html = _layout(settings, subject, body, footer=ctx.get("footer", ""))
+    html = _layout(settings, subject, body, footer=ctx.get("footer") or footer)
     return subject, html, _plain(html)
 
 
@@ -367,8 +369,8 @@ def hr_emails(storage: Storage, settings: Settings | None = None) -> list[str]:
         clean = _clean_email_address(settings.smtp_from)
         if clean:
             emails = [clean]
-    if not emails:
-        emails = ["hr@fakhriitservices.com"]
+    if not emails and settings and settings.hr_contact_email:
+        emails = [settings.hr_contact_email]
     return emails
 
 
@@ -735,7 +737,7 @@ def _send_email(storage: Storage, settings: Settings, row: dict[str, Any]) -> st
     """Deliver one email. Returns a short driver receipt for the log."""
     to = row["recipient"]
     attachments = _attachments_for(storage, settings, row)
-    reply_to_addr = "hr@fakhriitservices.com"
+    reply_to_addr = _clean_email_address(settings.hr_contact_email) or None
     org_display = settings.org_name or "Fakhri IT Services"
 
     meta: dict[str, Any] = {}
@@ -764,8 +766,9 @@ def _send_email(storage: Storage, settings: Settings, row: dict[str, Any]) -> st
                     message["Cc"] = ", ".join(valid_ccs)
             elif isinstance(cc_val, str) and _clean_email_address(cc_val):
                 message["Cc"] = _clean_email_address(cc_val)
-        message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_val))
-        if to.strip().lower() != reply_to_addr.lower():
+        if reply_to_val:
+            message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_val))
+        if reply_to_addr and to.strip().lower() != reply_to_addr.lower():
             message["Bcc"] = reply_to_addr
         message["Subject"] = row["subject"] or "(no subject)"
         message["Message-ID"] = make_msgid(domain="hrms.local")
@@ -789,8 +792,9 @@ def _send_email(storage: Storage, settings: Settings, row: dict[str, Any]) -> st
                 message["Cc"] = ", ".join(valid_ccs)
         elif isinstance(cc_val, str) and _clean_email_address(cc_val):
             message["Cc"] = _clean_email_address(cc_val)
-    message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_val))
-    if to.strip().lower() != reply_to_addr.lower():
+    if reply_to_val:
+        message["Reply-To"] = formataddr((f"{org_display} HR", reply_to_val))
+    if reply_to_addr and to.strip().lower() != reply_to_addr.lower():
         message["Bcc"] = reply_to_addr
     message["Subject"] = row["subject"] or "(no subject)"
     message["Message-ID"] = make_msgid()
@@ -1262,6 +1266,30 @@ def dispatch(storage: Storage, settings: Settings, *, limit: int = 25) -> list[d
     return results
 
 
+#: Set to make the background worker drain the outbox now instead of at its next tick.
+_WAKE = threading.Event()
+
+
+def wake() -> None:
+    """Ask the background worker to send what is queued right away.
+
+    Web requests call this instead of sending themselves: a bulk send renders PDFs and
+    waits on SMTP / WhatsApp for every message, which used to hold a request thread
+    for minutes and made the whole app hang.
+    """
+    _WAKE.set()
+
+
+def dispatch_one(storage: Storage, settings: Settings, row_id: int) -> dict[str, Any]:
+    """Send exactly one queued message now (the Settings "send a test" button)."""
+    row = storage.query_one("SELECT * FROM notifications WHERE id = ?", (row_id,))
+    if row is None:
+        return {"ok": False, "error": "message not found"}
+    if not claim(storage, row_id):
+        return {"ok": False, "error": "already being sent"}
+    return {**row, **send_one(storage, settings, row)}
+
+
 def outbox_stats(storage: Storage) -> dict[str, int]:
     rows = storage.query("SELECT status, COUNT(*) AS n FROM notifications GROUP BY status")
     stats = {row["status"]: int(row["n"]) for row in rows}
@@ -1310,6 +1338,7 @@ class NotificationWorker:
 
     def stop(self) -> None:
         self._stop.set()
+        _WAKE.set()
         if self._thread:
             self._thread.join(timeout=5)
 
@@ -1318,7 +1347,11 @@ class NotificationWorker:
 
         next_alerts = 0.0
         next_waha_ping = 0.0
-        while not self._stop.wait(self.interval):
+        while True:
+            _WAKE.wait(self.interval)  # a tick, or a request that just queued messages
+            _WAKE.clear()
+            if self._stop.is_set():
+                break
             try:
                 now_mono = time.monotonic()
                 if now_mono >= next_alerts:
@@ -1330,9 +1363,13 @@ class NotificationWorker:
                     next_waha_ping = now_mono + 300.0  # every 5 minutes
                     ensure_waha_session_alive(self.settings, force=True)
 
-                results = dispatch(self.storage, self.settings, limit=50)
-                self.sent += sum(1 for r in results if r.get("ok"))
-                self.failed += sum(1 for r in results if not r.get("ok"))
+                # keep going while a big batch (bulk payslips, announcements) is waiting
+                for _ in range(20):
+                    results = dispatch(self.storage, self.settings, limit=50)
+                    self.sent += sum(1 for r in results if r.get("ok"))
+                    self.failed += sum(1 for r in results if not r.get("ok"))
+                    if len(results) < 50 or self._stop.is_set():
+                        break
             except Exception:  # pragma: no cover - the worker must never die
                 logger.exception("notification worker iteration failed")
 

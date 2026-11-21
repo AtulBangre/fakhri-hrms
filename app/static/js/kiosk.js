@@ -186,7 +186,12 @@
     card.className = "kiosk-card" + (info.punch === "OUT" ? " out" : "");
     cardPunch.textContent = info.punch;
     if (info.avatar_url) {
-      cardAvatar.innerHTML = '<img src="' + info.avatar_url + '" alt="' + (info.name || '') + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">';
+      var img = document.createElement("img");
+      img.src = info.avatar_url;
+      img.alt = info.name || "";
+      img.style.cssText = "width:100%;height:100%;border-radius:50%;object-fit:cover;";
+      cardAvatar.textContent = "";
+      cardAvatar.appendChild(img);
     } else {
       cardAvatar.textContent = info.initials || "?";
     }
@@ -598,6 +603,7 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.server_time) clock.textContent = data.server_time;
+        if (data.csrf) cfg.csrf = data.csrf;  // a cached scanner page may carry an older token
         if (offline.available) offline.serverStatus(data);
         var face = data.face_service || {};
         setState(face.ok ? (running ? "ok" : "idle") : "bad");

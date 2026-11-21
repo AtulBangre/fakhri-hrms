@@ -17,6 +17,7 @@ of pretending to work.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -43,6 +44,10 @@ class FaceServiceError(RuntimeError):
 
 class FaceServiceUnavailable(FaceServiceError):
     """Raised when the face service cannot be reached at all."""
+
+
+class FaceServiceBusy(FaceServiceUnavailable):
+    """Every inference slot is taken: the caller should simply try again."""
 
 
 @dataclass(slots=True)
@@ -89,6 +94,17 @@ class FaceService:
         self._collection_ready = False
         self._cached_health: tuple[float, dict] | None = None
         self._pool = httpx.Client(base_url=self.base_url, headers=self._headers, timeout=self.timeout)
+        # Back-pressure for inference calls: a slow or hung Face API used to hold every
+        # request thread for the full timeout and freeze the whole app.
+        self._max_concurrent = max(1, int(getattr(settings, "face_max_concurrent", 4)))
+        self._slots = threading.BoundedSemaphore(self._max_concurrent)
+        self._queue_wait = float(getattr(settings, "face_queue_wait", 1.5))
+        self._scan_timeout = float(getattr(settings, "face_scan_timeout", 8.0))
+        self._breaker_failures = max(1, int(getattr(settings, "face_breaker_failures", 3)))
+        self._breaker_seconds = float(getattr(settings, "face_breaker_seconds", 30.0))
+        self._state_lock = threading.Lock()
+        self._failures = 0
+        self._open_until = 0.0
 
     def close(self) -> None:
         """Close the persistent connection pool."""
@@ -106,6 +122,43 @@ class FaceService:
         if self._pool.is_closed:
             self._pool = httpx.Client(base_url=self.base_url, headers=self._headers, timeout=self.timeout)
         yield self._pool
+
+    @contextmanager
+    def _guarded(self):
+        """Run one inference call with a concurrency cap and a circuit breaker."""
+        if time.monotonic() < self._open_until:
+            raise FaceServiceUnavailable("The face service is not responding — please try again in a few seconds.")
+        if not self._slots.acquire(timeout=self._queue_wait):
+            raise FaceServiceBusy("The scanner is busy — please scan again.")
+        try:
+            yield
+        except FaceServiceError as exc:
+            # unreachable / timed out / overloaded counts towards opening the breaker;
+            # an ordinary 4xx answer (no face, bad image) does not
+            if isinstance(exc, FaceServiceUnavailable) or (exc.status_code or 0) >= 500:
+                self._record_failure()
+            raise
+        else:
+            with self._state_lock:
+                self._failures = 0
+        finally:
+            self._slots.release()
+
+    def _record_failure(self) -> None:
+        with self._state_lock:
+            self._failures += 1
+            if self._failures >= self._breaker_failures:
+                self._open_until = time.monotonic() + self._breaker_seconds
+                self._failures = 0
+                logger.warning("face service failing: pausing inference calls for %.0fs", self._breaker_seconds)
+
+    def status(self) -> dict:
+        """Live back-pressure state, shown by /api/health."""
+        return {
+            "breaker_open": time.monotonic() < self._open_until,
+            "consecutive_failures": self._failures,
+            "max_concurrent": self._max_concurrent,
+        }
 
     @staticmethod
     def _error_from_response(response: httpx.Response) -> FaceServiceError:
@@ -169,6 +222,7 @@ class FaceService:
                 response = client.post(
                     "/v1/collections",
                     json={"name": self.collection, "description": "Fakhri HRMS employee faces"},
+                    timeout=self._scan_timeout,
                 )
                 if response.status_code in (200, 201, 409):  # 409 = already exists
                     self._collection_ready = True
@@ -205,25 +259,26 @@ class FaceService:
 
     # -------------------------------------------------------------- enrol
     def enrol_face(self, image_bytes: bytes, *, external_id: str, filename: str = "face.jpg") -> EnrolmentResult:
-        self.ensure_collection()
-        try:
-            with self._client() as client:
-                response = client.post(
-                    f"/v1/collections/{self.collection}/faces",
-                    files={"image": (filename, image_bytes, "image/jpeg")},
-                    data={"external_id": external_id, "metadata": '{"source":"hrms"}'},
-                )
-                if response.status_code >= 400:
-                    raise self._error_from_response(response)
-                body = response.json()
-                return EnrolmentResult(
-                    face_id=body["face_id"],
-                    det_score=body.get("det_score"),
-                    box=body.get("box"),
-                    faces_in_image=1,
-                )
-        except httpx.HTTPError as exc:
-            raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
+        with self._guarded():
+            self.ensure_collection()
+            try:
+                with self._client() as client:
+                    response = client.post(
+                        f"/v1/collections/{self.collection}/faces",
+                        files={"image": (filename, image_bytes, "image/jpeg")},
+                        data={"external_id": external_id, "metadata": '{"source":"hrms"}'},
+                    )
+                    if response.status_code >= 400:
+                        raise self._error_from_response(response)
+                    body = response.json()
+                    return EnrolmentResult(
+                        face_id=body["face_id"],
+                        det_score=body.get("det_score"),
+                        box=body.get("box"),
+                        faces_in_image=1,
+                    )
+            except httpx.HTTPError as exc:
+                raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
 
     def delete_face(self, face_id: str) -> bool:
         try:
@@ -242,58 +297,63 @@ class FaceService:
         self, image_bytes: bytes, *, filename: str = "scan.jpg", checks: bool = False
     ) -> IdentificationResult:
         """1:N match one frame. ``checks`` adds FaceAPI's quality gate and passive liveness."""
-        self.ensure_collection()
-        try:
-            with self._client() as client:
-                response = client.post(
-                    "/v1/identify",
-                    params={"collection": self.collection, "top_k": CANDIDATE_LIMIT, "checks": checks},
-                    files={"image": (filename, image_bytes, "image/jpeg")},
-                )
-        except httpx.HTTPError as exc:
-            raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
-        if response.status_code == 422:
-            # Most common case by far: no face in the frame.
-            detail = "No face detected in the frame."
+        with self._guarded():
+            self.ensure_collection()
             try:
-                detail = response.json()["error"]["message"]
-            except (ValueError, KeyError):
-                pass
-            return IdentificationResult(
-                matched=False, external_id=None, similarity=None, face_id=None,
-                threshold=None, message=detail,
-            )
-        if response.status_code >= 400:
-            raise self._error_from_response(response)
-        return self._parse_identification(response.json())
+                with self._client() as client:
+                    response = client.post(
+                        "/v1/identify",
+                        params={"collection": self.collection, "top_k": CANDIDATE_LIMIT, "checks": checks},
+                        files={"image": (filename, image_bytes, "image/jpeg")},
+                        timeout=self._scan_timeout,
+                    )
+            except httpx.HTTPError as exc:
+                raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
+            if response.status_code == 422:
+                # Most common case by far: no face in the frame.
+                detail = "No face detected in the frame."
+                try:
+                    detail = response.json()["error"]["message"]
+                except (ValueError, KeyError):
+                    pass
+                return IdentificationResult(
+                    matched=False, external_id=None, similarity=None, face_id=None,
+                    threshold=None, message=detail,
+                )
+            if response.status_code >= 400:
+                raise self._error_from_response(response)
+            return self._parse_identification(response.json())
 
     def create_challenge(self) -> dict:
         """Start a head-turn liveness challenge: ``challenge_token``, ``action``, ``expires_in``."""
-        try:
-            with self._client() as client:
-                response = client.post("/v1/liveness/challenge")
-        except httpx.HTTPError as exc:
-            raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
-        if response.status_code >= 400:
-            raise self._error_from_response(response)
-        return response.json()
+        with self._guarded():
+            try:
+                with self._client() as client:
+                    response = client.post("/v1/liveness/challenge")
+            except httpx.HTTPError as exc:
+                raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
+            if response.status_code >= 400:
+                raise self._error_from_response(response)
+            return response.json()
 
     def identify_secure(self, frames: list[bytes], *, challenge_token: str) -> IdentificationResult:
         """Full check over the frames of one challenge. A spoof never reaches the gallery."""
-        self.ensure_collection()
-        try:
-            with self._client() as client:
-                response = client.post(
-                    "/v1/identify/secure",
-                    params={"collection": self.collection, "top_k": CANDIDATE_LIMIT},
-                    data={"challenge_token": challenge_token},
-                    files=[("frames", (f"{i}.jpg", frame, "image/jpeg")) for i, frame in enumerate(frames)],
-                )
-        except httpx.HTTPError as exc:
-            raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
-        if response.status_code >= 400:
-            raise self._error_from_response(response)
-        return self._parse_identification(response.json())
+        with self._guarded():
+            self.ensure_collection()
+            try:
+                with self._client() as client:
+                    response = client.post(
+                        "/v1/identify/secure",
+                        params={"collection": self.collection, "top_k": CANDIDATE_LIMIT},
+                        data={"challenge_token": challenge_token},
+                        files=[("frames", (f"{i}.jpg", frame, "image/jpeg")) for i, frame in enumerate(frames)],
+                        timeout=self._scan_timeout * 2,  # several frames of work
+                    )
+            except httpx.HTTPError as exc:
+                raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
+            if response.status_code >= 400:
+                raise self._error_from_response(response)
+            return self._parse_identification(response.json())
 
     @staticmethod
     def _parse_identification(body: dict) -> IdentificationResult:
@@ -320,12 +380,13 @@ class FaceService:
 
     def embedding(self, image_bytes: bytes, *, filename: str = "face.jpg") -> dict:
         """Utility used by the enrolment preview (score + box, no gallery write)."""
-        self.ensure_collection()
-        try:
-            with self._client() as client:
-                response = client.post("/v1/embed", files={"image": (filename, image_bytes, "image/jpeg")})
-                if response.status_code >= 400:
-                    raise self._error_from_response(response)
-                return response.json()
-        except httpx.HTTPError as exc:
-            raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
+        with self._guarded():
+            self.ensure_collection()
+            try:
+                with self._client() as client:
+                    response = client.post("/v1/embed", files={"image": (filename, image_bytes, "image/jpeg")})
+                    if response.status_code >= 400:
+                        raise self._error_from_response(response)
+                    return response.json()
+            except httpx.HTTPError as exc:
+                raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc

@@ -160,7 +160,7 @@ def _require_pending(row: dict[str, Any]) -> None:
 
 
 def approve(storage: Storage, request_id: int, *, actor: str | None = None, note: str | None = None,
-            release_leave: bool = False) -> dict[str, Any]:
+            release_leave: bool = False, early_leave: bool = False) -> dict[str, Any]:
     row = get(storage, request_id)
     _require_pending(row)
     locked = _payroll_locked(storage, row["work_date"])
@@ -169,7 +169,9 @@ def approve(storage: Storage, request_id: int, *, actor: str | None = None, note
             f"Payroll for {orgtime.month_label(row['work_date'][:7])} is {locked}. Reopen the run before approving."
         )
     req_status = row["requested_status"]
-    is_early = (req_status == "early_leave") or ("early leave" in (row.get("reason") or "").lower())
+    # Waiving the early-leave rule is HR's explicit choice; words in the employee's reason
+    # must never switch it on by themselves.
+    is_early = early_leave or req_status == "early_leave"
     if req_status == "early_leave":
         req_status = "present"
     attendance_service.mark_manual(

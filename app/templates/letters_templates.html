@@ -405,7 +405,7 @@
 <script>
 // Mock employee data for instant live preview
 var SAMPLE_CONTEXT = {
-  company_name: "{{ org_name }}",
+  company_name: {{ org_name | tojson }},
   employee_name: "Rahul Sharma",
   employee_code: "EMP-104",
   designation: "Senior Software Engineer",

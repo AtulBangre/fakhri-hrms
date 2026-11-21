@@ -47,8 +47,10 @@
             <div class="field">
               <label for="leave_type">Leave type</label>
               <select id="leave_type" name="leave_type" required>
+                <option value="" selected disabled>Choose leave type…</option>
+                {% set left = {'paid': balance.pl_available, 'sick': balance.sl_available, 'casual': balance.cl_available} %}
                 {% for value in leave_types %}
-                  <option value="{{ value }}">{{ leave_labels[value] }}{% if value == 'unpaid' %} — no pay{% endif %}</option>
+                  <option value="{{ value }}">{{ leave_labels[value] }}{% if value == 'unpaid' %} — no pay{% elif left[value] is not none %} — {{ left[value] | number }} day{{ '' if left[value] == 1 else 's' }} left{% endif %}</option>
                 {% endfor %}
               </select>
             </div>
@@ -107,8 +109,8 @@
             <div id="dropzone" style="border:2px dashed var(--border);border-radius:var(--radius);padding:1.25rem;text-align:center;background:var(--subtle);cursor:pointer;transition:border-color .2s,background .2s">
               <div style="font-size:1.5rem;margin-bottom:0.35rem">📁</div>
               <div style="font-size:0.88rem;font-weight:600;color:var(--text)">Click to browse or drag &amp; drop files here</div>
-              <div class="small muted" style="font-size:0.75rem;margin-top:2px">Supports multiple PDF, JPG, PNG, DOC, DOCX files (up to 10MB each)</div>
-              <input id="leave_attachments" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" style="display:none">
+              <div class="small muted" style="font-size:0.75rem;margin-top:2px">PDF, JPG, PNG or WebP · up to 8 MB each</div>
+              <input id="leave_attachments" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/jpeg,image/png,image/webp" style="display:none">
             </div>
             <!-- File previews list -->
             <div id="file-list" style="margin-top:0.6rem;display:flex;flex-direction:column;gap:6px"></div>
@@ -138,22 +140,28 @@
               <td data-label="Type"><span class="chip {{ 'chip-info' if item.is_paid else 'chip-warn' }}">{{ item.type_label }}</span></td>
               <td data-label="Days" class="num">{{ item.days | number }}</td>
               <td data-label="Status">
-                <span class="chip {{ 'chip-ok' if item.status == 'approved' else ('chip-warn' if item.status == 'pending' else 'chip-muted') }}">{{ item.status }}</span>
+                <span class="chip {{ 'chip-ok' if item.status == 'approved' else ('chip-warn' if item.status in ('pending', 'pending_manager') else 'chip-muted') }}">{{ item.status | leave_status }}</span>
                 {% if item.reason %}
                   <div class="sub muted" style="white-space:pre-wrap;font-size:0.8rem;margin-top:4px;max-width:280px">{{ item.reason }}</div>
+                {% endif %}
+                {% if item.manager_note %}
+                  <div class="sub" style="font-size:0.8rem;margin-top:4px;max-width:280px"><strong>Manager:</strong> {{ item.manager_note }}</div>
+                {% endif %}
+                {% if item.decision_note %}
+                  <div class="sub" style="font-size:0.8rem;margin-top:4px;max-width:280px"><strong>HR:</strong> {{ item.decision_note }}</div>
                 {% endif %}
                 {% if item.attachment_files %}
                   <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
                     {% for att in item.attachment_files %}
-                      <a href="/leave/attachment/{{ att.stored_name }}" target="_blank" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.original_name }}">
-                        📎 {{ att.original_name }}
+                      <a href="/leave/attachment/{{ att.stored_name | urlencode }}" target="_blank" rel="noopener" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.filename or att.original_name or 'attachment' }}">
+                        📎 {{ att.filename or att.original_name or 'attachment' }}
                       </a>
                     {% endfor %}
                   </div>
                 {% endif %}
               </td>
               <td class="actions-cell">
-                {% if item.status == 'pending' %}
+                {% if item.status in ('pending', 'pending_manager') %}
                   <form method="post" action="/me/leave/{{ item.id }}/cancel" data-confirm="Withdraw this leave request?">
                     <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                     <button class="btn btn-sm" type="submit">Withdraw</button>
@@ -264,16 +272,11 @@
     btn.addEventListener('click', function() {
       var key = this.getAttribute('data-tmpl');
       if (templates[key]) {
+        // Only the letter text is filled in. The leave type is the employee's own
+        // choice and is never changed behind their back (it used to switch to casual).
         reasonEl.value = templates[key];
         reasonEl.focus();
-        if (key === 'medical' && leaveTypeEl) {
-          // auto-select sick leave if available
-          var sickOpt = leaveTypeEl.querySelector('option[value="sick"]');
-          if (sickOpt) leaveTypeEl.value = 'sick';
-        } else if (key === 'emergency' || key === 'personal' || key === 'event') {
-          var casualOpt = leaveTypeEl.querySelector('option[value="casual"]');
-          if (casualOpt) leaveTypeEl.value = 'casual';
-        }
+        if (leaveTypeEl && !leaveTypeEl.value) leaveTypeEl.focus();
       }
     });
   });
@@ -299,7 +302,7 @@
         item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);font-size:0.82rem';
         item.innerHTML = '<div style="display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
           '<span>📎</span>' +
-          '<strong>' + file.name + '</strong>' +
+          '<strong>' + window.escapeHtml(file.name) + '</strong>' +
           '<span class="muted small">(' + formatSize(file.size) + ')</span>' +
           '</div>' +
           '<button type="button" class="btn btn-sm btn-ghost" style="padding:0 6px;color:var(--danger);font-weight:700;font-size:1rem;line-height:1" title="Remove">&times;</button>';

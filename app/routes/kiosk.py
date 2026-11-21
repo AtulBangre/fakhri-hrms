@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from ..auth import SessionUser, require_hr_or_kiosk
 from ..deps import get_face, get_settings_dep, get_storage, render
 from ..uploads import UploadError, read_capped
-from ..face import FaceServiceError, FaceServiceUnavailable
+from ..face import FaceServiceBusy, FaceServiceError, FaceServiceUnavailable
 from .. import notify
 from ..services import attendance as attendance_service
 from ..services import employees as employees_service
@@ -101,7 +101,7 @@ def device_label_for(user: SessionUser) -> str:
     if user.device_label:
         return user.device_label
     if user.is_employee:
-        return f"Remote ({user.display_name or user.name})"
+        return f"Remote ({user.display_name or user.username})"
     return "Gate kiosk" if user.is_kiosk else "HR console"
 
 
@@ -124,7 +124,7 @@ def kiosk_screen(
         show_name=_confirmation(storage, settings) == "full",
         scan_mode=storage.get_setting("kiosk_scan_mode", "tap"),
         active_challenge=settings.kiosk_active_challenge,
-        offline_enabled=settings.kiosk_offline,
+        offline_enabled=settings.kiosk_offline and not user.is_employee,
         shift_start=storage.get_setting("shift_start", "09:30"),
         shift_end=storage.get_setting("shift_end", "18:30"),
         debounce_seconds=settings.kiosk_debounce_seconds,
@@ -133,14 +133,36 @@ def kiosk_screen(
     )
 
 
+def _csrf_refused(request: Request, user: SessionUser, form_token: str | None) -> JSONResponse | None:
+    """Scans change attendance, so they need the session's CSRF token (form field or header)."""
+    provided = form_token or request.headers.get("x-csrf-token") or ""
+    if provided and hmac.compare_digest(provided, user.csrf):
+        return None
+    return JSONResponse(
+        {"ok": False, "action": "session_expired", "kind": "error",
+         "message": "Session expired — reload the scanner page.", "detail": "Invalid or missing CSRF token"},
+        status_code=403,
+    )
+
+
 @router.post("/api/kiosk/challenge")
 def kiosk_challenge(
+    request: Request,
     user: SessionUser = Depends(require_hr_or_kiosk),
     face=Depends(get_face),
+    csrf: str | None = Form(None, alias="_csrf"),
 ):
     """Start a head-turn challenge for the kiosk to show."""
+    refused = _csrf_refused(request, user, csrf)
+    if refused is not None:
+        return refused
     try:
         return JSONResponse({"ok": True, **face.create_challenge()})
+    except FaceServiceBusy as exc:
+        return JSONResponse(
+            {"ok": False, "action": "busy", "kind": "warning", "message": exc.message},
+            status_code=429,
+        )
     except FaceServiceError as exc:
         logger.warning("kiosk challenge failed: %s", exc.message)
         return JSONResponse(
@@ -296,8 +318,12 @@ def kiosk_scan(
     image: UploadFile | None = File(None),
     frames: list[UploadFile] = File(default=[]),
     challenge_token: str | None = Form(None),
+    csrf: str | None = Form(None, alias="_csrf"),
 ):
     """Identify the person in the captured frame(s) and mark attendance."""
+    refused = _csrf_refused(request, user, csrf)
+    if refused is not None:
+        return refused
     device = device_label_for(user)
     if _spoof_locked(request, device):
         return JSONResponse(
@@ -331,6 +357,11 @@ def kiosk_scan(
             identification = face.identify_secure(frame_payloads, challenge_token=challenge_token)
         else:
             identification = face.identify(payload, checks=True)
+    except FaceServiceBusy as exc:
+        return JSONResponse(
+            {"ok": False, "action": "busy", "kind": "warning", "message": exc.message},
+            status_code=429,
+        )
     except FaceServiceUnavailable as exc:
         logger.warning("kiosk scan failed: face service unavailable (%s)", exc)
         return JSONResponse(
@@ -355,7 +386,8 @@ def kiosk_scan(
                 "ok": False,
                 "action": "identity_mismatch",
                 "kind": "error",
-                "message": f"Face recognised as {employee.get('name')}, but you are signed in as {user.name}. Please scan your own face.",
+                "message": f"Face recognised as {employee.get('name')}, but you are signed in as "
+                           f"{user.display_name or user.username}. Please scan your own face.",
             },
             status_code=403,
         )
@@ -432,6 +464,12 @@ def kiosk_offline_sync(
     """
     if not hmac.compare_digest(request.headers.get("x-csrf-token") or "", user.csrf):
         raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    if user.is_employee:
+        # The capture time comes from the device. That is acceptable for the shared gate,
+        # never for a personal login: it would let someone punch a colleague, or
+        # themselves, at any time they like.
+        return JSONResponse({"status": "done", "action": "not_allowed",
+                             "message": "Offline scans are only accepted from the gate kiosk."})
     if not settings.kiosk_offline:
         return JSONResponse({"status": "later", "action": "disabled"}, status_code=503)
     if not SCAN_ID.match(scan_id):

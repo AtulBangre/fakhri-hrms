@@ -27,6 +27,7 @@ SUMMARY_AFTER_START_MINUTES = 60
 CLAIM_PREFIX = "alert_day:"
 NOTIFICATION_RETENTION_DAYS = 30   # permanently delete notifications (push, email, whatsapp) older than 30 days
 AUDIT_LOG_RETENTION_DAYS = 120     # permanently delete audit logs older than 120 days
+PUNCH_PHOTO_RETENTION_DAYS = 180   # gate snapshots are evidence for disputes, not an archive of faces
 INBOX_RETENTION_DAYS = 30          # backward-compatibility
 OFFLINE_SCAN_ID_DAYS = 14         # long enough to outlast any scan a device may still resend
 
@@ -273,6 +274,26 @@ def _housekeeping(storage: Storage, today: date) -> dict[str, int]:
     # 5. Login attempts: delete attempts older than 1 day
     cur = storage.execute("DELETE FROM login_attempts WHERE at < ?", (now_epoch - 86400,))
     purged["login_attempts"] = cur.rowcount
+
+    # 6. Punch snapshots: every scan stores a face photo; drop them after the retention window
+    photo_cutoff = (today - timedelta(days=PUNCH_PHOTO_RETENTION_DAYS)).isoformat()
+    removed = 0
+    rows = storage.query(
+        "SELECT id, punch_in_photo, punch_out_photo FROM attendance WHERE work_date < ? "
+        "AND (punch_in_photo IS NOT NULL OR punch_out_photo IS NOT NULL)",
+        (photo_cutoff,),
+    )
+    if rows:
+        from ..uploads import delete_file
+
+        for row in rows:
+            for name in (row["punch_in_photo"], row["punch_out_photo"]):
+                if name:
+                    delete_file(storage.settings, "punches", name)
+                    removed += 1
+            storage.execute("UPDATE attendance SET punch_in_photo = NULL, punch_out_photo = NULL WHERE id = ?",
+                            (row["id"],))
+    purged["punch_photos"] = removed
 
     logger.info("Housekeeping completed: %s", purged)
     return purged

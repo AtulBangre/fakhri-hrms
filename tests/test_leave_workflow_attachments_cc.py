@@ -119,16 +119,37 @@ def test_leave_notification_cc_hierarchy(storage, settings, staff):
     assert hr_addrs[0] in meta["cc"]
 
 
-def test_leave_attachment_download(hr_client, storage, settings):
-    # Create a dummy attachment file in uploads/leave/
-    from app.uploads import upload_dir
-    ldir = upload_dir(settings, "leave")
-    test_path = ldir / "test_file_sample.txt"
-    test_path.write_text("Leave attachment sample content", encoding="utf-8")
+def test_leave_attachment_download(app, hr_client, storage, settings, staff):
+    """HR, the applicant and their manager may open a leave document; nobody else can."""
+    from app import auth
+    from app.uploads import save_upload
 
-    resp = hr_client.get("/leave/attachment/test_file_sample.txt")
+    applicant, manager, outsider = staff[0], staff[1], staff[2]
+    employees_service.update_employee(storage, applicant["id"], {"manager_id": manager["id"]})
+    stored = save_upload(settings, "leave", b"%PDF-1.4 medical note", original_name="note.pdf")
+    leave_service.apply_leave(
+        storage, settings, employee_id=applicant["id"], leave_type="sick", from_date="2026-01-07",
+        status="pending", allow_negative=True,
+        attachments=[{"stored_name": stored.stored_name, "filename": "note.pdf", "size": stored.size,
+                      "mime": stored.mime}],
+    )
+    url = f"/leave/attachment/{stored.stored_name}"
+
+    resp = hr_client.get(url)
     assert resp.status_code == 200
-    assert b"Leave attachment sample content" in resp.content
+    assert resp.content.startswith(b"%PDF-1.4")
+
+    from fastapi.testclient import TestClient
+    for person, allowed in ((applicant, True), (manager, True), (outsider, False)):
+        auth.ensure_employee_login(storage, person, password="portal-pass-1")
+        username = auth.get_user_for_employee(storage, person["id"])["username"]
+        portal = TestClient(app)
+        portal.post("/login", data={"username": username, "password": "portal-pass-1"}, follow_redirects=False)
+        assert (portal.get(url).status_code == 200) is allowed, person["name"]
+
+    # a file in the upload folder that no leave request references is never served
+    orphan = save_upload(settings, "leave", b"%PDF-1.4 orphan", original_name="orphan.pdf")
+    assert hr_client.get(f"/leave/attachment/{orphan.stored_name}").status_code == 404
 
 
 def test_leave_balances_xlsx_export_and_import(hr_client, storage, settings, staff):

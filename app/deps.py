@@ -118,8 +118,23 @@ def status_chip(status: str | None) -> str:
     }.get(status or "", "chip")
 
 
+#: What each leave request status means, in words people use.
+LEAVE_STATUS_LABELS = {
+    "pending_manager": "Awaiting manager",
+    "pending": "Awaiting HR",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "cancelled": "Cancelled",
+}
+
+
+def leave_status(status: str | None) -> str:
+    return LEAVE_STATUS_LABELS.get(status or "", (status or "").replace("_", " ").capitalize())
+
+
 templates.env.filters.update(
     {
+        "leave_status": leave_status,
         "money": money,
         "number": number,
         "plain": plain,
@@ -226,7 +241,13 @@ def page_context(request: Request, *, active: str, user: SessionUser | None, **e
     org_name = storage.get_setting("org_name", settings.org_name)
     remote_work_enabled = False
     needs_face_enrolment = False
+    is_manager = False
     if user and user.is_employee and user.employee_id:
+        # drives the "My Team" menu item, which must not vanish between portal pages
+        is_manager = storage.query_one(
+            "SELECT 1 AS ok FROM employees WHERE manager_id = ? AND status = 'active' LIMIT 1",
+            (user.employee_id,),
+        ) is not None
         emp = storage.query_one("SELECT remote_work_enabled, face_id FROM employees WHERE id = ?", (user.employee_id,))
         if emp:
             if emp.get("remote_work_enabled"):
@@ -249,6 +270,7 @@ def page_context(request: Request, *, active: str, user: SessionUser | None, **e
         "self_punch": _self_punch(storage, user),
         "remote_work_enabled": remote_work_enabled,
         "needs_face_enrolment": needs_face_enrolment,
+        "is_manager": is_manager,
     }
     context.update(extra)
     return context

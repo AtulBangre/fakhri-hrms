@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import json
 from datetime import date
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -57,10 +59,12 @@ PER_PAGE = 50
 
 
 def _as_float(value: str | None) -> float:
+    """A typed amount; anything unreadable, NaN or infinite counts as 0."""
     try:
-        return float((value or "0").replace(",", "").strip() or 0)
+        number = float((value or "0").replace(",", "").strip() or 0)
     except ValueError:
         return 0.0
+    return number if math.isfinite(number) else 0.0
 
 
 @router.get("")
@@ -171,12 +175,24 @@ def org_chart(
         d = r["department"] or "General"
         dept_map.setdefault(d, []).append(dict(r))
 
+    # Reporting lines: a tree from manager_id. People whose manager is missing or
+    # inactive are roots, so nobody disappears from the chart.
+    by_id = {r["id"]: dict(r, reports=[]) for r in rows}
+    roots: list[dict] = []
+    for node in sorted(by_id.values(), key=lambda n: (n["name"] or "").lower()):
+        parent = by_id.get(node.get("manager_id"))
+        (parent["reports"] if parent and parent is not node else roots).append(node)
+    # leaders with teams first, then everyone who reports straight to HR
+    roots.sort(key=lambda n: (not n["reports"], (n["name"] or "").lower()))
+
     return render(
         request,
         "org_chart.html",
         active="employees",
         user=user,
         departments=dept_map,
+        roots=roots,
+        view=request.query_params.get("view", "reporting"),
         total_active=len(rows),
     )
 

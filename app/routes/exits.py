@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from fastapi import APIRouter, Depends, Form, Request
 
 from .. import notify
@@ -15,10 +17,12 @@ router = APIRouter(tags=["exits"])
 
 
 def _as_float(value: str | None) -> float:
+    """A typed amount; anything unreadable, NaN or infinite counts as 0."""
     try:
-        return float((value or "0").replace(",", "").strip() or 0)
+        number = float((value or "0").replace(",", "").strip() or 0)
     except ValueError:
         return 0.0
+    return number if math.isfinite(number) else 0.0
 
 
 def _as_int(value: str | None, default: int) -> int:

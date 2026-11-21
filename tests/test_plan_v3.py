@@ -379,6 +379,7 @@ def test_pay14_claims_can_be_marked_paid_by_hand(storage: Storage, settings, aar
 
 
 def test_pay08_pf_and_esi_follow_earned_wages(storage: Storage, settings):
+    storage.set_setting("statutory_deductions_enabled", "yes")  # off by default since a911e42
     e = _employee(storage, "Statutory", gross=18000)
     employees_service.set_salary(storage, e["id"], monthly_gross=18000, basic=9000, pf=1080, esi=135,
                                  effective_from="2025-01-01")
@@ -433,7 +434,9 @@ def test_emp01_code_change_keeps_face_recognition(app, client: TestClient, stora
         matched=True, external_id=external_id, similarity=0.9, face_id=fake.enrolled[external_id],
         threshold=0.36, faces_in_probe=1, gallery_size=1, message="ok")
     client.post("/login", data={"username": KIOSK_USERNAME, "password": KIOSK_PASSWORD})
-    body = client.post("/api/kiosk/scan", files={"image": ("f.jpg", b"jpeg", "image/jpeg")}).json()
+    token = client.get("/api/kiosk/status").json()["csrf"]
+    body = client.post("/api/kiosk/scan", data={"_csrf": token},
+                       files={"image": ("f.jpg", b"jpeg", "image/jpeg")}).json()
     assert body["ok"] and body["action"] == "check_in", body
 
 

@@ -9,6 +9,8 @@ employee.
 
 from __future__ import annotations
 
+from html import escape
+
 from typing import Any
 
 from ..config import Settings
@@ -113,7 +115,8 @@ def broadcast(
     """
     people = employees_service.list_employees(storage, status="active", limit=1000)
     queued = {"email": 0, "whatsapp": 0, "sms": 0}
-    body_html = "<p>" + announcement["body"].replace("\n", "<br>").replace("\r", "") + "</p>"
+    # the notice is plain text: escape it, then keep the line breaks HR typed
+    body_html = "<p>" + escape(announcement["body"]).replace("\r", "").replace("\n", "<br>") + "</p>"
     date_label = announcement["created_at"][:10]
 
     for person in people:

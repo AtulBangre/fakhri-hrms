@@ -225,10 +225,13 @@ def current_user(request: Request) -> SessionUser:
     session = get_session(request)
     if session is None:
         if _wants_html(request):
-            target = request.url.path
+            from urllib.parse import quote
+
+            # keep the query string too, so filters and the selected month survive re-login
+            target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
             raise HTTPException(
                 status_code=status.HTTP_303_SEE_OTHER,
-                headers={"Location": f"/login?next={target}"},
+                headers={"Location": f"/login?next={quote(target, safe='/')}"},
             )
         raise HTTPException(status_code=401, detail="Not signed in")
     request.state.user = session
@@ -333,19 +336,23 @@ def get_user_by_username(storage: Storage, username: str) -> dict[str, Any] | No
     )
     if user:
         return user
-    user = storage.query_one(
+    # An email, code or phone shared by two people identifies nobody: picking "the first"
+    # could sign in, or send a reset code to, the wrong person.
+    matches = storage.query(
         """
         SELECT u.* FROM users u
         JOIN employees e ON e.id = u.employee_id
         WHERE LOWER(COALESCE(e.email, '')) = ?
            OR LOWER(COALESCE(e.code, '')) = ?
            OR LOWER(COALESCE(e.phone, '')) = ?
-        ORDER BY u.id LIMIT 1
+        ORDER BY u.id
         """,
         (clean, clean, clean),
     )
-    if user:
-        return user
+    if len({row["id"] for row in matches}) == 1:
+        return matches[0]
+    if matches:
+        return None
 
     phone_digits = "".join(ch for ch in clean if ch.isdigit())
     if phone_digits and len(phone_digits) >= 7:
@@ -356,17 +363,18 @@ def get_user_by_username(storage: Storage, username: str) -> dict[str, Any] | No
             WHERE e.phone IS NOT NULL AND e.phone != ''
             """
         )
+        found: dict[int, dict[str, Any]] = {}
         for cand in candidates:
             raw_phone = str(cand.get("employee_phone") or cand.get("phone") or "")
             cand_digits = "".join(ch for ch in raw_phone if ch.isdigit())
             if not cand_digits:
                 continue
-            if cand_digits == phone_digits:
-                return cand
-            if len(phone_digits) >= 10 and cand_digits.endswith(phone_digits[-10:]):
-                return cand
-            if len(cand_digits) >= 10 and phone_digits.endswith(cand_digits[-10:]):
-                return cand
+            if (cand_digits == phone_digits
+                    or (len(phone_digits) >= 10 and cand_digits.endswith(phone_digits[-10:]))
+                    or (len(cand_digits) >= 10 and phone_digits.endswith(cand_digits[-10:]))):
+                found[cand["id"]] = cand
+        if len(found) == 1:
+            return next(iter(found.values()))
 
     return None
 

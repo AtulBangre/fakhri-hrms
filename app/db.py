@@ -839,6 +839,9 @@ class Storage:
             ("loan_emi", "REAL NOT NULL DEFAULT 0"),
             ("retention_amount", "REAL NOT NULL DEFAULT 0"),
             ("retention_month_num", "INTEGER NOT NULL DEFAULT 0"),
+            # HR's own figure for these lines; NULL means "follow the ledger / loan EMI"
+            ("other_override", "REAL"),
+            ("advance_override", "REAL"),
         ],
         "leave_requests": [
             ("manager_status", "TEXT NOT NULL DEFAULT 'approved'"),
@@ -846,6 +849,7 @@ class Storage:
             ("manager_action_by", "INTEGER"),
             ("manager_note", "TEXT"),
             ("attachments", "TEXT"),
+            ("decision_note", "TEXT"),
         ],
         "attendance_regularizations": [
             ("manager_status", "TEXT NOT NULL DEFAULT 'approved'"),

@@ -174,7 +174,8 @@ async def face_login(
 ):
     """Sign in an employee via facial recognition using their enrolled HRMS face."""
     ip = request.client.host if request.client else None
-    failure_key = "face_login"
+    # per device/IP: one person's failed scans must not lock face sign-in for everybody
+    failure_key = f"face_login:{ip or 'unknown'}"
 
     # Rate limiting & lockout protection
     if auth.login_locked(storage, failure_key, ip):

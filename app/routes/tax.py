@@ -12,6 +12,8 @@ results. Two rules carry over from that module and are visible in the UI:
 
 from __future__ import annotations
 
+import math
+
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse
 
@@ -25,10 +27,12 @@ router = APIRouter(tags=["tax"])
 
 
 def _as_float(value: str | None) -> float:
+    """A typed amount; anything unreadable, NaN or infinite counts as 0."""
     try:
-        return float((value or "0").replace(",", "").strip() or 0)
+        number = float((value or "0").replace(",", "").strip() or 0)
     except ValueError:
         return 0.0
+    return number if math.isfinite(number) else 0.0
 
 
 def _fy(settings, fy: str | None) -> str:

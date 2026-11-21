@@ -57,7 +57,7 @@
           <td data-label="In – out" class="num-cell nowrap">{{ row.check_in | clock }} – {{ row.check_out | clock }}</td>
           <td data-label="Reason" class="small" style="max-width:320px">{{ row.reason }}
             {% if row.decision_note %}<span class="sub">Note: {{ row.decision_note }}</span>{% endif %}</td>
-          <td data-label="Status"><span class="chip {{ {'pending':'chip-warn','approved':'chip-ok','rejected':'chip-danger'}.get(row.status, 'chip-muted') }}">{{ row.status }}</span>
+          <td data-label="Status"><span class="chip {{ {'pending':'chip-warn','approved':'chip-ok','rejected':'chip-danger'}.get(row.status, 'chip-muted') }}">{{ row.status | capitalize }}</span>
             {% if row.decided_by %}<span class="sub">{{ row.decided_by }}</span>{% endif %}</td>
           <td class="actions-cell">
             {% if row.status == 'pending' %}
@@ -65,6 +65,7 @@
                     {% if row.previous_status in ('leave', 'half_day') %}data-confirm="{{ row.work_date }} is on approved leave. Approving gives that leave day back to {{ row.name }}'s balance. Continue?"{% endif %}>
                 <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                 {% if row.previous_status in ('leave', 'half_day') %}<input type="hidden" name="release_leave" value="1">{% endif %}
+                {% if row.check_out %}<label class="checkline small" title="Full day present with no half-day or fine, even though they left before the shift ended"><input type="checkbox" name="early_leave" value="1"> Approved early leave</label>{% endif %}
                 <button class="btn btn-sm btn-primary" type="submit">{{ icon('check') }} Approve</button>
               </form>
               <button class="btn btn-sm" type="button" data-toggle-row="reject-{{ row.id }}">Reject</button>

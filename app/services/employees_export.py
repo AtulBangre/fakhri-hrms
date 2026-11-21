@@ -12,6 +12,8 @@ Exports comprehensive employee details with zero omissions, including:
 
 from __future__ import annotations
 
+from .csvsafe import neutralize
+
 import csv
 import io
 import re
@@ -479,6 +481,6 @@ def export_employees_csv(
     writer = csv.writer(out)
     writer.writerow(headers)
     for row in rows:
-        writer.writerow(["" if val is None else val for val in row])
+        writer.writerow(["" if val is None else neutralize(val) for val in row])
     # Prepend UTF-8 BOM so Excel opens the CSV correctly with proper encoding
     return "\ufeff" + out.getvalue()

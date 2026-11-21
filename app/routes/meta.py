@@ -16,7 +16,9 @@ router = APIRouter(tags=["meta"])
 
 
 @router.get("/healthz", include_in_schema=False)
-def healthz() -> dict:
+async def healthz() -> dict:
+    # async on purpose: answered on the event loop, so it still responds when every
+    # worker thread is busy (Docker / systemd watch this endpoint)
     return {"status": "ok", "service": "hrms", "version": __version__}
 
 
@@ -45,6 +47,9 @@ def api_health(
             "time": orgtime.local_now(settings).isoformat(timespec="seconds"),
             "database": "ok" if db_ok else "error",
             "face_service": health,
+            "face_backpressure": face.status() if hasattr(face, "status") else None,
+            "outbox_pending": int(storage.scalar(
+                "SELECT COUNT(*) AS n FROM notifications WHERE status IN ('pending','sending')") or 0),
             "face_required": settings.face_required_for_kiosk,
             "org": storage.get_setting("org_name", settings.org_name),
         }
@@ -135,6 +140,15 @@ def employee_avatar(
         return Response(status_code=401)
     if user.is_employee and int(user.employee_id or 0) != employee_id:
         return Response(status_code=404)  # someone else's photo looks like no photo
+    if user.is_kiosk:
+        # the gate only shows the face of someone who just scanned — a stolen gate
+        # phone must not be able to download everyone's photo
+        scanned = storage.query_one(
+            "SELECT 1 AS ok FROM attendance WHERE employee_id = ? AND work_date = ? AND check_in IS NOT NULL",
+            (employee_id, orgtime.today_str(settings)),
+        )
+        if scanned is None:
+            return Response(status_code=404)
     row = storage.query_one("SELECT photo_filename FROM employees WHERE id = ?", (employee_id,))
     if not row or not row.get("photo_filename"):
         return Response(status_code=404)
@@ -142,7 +156,8 @@ def employee_avatar(
         path = path_for(settings, "avatars", row["photo_filename"])
         if not path.exists():
             return Response(status_code=404)
-        return FileResponse(path, media_type="image/jpeg", headers=PRIVATE_IMAGE)
+        media = {".png": "image/png", ".webp": "image/webp"}.get(path.suffix.lower(), "image/jpeg")
+        return FileResponse(path, media_type=media, headers=PRIVATE_IMAGE)
     except (UploadError, ValueError):
         return Response(status_code=404)
 

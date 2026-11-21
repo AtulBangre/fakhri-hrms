@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import logging
 from typing import Any
 
@@ -109,7 +111,7 @@ def add_deduction(
     employee = employees_service.require_employee(storage, employee_id)
     locks.assert_period_open(storage, f"{period}-01")
 
-    if amount <= 0:
+    if not math.isfinite(amount) or amount <= 0:
         raise employees_service.ValidationError("Deduction amount must be greater than zero.")
     if not (reason or "").strip():
         raise employees_service.ValidationError("A reason for the deduction is required.")
@@ -150,7 +152,7 @@ def update_deduction(
         raise employees_service.ValidationError("Deduction entry not found.")
     locks.assert_period_open(storage, f"{row['period']}-01")
 
-    if amount <= 0:
+    if not math.isfinite(amount) or amount <= 0:
         raise employees_service.ValidationError("Deduction amount must be greater than zero.")
     if not (reason or "").strip():
         raise employees_service.ValidationError("A reason for the deduction is required.")

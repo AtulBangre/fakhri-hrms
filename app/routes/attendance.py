@@ -142,6 +142,7 @@ def mark(
     return_day: str = Form(""),
     release_leave: str = Form(""),
     early_leave: str = Form(""),
+    allow_negative: str = Form(""),
     return_url: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
@@ -154,7 +155,7 @@ def mark(
             leave_type=leave_type or None, note=note or None,
             late_fine=parsed_fine, waive_fine=bool(waive_fine),
             actor=user.username, release_leave=bool(release_leave),
-            early_leave=bool(early_leave),
+            early_leave=bool(early_leave), allow_negative=bool(allow_negative),
         )
     except employees_service.ValidationError as exc:
         if return_url:

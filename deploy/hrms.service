@@ -16,10 +16,11 @@ WorkingDirectory=/opt/hrms
 #   HRMS_DATA_DIR=/var/lib/hrms
 #   HRMS_SECURE_COOKIES=true
 EnvironmentFile=/etc/hrms/hrms.env
+Environment=MALLOC_ARENA_MAX=2
 
 ExecStart=/opt/hrms/.venv/bin/uvicorn app.main:app \
     --host 127.0.0.1 --port 8100 \
-    --workers 1 \
+    --workers 1 --limit-concurrency 200 --timeout-keep-alive 15 \
     --proxy-headers --forwarded-allow-ips='127.0.0.1'
 
 Restart=always

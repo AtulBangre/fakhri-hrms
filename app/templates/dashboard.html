@@ -360,14 +360,15 @@
         .then(function(data) {
           if (!data || !data.recent || data.recent.length === 0) return;
           var html = "";
+          var esc = window.escapeHtml;
           data.recent.forEach(function(row) {
             var chipClass = "chip " + (row.status === "present" ? "chip-ok" : (row.status === "half_day" ? "chip-warn" : (row.status === "leave" ? "chip-info" : "chip-danger")));
             var device = row.device_label ? " · " + row.device_label : "";
             html += "<tr>" +
-              "<td data-label='Employee'><a href='/employees/" + row.employee_id + "'><strong>" + (row.name || "") + "</strong></a><span class='sub'>" + (row.code || "") + device + "</span></td>" +
-              "<td data-label='In'><span class='badge-count' style='font-size:0.75rem'>" + (row.check_in_label || "—") + "</span></td>" +
-              "<td data-label='Out'>" + (row.check_out_label || "—") + "</td>" +
-              "<td data-label='Status'><span class='" + chipClass + "'>" + (row.status || "") + "</span></td>" +
+              "<td data-label='Employee'><a href='/employees/" + encodeURIComponent(row.employee_id) + "'><strong>" + esc(row.name) + "</strong></a><span class='sub'>" + esc(row.code) + esc(device) + "</span></td>" +
+              "<td data-label='In'><span class='badge-count' style='font-size:0.75rem'>" + esc(row.check_in_label || "—") + "</span></td>" +
+              "<td data-label='Out'>" + esc(row.check_out_label || "—") + "</td>" +
+              "<td data-label='Status'><span class='" + chipClass + "'>" + esc(row.status_label || row.status) + "</span></td>" +
               "</tr>";
           });
           tbody.innerHTML = html;
@@ -430,10 +431,11 @@
           return;
         }
 
+        var esc = window.escapeHtml;
         var leader = data.top3[0];
         var avatarHtml = leader.employee.photo_filename
           ? '<img class="avatar" src="/employees/' + leader.employee.id + '/avatar" alt="" style="width:46px;height:46px;border-radius:50%;object-fit:cover;border:2.5px solid #f59e0b;flex-shrink:0;">'
-          : '<span class="avatar" style="width:46px;height:46px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid #f59e0b;background:var(--bg-hover);flex-shrink:0;">' + (leader.employee.name ? leader.employee.name.charAt(0) : 'E') + '</span>';
+          : '<span class="avatar" style="width:46px;height:46px;font-size:1.1rem;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid #f59e0b;background:var(--bg-hover);flex-shrink:0;">' + esc(leader.employee.name ? leader.employee.name.charAt(0) : 'E') + '</span>';
 
         var highlightReason = (leader.reasons && leader.reasons.length > 0) ? leader.reasons[0] : 'Top attendance & punctuality record';
 
@@ -443,23 +445,23 @@
             '<div style="min-width:0;overflow:hidden;">' +
               '<div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">' +
                 '<a href="/employees/' + leader.employee.id + '" style="font-size:1.02rem;font-weight:700;color:inherit;text-decoration:none;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;">' +
-                  (leader.employee.name || '') +
+                  esc(leader.employee.name) +
                 '</a>' +
                 '<span class="chip" style="font-size:0.7rem;font-weight:700;padding:1px 6px;color:#b45309;background:rgba(251,191,36,0.25);">' +
                   '👑 #1 Leader' +
                 '</span>' +
               '</div>' +
               '<div class="small muted" style="white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:0.8rem;">' +
-                (leader.employee.code || '') + ' · ' + (leader.employee.designation || '') + ' · ' + (leader.employee.department || '') +
+                esc(leader.employee.code) + ' · ' + esc(leader.employee.designation) + ' · ' + esc(leader.employee.department) +
               '</div>' +
               '<div class="small" style="margin-top:2px;color:var(--text);font-weight:500;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:0.78rem;">' +
-                '✓ ' + highlightReason +
+                '✓ ' + esc(highlightReason) +
               '</div>' +
             '</div>' +
           '</div>' +
           '<div style="text-align:right;flex-shrink:0;">' +
             '<div style="font-size:0.95rem;font-weight:800;color:#92400e;background:#fef3c7;padding:3px 9px;border-radius:999px;border:1px solid #fde68a;display:inline-flex;align-items:center;gap:3px;box-shadow:0 1px 2px rgba(0,0,0,0.05);" title="Composite HRMS Performance Score">' +
-              '<span>⭐ ' + leader.score + '</span><span style="font-size:0.72rem;font-weight:600;color:#b45309;">/100</span>' +
+              '<span>⭐ ' + esc(leader.score) + '</span><span style="font-size:0.72rem;font-weight:600;color:#b45309;">/100</span>' +
             '</div>' +
             '<div style="margin-top:5px;">' +
               '<button type="button" class="btn btn-sm btn-primary" style="font-size:0.75rem;padding:3px 9px;" onclick="openTop3Modal()">' +
@@ -502,7 +504,7 @@
     var data = currentRecognitionData;
     var rawLabel = (data.label || data.period || '').replace(/\s*\((Live)\)\s*$/i, '').trim();
     if (title) {
-      title.innerHTML = '<span>🏆 ' + (data.is_live ? 'Live Contenders Race' : 'Top Performers') + ' · ' + rawLabel + '</span>' +
+      title.innerHTML = '<span>🏆 ' + (data.is_live ? 'Live Contenders Race' : 'Top Performers') + ' · ' + window.escapeHtml(rawLabel) + '</span>' +
         (data.is_live ? '<span class="chip" style="font-size:0.68rem;background:#fee2e2;color:#991b1b;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid #fecaca;">LIVE RACE</span>' : '<span class="chip" style="font-size:0.68rem;background:#ecfdf5;color:#065f46;font-weight:700;padding:2px 7px;border-radius:4px;border:1px solid #a7f3d0;">FINAL</span>');
     }
     if (sub) {
@@ -514,8 +516,9 @@
       return;
     }
 
+    var esc = window.escapeHtml;
     var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));gap:1.25rem;">';
-    data.top3.forEach(function(cand) {
+    data.top3.forEach(function(cand, candIndex) {
       var isR1 = (cand.rank === 1);
       var isR2 = (cand.rank === 2);
       var borderCol = isR1 ? '#f59e0b' : (isR2 ? '#94a3b8' : '#ea580c');
@@ -528,33 +531,31 @@
 
       var avatarHtml = cand.employee.photo_filename
         ? '<img class="avatar" src="/employees/' + cand.employee.id + '/avatar" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:2.5px solid ' + borderCol + ';flex-shrink:0;">'
-        : '<span class="avatar" style="width:52px;height:52px;font-size:1.2rem;font-weight:700;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid ' + borderCol + ';background:var(--bg-hover,#f1f5f9);color:var(--ink);flex-shrink:0;">' + (cand.employee.name ? cand.employee.name.charAt(0) : 'E') + '</span>';
+        : '<span class="avatar" style="width:52px;height:52px;font-size:1.2rem;font-weight:700;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:2.5px solid ' + borderCol + ';background:var(--bg-hover,#f1f5f9);color:var(--ink);flex-shrink:0;">' + esc(cand.employee.name ? cand.employee.name.charAt(0) : 'E') + '</span>';
 
       var reasonsListHtml = '';
       (cand.reasons || []).forEach(function(r) {
         reasonsListHtml += '<div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px;font-size:0.82rem;line-height:1.35;color:var(--text, #334155);">' +
           '<span style="color:#16a34a;font-weight:800;font-size:0.85rem;line-height:1.2;flex-shrink:0;">✓</span>' +
-          '<span>' + r + '</span>' +
+          '<span>' + esc(r) + '</span>' +
         '</div>';
       });
-
-      var candJson = JSON.stringify(cand).replace(/"/g, '&quot;');
 
       html += '<div style="display:flex;flex-direction:column;border-radius:12px;padding:1.25rem;border:1.5px solid ' + borderCol + ';background:' + cardBg + ';box-shadow:' + shadow + ';position:relative;">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.9rem;">' +
           '<span style="font-size:0.75rem;font-weight:700;color:' + tagColor + ';background:' + tagBg + ';border:1px solid ' + tagBorder + ';padding:3px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;">' + rankBadge + '</span>' +
           '<div style="font-size:0.92rem;font-weight:800;color:#92400e;background:#fef3c7;padding:3px 9px;border-radius:999px;border:1px solid #fde68a;display:inline-flex;align-items:center;gap:3px;box-shadow:0 1px 2px rgba(0,0,0,0.05);" title="Composite HRMS Performance Score">' +
-            '<span>⭐ ' + cand.score + '</span><span style="font-size:0.72rem;font-weight:600;color:#b45309;">/100</span>' +
+            '<span>⭐ ' + esc(cand.score) + '</span><span style="font-size:0.72rem;font-weight:600;color:#b45309;">/100</span>' +
           '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:0.85rem;margin-bottom:1rem;">' +
           avatarHtml +
           '<div style="overflow:hidden;flex-grow:1;">' +
-            '<a href="/employees/' + cand.employee.id + '" style="font-size:1.05rem;font-weight:700;color:var(--ink, #0f172a);text-decoration:none;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;" title="' + (cand.employee.name || '') + '">' + (cand.employee.name || '') + '</a>' +
-            '<div style="font-size:0.82rem;color:var(--text, #334155);font-weight:500;margin-top:2px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;" title="' + (cand.employee.designation || '') + '">' + (cand.employee.designation || 'Staff') + '</div>' +
+            '<a href="/employees/' + cand.employee.id + '" style="font-size:1.05rem;font-weight:700;color:var(--ink, #0f172a);text-decoration:none;display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;" title="' + esc(cand.employee.name) + '">' + esc(cand.employee.name) + '</a>' +
+            '<div style="font-size:0.82rem;color:var(--text, #334155);font-weight:500;margin-top:2px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;" title="' + esc(cand.employee.designation) + '">' + esc(cand.employee.designation || 'Staff') + '</div>' +
             '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">' +
-              '<span style="font-size:0.7rem;background:var(--bg-hover,#f1f5f9);padding:1px 6px;border-radius:4px;color:var(--muted);font-weight:600;">' + (cand.employee.code || '') + '</span>' +
-              '<span style="font-size:0.7rem;background:var(--bg-hover,#f1f5f9);padding:1px 6px;border-radius:4px;color:var(--muted);">' + (cand.employee.department || 'General') + '</span>' +
+              '<span style="font-size:0.7rem;background:var(--bg-hover,#f1f5f9);padding:1px 6px;border-radius:4px;color:var(--muted);font-weight:600;">' + esc(cand.employee.code) + '</span>' +
+              '<span style="font-size:0.7rem;background:var(--bg-hover,#f1f5f9);padding:1px 6px;border-radius:4px;color:var(--muted);">' + esc(cand.employee.department || 'General') + '</span>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -563,8 +564,8 @@
           reasonsListHtml +
         '</div>' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding-top:0.75rem;border-top:1px solid rgba(0,0,0,0.06);margin-top:auto;">' +
-          '<span style="font-size:0.75rem;font-weight:700;padding:2px 7px;border-radius:4px;' + (isR1 ? 'background:#fef2f2;color:#991b1b;' : 'background:var(--bg-hover,#f1f5f9);color:var(--muted);') + '">' + (cand.chance_label || cand.badge_title || '') + '</span>' +
-          '<button type="button" class="btn btn-sm" style="font-size:0.75rem;padding:3px 9px;border-radius:6px;background:var(--bg-hover,#f8fafc);border:1px solid var(--border-color,#cbd5e1);color:var(--ink);font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" onclick="showScorecardModal(' + candJson + ')">Scorecard 🔍</button>' +
+          '<span style="font-size:0.75rem;font-weight:700;padding:2px 7px;border-radius:4px;' + (isR1 ? 'background:#fef2f2;color:#991b1b;' : 'background:var(--bg-hover,#f1f5f9);color:var(--muted);') + '">' + esc(cand.chance_label || cand.badge_title) + '</span>' +
+          '<button type="button" class="btn btn-sm" style="font-size:0.75rem;padding:3px 9px;border-radius:6px;background:var(--bg-hover,#f8fafc);border:1px solid var(--border-color,#cbd5e1);color:var(--ink);font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:3px;" onclick="showScorecardModal(currentRecognitionData.top3[' + candIndex + '])">Scorecard 🔍</button>' +
         '</div>' +
       '</div>';
     });
@@ -598,7 +599,7 @@
           '<td><strong>Total Composite Performance Index</strong></td>' +
           '<td class="num font-bold" style="color:var(--color-primary, #b91c1c);">⭐ ' + cand.score + '</td>' +
           '<td class="num font-bold">100</td>' +
-          '<td><strong>' + (cand.chance_label || cand.badge_title) + '</strong></td>' +
+          '<td><strong>' + window.escapeHtml(cand.chance_label || cand.badge_title) + '</strong></td>' +
         '</tr>' +
       '</tbody></table>';
 

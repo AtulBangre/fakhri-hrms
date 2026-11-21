@@ -220,7 +220,7 @@
                   <button class="btn btn-sm btn-ghost" type="submit" title="Reopen to draft">Reopen</button>
                 </form>
               {% elif run.status == 'draft' %}
-                <button class="btn btn-sm btn-ghost" type="button" onclick="singleHoldPrompt('{{ slip.id }}', '{{ slip.name }}')" title="Put this employee on hold">Hold</button>
+                <button class="btn btn-sm btn-ghost" type="button" onclick='singleHoldPrompt({{ slip.id | tojson }}, {{ slip.name | tojson }})' title="Put this employee on hold">Hold</button>
                 <button class="btn btn-sm" type="button" onclick="document.getElementById('adj-modal-{{ slip.id }}').showModal()">{{ icon('edit') }} Adjust</button>
               {% endif %}
               <a class="btn btn-sm" href="/payroll/slip/{{ slip.id }}">Payslip</a>
@@ -485,15 +485,15 @@ function submitBulkSlipStatus(status, reason) {
 }
 
 function promptHoldReason() {
-  var reason = prompt('Reason for putting selected payslips on hold (optional):', 'Under review / dispute');
-  if (reason !== null) {
+  window.askReason({title: 'Put selected payslips on hold?', label: 'Reason (optional)',
+                    value: 'Under review / dispute', confirm: 'Put on hold'}, function (reason) {
     submitBulkSlipStatus('on_hold', reason);
-  }
+  });
 }
 
 function singleHoldPrompt(slipId, name) {
-  var reason = prompt('Enter reason for putting ' + name + ' on hold:', 'Under review');
-  if (reason !== null) {
+  window.askReason({title: 'Put ' + name + "'s payslip on hold?", label: 'Reason',
+                    value: 'Under review', confirm: 'Put on hold'}, function (reason) {
     var form = document.createElement('form');
     form.method = 'post';
     form.action = '/payroll/slip/' + slipId + '/status';
@@ -514,7 +514,7 @@ function singleHoldPrompt(slipId, name) {
     form.appendChild(r);
     document.body.appendChild(form);
     form.submit();
-  }
+  });
 }
 </script>
 {% endblock %}

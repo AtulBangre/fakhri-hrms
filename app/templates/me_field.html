@@ -131,7 +131,7 @@
     }, function (err) {
       badge.textContent = 'blocked';
       badge.className = 'chip chip-danger';
-      info.innerHTML = '<div>Location was blocked (' + err.message +
+      info.innerHTML = '<div>Location was blocked (' + window.escapeHtml(err.message) +
         '). Allow location for this site in your browser settings, then reload.</div>';
       info.className = 'alert alert-err small';
     }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });

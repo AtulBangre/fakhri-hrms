@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from .. import notify
 from ..auth import SessionUser, require_hr, verify_form_csrf
 from ..deps import get_settings_dep, get_storage, redirect, render
-from ..services import regularization
+from ..services import orgtime, regularization
 
 router = APIRouter(prefix="/attendance/regularizations", tags=["attendance"])
 
@@ -86,6 +86,7 @@ def decide(
     csrf: str = Form("", alias="_csrf"),
     note: str = Form(""),
     release_leave: str = Form(""),
+    early_leave: str = Form(""),
 ):
     verify_form_csrf(user, csrf)
     if decision not in ("approve", "reject"):
@@ -93,11 +94,11 @@ def decide(
     try:
         if decision == "approve":
             row = regularization.approve(storage, request_id, actor=user.username, note=note.strip() or None,
-                                         release_leave=bool(release_leave))
+                                         release_leave=bool(release_leave), early_leave=bool(early_leave))
         else:
             row = regularization.reject(storage, request_id, actor=user.username, note=note.strip() or None)
     except regularization.ValidationError as exc:
         return redirect("/attendance/regularizations", err=str(exc))
     _notify_employee(storage, settings, row)
     return redirect("/attendance/regularizations",
-                    ok=f"{row['name']} · {row['work_date']} {row['status']}.")
+                    ok=f"{row['name']} · {orgtime.human_date(row['work_date'])} {row['status']}.")

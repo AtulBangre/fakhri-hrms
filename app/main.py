@@ -63,6 +63,16 @@ async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
     settings.data_dir.mkdir(parents=True, exist_ok=True)
 
+    # Sync handlers run on this pool. The default (40) let a burst of gate scans waiting
+    # on the Face API starve every other page; with face calls capped separately, a
+    # larger pool keeps pages and health checks answering.
+    try:
+        import anyio.to_thread
+
+        anyio.to_thread.current_default_thread_limiter().total_tokens = max(40, int(settings.threadpool_size))
+    except Exception:  # pragma: no cover - never block startup over tuning
+        logger.warning("could not resize the request thread pool")
+
     app.state.storage = Storage(settings)
     app.state.face = FaceService(settings)
     app.state.notifier = NotificationWorker(app.state.storage, settings)
@@ -136,7 +146,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Same policy the Caddy proxy sets, so a deployment without it is covered too (SEC-07).
         for name, value in SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
-        response.headers["X-Processing-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        response.headers["X-Processing-Time-Ms"] = f"{elapsed_ms:.1f}"
+        if elapsed_ms > 2000:  # find what makes the app feel stuck
+            logger.warning("slow request %.0f ms %s %s -> %s", elapsed_ms, request.method,
+                           request.url.path, response.status_code)
 
         # Cache policy. Assets are linked with ?v=<content hash>, so an unchanged
         # URL really is immutable and a changed file gets a new URL — that is what

@@ -362,15 +362,21 @@ def compute_fnf(storage: Storage, settings: Settings, exit_row: dict[str, Any]) 
         earn("Gratuity", gratuity, f"15/26 × basic × {years} year(s)")
 
     # 4. approved expense claims not paid yet
+    # claims already attached to a payroll run are paid through that payslip
     claims = storage.query(
-        "SELECT id, amount FROM expense_claims WHERE employee_id = ? AND status = 'approved'", (employee["id"],)
+        "SELECT id, amount FROM expense_claims WHERE employee_id = ? AND status = 'approved' "
+        "AND payroll_run_id IS NULL",
+        (employee["id"],),
     )
     if claims:
         earn("Approved expense claims", sum(float(c["amount"]) for c in claims), f"{len(claims)} claim(s)")
 
     # 5. Salary Retention Fund refund (held during initial months)
+    # only what was really withheld: a draft run has not deducted anything yet
     retention_res = storage.query(
-        "SELECT COALESCE(SUM(retention_amount), 0) as total_held, COUNT(*) as count FROM payslips WHERE employee_id = ? AND retention_amount > 0",
+        "SELECT COALESCE(SUM(p.retention_amount), 0) as total_held, COUNT(*) as count FROM payslips p "
+        "JOIN payroll_runs r ON r.id = p.run_id "
+        "WHERE p.employee_id = ? AND p.retention_amount > 0 AND r.status IN ('finalized','paid')",
         (employee["id"],),
     )
     total_retention = float(retention_res[0]["total_held"]) if retention_res else 0.0
@@ -399,6 +405,25 @@ def compute_fnf(storage: Storage, settings: Settings, exit_row: dict[str, Any]) 
         deduct("Unreturned assets", sum(float(a["cost"] or 0) for a in open_assets),
                ", ".join(a["tag"] for a in open_assets))
 
+    # 7. loans and salary advances still owed (minus EMIs a draft payroll run will already take)
+    loan_recoveries: list[dict[str, Any]] = []
+    for loan in storage.query(
+        "SELECT id, loan_type, remaining_balance FROM employee_loans "
+        "WHERE employee_id = ? AND status = 'active' AND remaining_balance > 0",
+        (employee["id"],),
+    ):
+        pending_emi = float(storage.scalar(
+            "SELECT COALESCE(SUM(MIN(p.advance, p.loan_emi)), 0) AS t FROM payslips p "
+            "JOIN payroll_runs r ON r.id = p.run_id WHERE p.loan_id = ? AND r.status = 'draft'",
+            (loan["id"],), 0,
+        ) or 0)
+        owed = max(0.0, float(loan["remaining_balance"]) - pending_emi)
+        if owed > 0:
+            loan_recoveries.append({"loan_id": loan["id"], "amount": round(owed, 2)})
+            deduct("Outstanding loan / advance", owed,
+                   f"Loan #{loan['id']} ({str(loan['loan_type']).replace('_', ' ')})"
+                   + (f", after ₹{pending_emi:,.0f} EMI in the draft payroll" if pending_emi else ""))
+
     if float(exit_row.get("extra_deductions") or 0):
         deduct("Other deductions (HR)", float(exit_row["extra_deductions"]), exit_row.get("fnf_note") or "")
 
@@ -421,6 +446,7 @@ def compute_fnf(storage: Storage, settings: Settings, exit_row: dict[str, Any]) 
         "notice_shortfall": shortfall,
         "open_assets": open_assets,
         "claim_ids": [c["id"] for c in claims],
+        "loan_recoveries": loan_recoveries,
         "earnings": earnings,
         "deductions": deductions,
         "total_earnings": total_earnings,
@@ -478,6 +504,21 @@ def settle(storage: Storage, settings: Settings, exit_id: int, *, actor: str | N
             storage.execute_tx(
                 f"UPDATE expense_claims SET status = 'paid', note = COALESCE(note, 'paid in F&F') WHERE id IN ({marks})",
                 statement["claim_ids"],
+            )
+        # the outstanding loan was recovered in the statement: book it so the loan closes
+        for item in statement.get("loan_recoveries") or []:
+            storage.execute_tx(
+                "INSERT INTO loan_repayments (loan_id, payroll_run_id, payslip_id, amount, period, repaid_at, note) "
+                "VALUES (?, NULL, NULL, ?, ?, ?, ?)",
+                (item["loan_id"], item["amount"], statement["last_working_day"][:7], utcnow_iso(),
+                 "Recovered in full & final settlement"),
+            )
+            storage.execute_tx(
+                "UPDATE employee_loans SET total_repaid = total_repaid + ?, "
+                "remaining_balance = MAX(0, remaining_balance - ?), "
+                "status = CASE WHEN remaining_balance - ? <= 0.005 THEN 'closed' ELSE status END, updated_at = ? "
+                "WHERE id = ?",
+                (item["amount"], item["amount"], item["amount"], utcnow_iso(), item["loan_id"]),
             )
         storage.execute_tx("UPDATE employees SET status = 'inactive', updated_at = ? WHERE id = ?",
                            (utcnow_iso(), row["employee_id"]))

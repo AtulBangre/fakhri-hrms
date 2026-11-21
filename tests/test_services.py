@@ -921,6 +921,10 @@ def test_salary_retention_fund_payroll_and_fnf(storage: Storage, settings):
     assert slip4["retention_amount"] == 0.0
     assert slip4["retention_month_num"] == 0
 
+    # Only retention that was really withheld (finalised runs) is refunded.
+    for month in ("2026-01", "2026-02", "2026-03"):
+        payroll.set_run_status(storage, month, "finalized", actor="hr")
+
     # Full & Final Settlement (F&F)
     # Karan resigns; verify F&F automatically refunds all 3 months of retention (₹18,000)
     exit_row = exits_service.record_exit(

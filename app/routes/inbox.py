@@ -99,5 +99,5 @@ def test_push(
 ):
     notify.push_user(storage, settings, user.id, "Notifications are on",
                      "This device will now receive HRMS alerts.", "/", category="push_test")
-    notify.dispatch(storage, settings, limit=10)
+    notify.wake()
     return {"ok": True}

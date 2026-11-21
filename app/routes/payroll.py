@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi import Response
 from fastapi.responses import PlainTextResponse
@@ -18,10 +20,12 @@ router = APIRouter(prefix="/payroll", tags=["payroll"])
 
 
 def _as_float(value: str | None) -> float:
+    """A typed amount; anything unreadable, NaN or infinite counts as 0."""
     try:
-        return float((value or "0").replace(",", "").strip() or 0)
+        number = float((value or "0").replace(",", "").strip() or 0)
     except ValueError:
         return 0.0
+    return number if math.isfinite(number) else 0.0
 
 
 @router.get("/retention")
@@ -118,6 +122,7 @@ def set_status(
     status: str = Form(...),
 ):
     verify_form_csrf(user, csrf)
+    before = payroll.get_run(storage, period)
     try:
         if status == "draft":
             payroll.reopen_run(storage, period, actor=user.username)
@@ -125,10 +130,13 @@ def set_status(
             payroll.set_run_status(storage, period, status, actor=user.username)
     except employees_service.ValidationError as exc:
         return redirect("/payroll", err=str(exc), period=period)
-    if status == "finalized":
-        # No amounts here: this text can show on a lock screen.
+    if status == "finalized" and before and before["status"] == "draft":
+        # No amounts here: this text can show on a lock screen. Held slips are not released,
+        # so their owners are not told a payslip is ready.
         months_label = orgtime.month_label(period)
         for slip in payroll.list_slips(storage, period):
+            if slip.get("status") not in ("finalized", "paid"):
+                continue
             notify.push_employee(storage, settings, slip["employee_id"], "Your payslip is ready",
                                  f"Your payslip for {months_label} is available.", "/me/payslips",
                                  category="payslip")
@@ -349,9 +357,10 @@ def email_single_slip(
             )
             queued_channels.append(f"WhatsApp ({phone})")
 
-    results = notify.dispatch(storage, settings, limit=len(queued_channels) or 2)
+    notify.wake()  # sent by the background worker within seconds; the page does not wait
     channels_label = " & ".join(queued_channels) if queued_channels else "notification queue"
-    return redirect(f"/payroll?period={slip['period']}", ok=f"Payslip dispatched successfully to {slip['name']} via {channels_label}.")
+    return redirect(f"/payroll?period={slip['period']}",
+                    ok=f"Payslip for {slip['name']} queued via {channels_label} — it goes out within a minute.")
 
 
 @router.post("/slips/bulk-email")
@@ -411,9 +420,9 @@ def email_bulk_slips(
 
     if queued_count > 0:
         if smtp_host:
-            results = notify.dispatch(storage, settings, limit=queued_count)
-            sent = sum(1 for r in results if r.get("ok"))
-            msg = f"Sent {sent} payslip email(s) for {months}."
+            notify.wake()
+            msg = (f"Queued {queued_count} payslip email(s) for {months}. They are being sent in the background — "
+                   "see Notifications for delivery status.")
         else:
             msg = f"Queued {queued_count} payslip email(s). (Note: Configure SMTP in Settings → Email & Notifications to send live emails)."
     else:
@@ -572,6 +581,6 @@ def email_payslips(
     if already:
         message += f", {already} already sent"
     if queued and send_now:
-        results = notify.dispatch(storage, settings, limit=queued)
-        message += f". Sent {sum(1 for r in results if r.get('ok'))} now."
+        notify.wake()
+        message += ". Sending now in the background"
     return redirect("/payroll", ok=message + ".", period=period)

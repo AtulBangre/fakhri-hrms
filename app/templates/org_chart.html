@@ -23,6 +23,38 @@
   </div>
 </div>
 
+{% macro person_node(m, depth) -%}
+  <li class="org-node member-node" data-search="{{ (m.name ~ ' ' ~ m.code ~ ' ' ~ (m.designation or '') ~ ' ' ~ (m.department or '')) | lower }}">
+    <div class="list-row" style="padding-left:{{ 0.75 + depth * 1.25 }}rem">
+      <span class="avatar">{{ m.name | initials }}</span>
+      <div class="grow">
+        <a href="/employees/{{ m.id }}" style="color:inherit;text-decoration:none"><strong>{{ m.name }}</strong></a>
+        <span class="sub muted">{{ m.code }}{% if m.designation %} · {{ m.designation }}{% endif %}{% if m.department %} · {{ m.department }}{% endif %}</span>
+      </div>
+      {% if m.reports %}<span class="chip chip-primary">{{ m.reports | length }} direct report{{ '' if m.reports | length == 1 else 's' }}</span>{% endif %}
+    </div>
+    {% if m.reports and depth < 12 %}
+      <ul class="org-children" style="list-style:none;margin:0;padding:0">
+        {% for child in m.reports %}{{ person_node(child, depth + 1) }}{% endfor %}
+      </ul>
+    {% endif %}
+  </li>
+{%- endmacro %}
+
+<nav class="ios-segmented-control mb-3" aria-label="Chart view" style="display:flex;max-width:420px">
+  <a class="ios-segmented-btn {{ 'active' if view != 'departments' }}" href="?view=reporting" {% if view != 'departments' %}aria-current="page"{% endif %}>Reporting lines</a>
+  <a class="ios-segmented-btn {{ 'active' if view == 'departments' }}" href="?view=departments" {% if view == 'departments' %}aria-current="page"{% endif %}>By department</a>
+</nav>
+
+{% if view != 'departments' %}
+<div class="card flush" id="orgTreeContainer">
+  <div class="card-head"><h2>Who reports to whom</h2><span class="spacer"></span>
+    <span class="small muted">Set a reporting manager on each employee's profile</span></div>
+  <ul style="list-style:none;margin:0;padding:0">
+    {% for m in roots %}{{ person_node(m, 0) }}{% else %}<li class="empty-state">No active employees found.</li>{% endfor %}
+  </ul>
+</div>
+{% else %}
 <div class="grid grid-2" id="orgTreeContainer">
   {% for dept, members in departments.items() %}
     <details class="card flush dept-card" data-dept="{{ dept | lower }}" open>
@@ -54,6 +86,7 @@
     </div>
   {% endfor %}
 </div>
+{% endif %}
 
 <script>
   (function() {
@@ -77,6 +110,17 @@
         dept.style.display = (!q || visibleCount > 0) ? "" : "none";
         if (q && visibleCount > 0) dept.open = true;
       });
+      // reporting tree: keep a manager visible when someone under them matches
+      function walk(node) {
+        var text = node.getAttribute("data-search") || "";
+        var match = !q || text.indexOf(q) !== -1;
+        var kids = node.querySelectorAll(":scope > .org-children > .org-node");
+        var childMatch = false;
+        kids.forEach(function (kid) { if (walk(kid)) childMatch = true; });
+        node.style.display = (match || childMatch) ? "" : "none";
+        return match || childMatch;
+      }
+      document.querySelectorAll("#orgTreeContainer > ul > .org-node").forEach(walk);
     });
   })();
 </script>

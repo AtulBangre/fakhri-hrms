@@ -385,7 +385,7 @@ async def request_leave(
     storage=Depends(get_storage),
     settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
-    leave_type: str = Form(...),
+    leave_type: str = Form(""),
     from_date: str = Form(...),
     to_date: str = Form(""),
     half_day: str = Form(""),
@@ -395,24 +395,33 @@ async def request_leave(
     verify_form_csrf(user, csrf)
     employee = _me(storage, user)
 
-    # Process and save any uploaded supporting documents safely
+    # Validate every supporting document before anything is saved, so a rejected file is
+    # reported to the employee instead of being silently dropped.
+    from ..uploads import UploadError, delete_file, read_capped, save_upload, sniff
+    chosen = [u for u in (attachments or []) if u and u.filename and u.filename.strip()]
+    if len(chosen) > 6:
+        return redirect("/me/leave", err="Attach at most 6 documents to one request.")
+    payloads: list[tuple[str, bytes]] = []
+    for upload in chosen:
+        try:
+            data = read_capped(upload.file)
+        except UploadError as exc:
+            return redirect("/me/leave", err=f"{upload.filename}: {exc}")
+        if not data:
+            continue
+        if sniff(data) is None:
+            return redirect("/me/leave", err=f"{upload.filename}: only PDF, JPG, PNG or WebP files can be attached.")
+        payloads.append((upload.filename, data))
+
     stored_attachments: list[dict[str, Any]] = []
-    if attachments:
-        from ..uploads import save_upload
-        for upload in attachments:
-            if upload and upload.filename and upload.filename.strip():
-                try:
-                    data = await upload.read()
-                    if data:
-                        stored = save_upload(settings, "leave", data, original_name=upload.filename)
-                        stored_attachments.append({
-                            "stored_name": stored.stored_name,
-                            "filename": stored.filename,
-                            "size": stored.size,
-                            "mime": stored.mime,
-                        })
-                except Exception as exc:
-                    pass
+    for filename, data in payloads:
+        stored = save_upload(settings, "leave", data, original_name=filename)
+        stored_attachments.append({
+            "stored_name": stored.stored_name,
+            "filename": stored.filename,
+            "size": stored.size,
+            "mime": stored.mime,
+        })
 
     try:
         result = leave_service.apply_leave(
@@ -430,6 +439,8 @@ async def request_leave(
             attachments=stored_attachments,
         )
     except employees_service.ValidationError as exc:
+        for item in stored_attachments:  # the request was refused: do not keep its files
+            delete_file(settings, "leave", item["stored_name"])
         return redirect("/me/leave", err=str(exc))
 
     leave = result["leave"]
@@ -510,6 +521,9 @@ def cancel_my_request(
         return redirect("/me/leave", err="That request was not found in your account.")
     if leave["status"] == "approved":
         return redirect("/me/leave", err="That leave is already approved — please speak to HR to cancel it.")
+    if leave["status"] not in ("pending", "pending_manager"):
+        # a rejected or cancelled request is history; "withdrawing" it would rewrite that history
+        return redirect("/me/leave", err=f"That request is already {leave['status']}.")
 
     employee = _me(storage, user)
     leave_service.cancel_leave(storage, leave_id, actor=user.username)
@@ -651,7 +665,7 @@ def reject_team_leave(
             f"Hello {applicant['name']},\n"
             f"Your leave request for *{orgtime.human_date(updated['from_date'])}* ({updated['days']:g} day) was *Declined* by your reporting manager {employee['name']}.\n"
             f"Reason: _{clean_note}_\n\n"
-            f"Portal: https://hrms.fakhriitservices.com/me/leave"
+            f"Portal: {settings.public_base_url.rstrip('/')}/me/leave"
         )
         notify.queue(storage, channel="whatsapp", recipient=applicant["phone"], body=msg, category="leave_update", settings=settings)
 

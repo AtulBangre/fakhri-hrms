@@ -380,9 +380,9 @@
           failedTbody.innerHTML = "";
           lastFailedRows.forEach(function(item) {
             var tr = document.createElement("tr");
-            tr.innerHTML = "<td><strong>" + item.row + "</strong></td>" +
-                           "<td>" + (item.name || item.code || "—") + "</td>" +
-                           "<td style='color:var(--danger)'>" + item.error + "</td>";
+            tr.innerHTML = "<td><strong>" + window.escapeHtml(item.row) + "</strong></td>" +
+                           "<td>" + window.escapeHtml(item.name || item.code || "—") + "</td>" +
+                           "<td style='color:var(--danger)'>" + window.escapeHtml(item.error) + "</td>";
             failedTbody.appendChild(tr);
           });
         } else {

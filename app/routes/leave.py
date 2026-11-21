@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
 from fastapi.responses import PlainTextResponse
 
 from ..auth import SessionUser, require_hr, verify_form_csrf
 from .. import notify
-from ..deps import get_settings_dep, get_storage, redirect, render
+from ..deps import get_settings_dep, get_storage, leave_status, redirect, render
 from ..services import employees as employees_service
 from ..services import leave as leave_service
 from ..services import orgtime
@@ -129,7 +131,9 @@ def employee_leave_history(
                 "type_label": l["type_label"],
                 "is_paid": l["is_paid"],
                 "status": l["status"],
+                "status_label": leave_status(l["status"]),
                 "reason": l.get("reason") or "—",
+                "decision_note": l.get("decision_note") or "",
                 "applied_label": l.get("applied_label") or "—",
                 "attachment_files": l.get("attachment_files") or [],
             }
@@ -202,7 +206,7 @@ def apply(
     settings=Depends(get_settings_dep),
     csrf: str = Form("", alias="_csrf"),
     employee_id: int = Form(...),
-    leave_type: str = Form(...),
+    leave_type: str = Form(""),
     from_date: str = Form(...),
     to_date: str = Form(""),
     half_day: str = Form(""),
@@ -347,19 +351,40 @@ def download_leave_attachment(
     request: Request,
     stored_name: str,
     settings: Settings = Depends(get_settings_dep),
+    storage=Depends(get_storage),
 ):
-    from ..auth import current_user
-    session = current_user(request)
-    if not session:
-        return redirect("/login")
+    """A supporting document (often medical): HR, the applicant and their reporting manager only."""
     from fastapi.responses import FileResponse, Response
-    from ..uploads import path_for, UploadError
-    import mimetypes
+    from ..auth import current_user
+    from ..uploads import UploadError, path_for
+
+    session = current_user(request)
+    not_found = Response("Attachment file not found", status_code=404)
+    if not stored_name or "%" in stored_name or '"' in stored_name:
+        return not_found
+    # LIKE on the JSON text, then an exact check on the parsed list
+    row = storage.query_one(
+        "SELECT l.employee_id, l.attachments, e.manager_id FROM leave_requests l "
+        "JOIN employees e ON e.id = l.employee_id WHERE l.attachments LIKE ?",
+        (f'%"{stored_name}"%',),
+    )
+    if row is None:
+        return not_found
     try:
-        p = path_for(settings, "leave", stored_name)
-    except (UploadError, ValueError, Exception):
-        return Response("Attachment file not found", status_code=404)
-    if not p.exists():
-        return Response("Attachment file not found", status_code=404)
-    media_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
-    return FileResponse(p, media_type=media_type)
+        files = json.loads(row["attachments"] or "[]")
+    except ValueError:
+        files = []
+    match = next((f for f in files if isinstance(f, dict) and f.get("stored_name") == stored_name), None)
+    if match is None:
+        return not_found
+    me = int(session.employee_id or 0)
+    allowed = session.is_hr or (session.is_employee and me in (row["employee_id"], row["manager_id"] or -1))
+    if not allowed:
+        return not_found  # someone else's document looks like no document
+    try:
+        path = path_for(settings, "leave", stored_name)
+    except (UploadError, ValueError):
+        return not_found
+    return FileResponse(path, media_type=match.get("mime") or "application/octet-stream",
+                        filename=match.get("filename") or stored_name,
+                        headers={"Cache-Control": "private, no-store"})

@@ -100,3 +100,86 @@ def test_settings_supabase_routes(hr_client, storage):
     assert "Supabase Cloud Database Mirror" in page.text
     assert "••••••••" in page.text
 
+
+
+# ------------------------------------------------ streaming / incremental sync
+class _RecordingCursor:
+    def __init__(self, log):
+        self.log = log
+
+    def execute(self, sql, params=None):
+        self.log["sql"].append(sql)
+
+    def fetchall(self):
+        return []
+
+    def close(self):
+        pass
+
+
+class _RecordingConn:
+    def __init__(self):
+        self.log = {"sql": [], "rows": {}}
+
+    def cursor(self):
+        return _RecordingCursor(self.log)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def _fake_pg(monkeypatch, sync_supabase):
+    conn = _RecordingConn()
+
+    def fake_batch(cur, sql, rows, page_size=100):
+        table = sql.split('"')[1]
+        conn.log["rows"].setdefault(table, []).extend(rows)
+
+    monkeypatch.setattr(sync_supabase, "HAS_PSYCOPG2", True)
+    monkeypatch.setattr(sync_supabase, "get_pg_connection", lambda url: conn)
+    monkeypatch.setattr(sync_supabase, "execute_batch", fake_batch, raising=False)
+    return conn
+
+
+def test_sync_streams_skips_unchanged_and_sends_only_changes(monkeypatch, storage, settings, staff, hr_user):
+    from app.services import attendance as attendance_service, sync_supabase
+
+    attendance_service.mark_manual(storage, employee_id=staff[0]["id"], work_date="2026-01-07",
+                                   status="present", check_in="09:30", check_out="18:30")
+    storage.execute("INSERT INTO notifications (channel, recipient, subject, body, status, created_at) "
+                    "VALUES ('email', 'a@b.c', 's', 'secret body', 'pending', '2026-01-01')")
+    state: dict = {}
+
+    conn = _fake_pg(monkeypatch, sync_supabase)
+    ok, _msg, stats = sync_supabase.sync_database(storage, settings, override_url="postgres://x", state=state)
+    assert ok and stats["attendance"] == 1 and stats["employees"] == len(staff)
+    assert "notifications" not in conn.log["rows"] and "otp_codes" not in stats  # never mirrored
+
+    conn = _fake_pg(monkeypatch, sync_supabase)
+    ok, msg, stats = sync_supabase.sync_database(storage, settings, override_url="postgres://x", state=state)
+    assert ok and "attendance" not in stats and "employees" not in stats  # unchanged → skipped
+    assert "skipped" in msg
+
+    attendance_service.mark_manual(storage, employee_id=staff[1]["id"], work_date="2026-01-08",
+                                   status="present", check_in="09:30", check_out="18:30")
+    conn = _fake_pg(monkeypatch, sync_supabase)
+    ok, _msg, stats = sync_supabase.sync_database(storage, settings, override_url="postgres://x", state=state)
+    sent_dates = {row[2] for row in conn.log["rows"]["attendance"]}
+    assert ok and "2026-01-08" in sent_dates and len(conn.log["rows"]["attendance"]) <= 2
+
+
+def test_change_detection_uses_a_long_lived_connection(storage, staff):
+    import sqlite3
+    from app.services import sync_supabase
+
+    probe = sqlite3.connect(storage.db_path, check_same_thread=False)
+    before = sync_supabase.get_data_version(storage, probe)
+    storage.execute("UPDATE employees SET notes = 'changed' WHERE id = ?", (staff[0]["id"],))
+    assert sync_supabase.get_data_version(storage, probe) != before
+    probe.close()

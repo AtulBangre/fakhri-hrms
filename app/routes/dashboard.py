@@ -79,8 +79,11 @@ def live_scans(
     settings=Depends(get_settings_dep),
 ):
     board = attendance_service.dashboard(storage, settings)
+    recent = [dict(row) for row in board.get("recent", [])]
+    for row in recent:
+        row["status_label"] = orgtime.STATUS_LABELS.get(row.get("status") or "", row.get("status") or "")
     return {
-        "recent": board.get("recent", []),
+        "recent": recent,
         "counts": board.get("counts", {}),
     }
 

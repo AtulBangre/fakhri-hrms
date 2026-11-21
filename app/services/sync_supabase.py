@@ -115,18 +115,51 @@ def _source_has_data(storage: Storage) -> bool:
         return False
 
 
+#: Never mirrored: the outbox holds whole email bodies (big, and personal), and these
+#: tables hold sign-in secrets or short-lived security state.
+EXCLUDED_TABLES = {"notifications", "login_attempts", "otp_codes", "password_tokens"}
+#: Rows are only ever added, never changed: sync just the new ones.
+APPEND_ONLY_TABLES = {"audit_log", "loan_repayments"}
+#: Rows sent per round trip / held in memory at once.
+BATCH_ROWS = 500
+#: Even with incremental sync, reconcile every table in full this often.
+FULL_RESYNC_SECONDS = 6 * 3600
+
+
+def _table_signature(cur: sqlite3.Cursor, table: str, has_updated: bool) -> tuple:
+    rowid = "rowid"
+    try:
+        row = cur.execute(
+            f'SELECT COUNT(*), MAX({rowid}){", MAX(updated_at)" if has_updated else ""} FROM "{table}"'
+        ).fetchone()
+    except sqlite3.OperationalError:  # WITHOUT ROWID table
+        row = cur.execute(
+            f'SELECT COUNT(*), NULL{", MAX(updated_at)" if has_updated else ""} FROM "{table}"'
+        ).fetchone()
+    return tuple(row)
+
+
 def sync_database(
     storage: Storage,
     settings: Settings,
     override_url: str | None = None,
     force: bool = False,
+    state: dict[str, Any] | None = None,
 ) -> tuple[bool, str, dict[str, int]]:
-    """Synchronize all SQLite tables and upsert rows to Supabase PostgreSQL."""
+    """Mirror the SQLite tables to Supabase PostgreSQL.
+
+    * Rows are streamed in batches of ``BATCH_ROWS`` — the old version loaded every row
+      of every table into memory twice per run, enough to push the container to its
+      memory limit as the database grew.
+    * With ``state`` (the background worker), unchanged tables are skipped and tables
+      with ``updated_at`` (or append-only logs) send only rows changed since last time.
+      Without it (the "Sync now" button), everything is reconciled in full.
+    """
     cfg = get_effective_config(storage, settings)
     target_url = (override_url or cfg["db_url"]).strip()
 
     if not HAS_PSYCOPG2:
-        return False, "psycopg2-binary is not installed in the environment.", {}
+        return False, "psycopg2-binary is not installed.", {}
     if not target_url:
         return False, "Supabase PostgreSQL Database URL is not configured.", {}
     if not cfg["enabled"] and not override_url and not force:
@@ -139,12 +172,15 @@ def sync_database(
     started = time.perf_counter()
     results: dict[str, int] = {}
     pg_conn = None
+    marks: dict[str, Any] = state.get("tables", {}) if state is not None else {}
+    incremental = state is not None and (time.time() - float(state.get("full_at") or 0)) < FULL_RESYNC_SECONDS
+    new_marks: dict[str, Any] = {}
 
     try:
         pg_conn = get_pg_connection(target_url)
         pg_cur = pg_conn.cursor()
 
-        # Direct read connection to SQLite in WAL mode
+        # Direct read connection to SQLite in WAL mode (readers never block the app)
         with sqlite3.connect(storage.db_path, timeout=5) as s_conn:
             s_conn.row_factory = sqlite3.Row
             s_cur = s_conn.cursor()
@@ -154,82 +190,101 @@ def sync_database(
                 for row in s_cur.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
+                if row[0] not in EXCLUDED_TABLES
             ]
 
             for tbl in tables:
                 cols_info = s_cur.execute(f'PRAGMA table_info("{tbl}")').fetchall()
                 if not cols_info:
                     continue
+                col_names = [c["name"] for c in cols_info]
+                pks = [f'"{c["name"]}"' for c in cols_info if c["pk"]]
+                has_updated = "updated_at" in col_names
+                signature = _table_signature(s_cur, tbl, has_updated)
+                previous = marks.get(tbl)
+                if incremental and previous and previous["sig"] == signature:
+                    new_marks[tbl] = previous
+                    continue  # nothing changed in this table since the last run
 
-                col_defs = []
-                pks = []
-                col_names = []
-                for c in cols_info:
-                    c_name = c["name"]
-                    col_names.append(c_name)
-                    c_type = map_type(c["type"])
-                    if c["pk"]:
-                        pks.append(f'"{c_name}"')
-                    col_defs.append(f'"{c_name}" {c_type}')
-
+                col_defs = [f'"{c["name"]}" {map_type(c["type"])}' for c in cols_info]
                 pk_clause = f", PRIMARY KEY ({', '.join(pks)})" if pks else ""
-                create_sql = f'CREATE TABLE IF NOT EXISTS "{tbl}" ({", ".join(col_defs)}{pk_clause});'
-                pg_cur.execute(create_sql)
-
-                # Ensure missing columns in PostgreSQL are added
+                pg_cur.execute(f'CREATE TABLE IF NOT EXISTS "{tbl}" ({", ".join(col_defs)}{pk_clause});')
                 pg_cur.execute(
-                    "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
-                    (tbl,),
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = %s", (tbl,)
                 )
                 existing_pg_cols = {r[0] for r in pg_cur.fetchall()}
                 for c in cols_info:
-                    c_name = c["name"]
-                    if c_name not in existing_pg_cols:
-                        c_type = map_type(c["type"])
+                    if c["name"] not in existing_pg_cols:
                         try:
-                            pg_cur.execute(f'ALTER TABLE "{tbl}" ADD COLUMN IF NOT EXISTS "{c_name}" {c_type}')
+                            pg_cur.execute(
+                                f'ALTER TABLE "{tbl}" ADD COLUMN IF NOT EXISTS "{c["name"]}" {map_type(c["type"])}'
+                            )
                         except Exception:
                             pass
 
-                rows = s_cur.execute(f'SELECT * FROM "{tbl}"').fetchall()
-                if not rows:
+                count = int(signature[0] or 0)
+                if count == 0:
                     try:
                         pg_cur.execute(f'TRUNCATE TABLE "{tbl}" CASCADE')
                     except Exception:
                         pass
                     results[tbl] = 0
+                    new_marks[tbl] = {"sig": signature}
                     continue
 
-                if pks and len(pks) == 1:
+                # which rows to send: only the changed ones when we know where we left off
+                where, params = "", ()
+                if incremental and previous:
+                    if has_updated and previous["sig"][2]:
+                        # >=: a row changed in the same second as the last run is not missed
+                        where, params = " WHERE updated_at >= ?", (previous["sig"][2],)
+                    elif tbl in APPEND_ONLY_TABLES and previous["sig"][1] is not None:
+                        where, params = " WHERE rowid > ?", (previous["sig"][1],)
+
+                # rows deleted locally: remove them remotely (ids only, never whole rows)
+                if len(pks) == 1 and (not incremental or not previous or count < int(previous["sig"][0] or 0)
+                                      or not where):
                     pk_raw = pks[0].strip('"')
-                    local_ids = [row[pk_raw] for row in rows if row[pk_raw] is not None]
+                    local_ids = tuple(r[0] for r in s_cur.execute(f'SELECT "{pk_raw}" FROM "{tbl}"'))
                     if local_ids:
                         try:
-                            pg_cur.execute(f'DELETE FROM "{tbl}" WHERE "{pk_raw}" NOT IN %s', (tuple(local_ids),))
+                            pg_cur.execute(f'DELETE FROM "{tbl}" WHERE "{pk_raw}" NOT IN %s', (local_ids,))
                         except Exception:
                             pass
 
+                cols_escaped = ", ".join(f'"{c}"' for c in col_names)
                 placeholders = ", ".join(["%s"] * len(col_names))
-                cols_escaped = ", ".join([f'"{c}"' for c in col_names])
-
                 if pks:
                     non_pks = [f'"{c}" = EXCLUDED."{c}"' for c in col_names if f'"{c}"' not in pks]
                     conflict_action = f"DO UPDATE SET {', '.join(non_pks)}" if non_pks else "DO NOTHING"
-                    upsert_sql = (
-                        f'INSERT INTO "{tbl}" ({cols_escaped}) VALUES ({placeholders}) '
-                        f'ON CONFLICT ({", ".join(pks)}) {conflict_action}'
-                    )
+                    upsert_sql = (f'INSERT INTO "{tbl}" ({cols_escaped}) VALUES ({placeholders}) '
+                                  f'ON CONFLICT ({", ".join(pks)}) {conflict_action}')
                 else:
+                    pg_cur.execute(f'TRUNCATE TABLE "{tbl}"')  # no key to upsert on: replace
+                    where, params = "", ()
                     upsert_sql = f'INSERT INTO "{tbl}" ({cols_escaped}) VALUES ({placeholders})'
 
-                batch_data = [[row[c] for c in col_names] for row in rows]
-                execute_batch(pg_cur, upsert_sql, batch_data, page_size=100)
-                results[tbl] = len(rows)
+                sent = 0
+                reader = s_conn.execute(f'SELECT {cols_escaped} FROM "{tbl}"{where}', params)
+                while True:
+                    chunk = reader.fetchmany(BATCH_ROWS)
+                    if not chunk:
+                        break
+                    execute_batch(pg_cur, upsert_sql, [tuple(row) for row in chunk], page_size=100)
+                    sent += len(chunk)
+                results[tbl] = sent
+                new_marks[tbl] = {"sig": signature}
 
         pg_conn.commit()
+        if state is not None:
+            state["tables"] = new_marks
+            if not incremental:
+                state["full_at"] = time.time()
         elapsed = time.perf_counter() - started
         total_rows = sum(results.values())
-        msg = f"Synced {total_rows} rows across {len(results)} tables in {elapsed:.2f}s."
+        skipped = len([t for t in new_marks if t not in results])
+        msg = (f"Synced {total_rows} rows across {len(results)} tables in {elapsed:.2f}s"
+               + (f" ({skipped} unchanged tables skipped)." if skipped else "."))
         logger.info("Supabase sync complete: %s", msg)
         return True, msg, results
 
@@ -256,10 +311,17 @@ def sync_all(storage: Storage, settings: Settings) -> dict[str, int]:
     return results if ok else {}
 
 
-def get_data_version(storage: Storage) -> int:
+def get_data_version(storage: Storage, conn: sqlite3.Connection | None = None) -> int:
+    """``PRAGMA data_version`` changes when *another* connection commits — but only as seen
+    from the same connection over time. A fresh connection per call (the old code) always
+    reads the same number, so changes were never noticed. Pass a long-lived ``conn``.
+    """
     try:
-        with sqlite3.connect(storage.db_path, timeout=5) as conn:
+        if conn is not None:
             row = conn.execute("PRAGMA data_version").fetchone()
+            return int(row[0]) if row else 0
+        with sqlite3.connect(storage.db_path, timeout=5) as fresh:
+            row = fresh.execute("PRAGMA data_version").fetchone()
             return int(row[0]) if row else 0
     except Exception:
         return 0
@@ -340,6 +402,9 @@ class SupabaseSyncWorker:
 
     def _run(self) -> None:
         time.sleep(2)
+        probe: sqlite3.Connection | None = None
+        state: dict[str, Any] = {}
+        failures = 0
         while not self._stop_event.is_set():
             cfg = get_effective_config(self.storage, self.settings)
             if not cfg["enabled"] or not cfg["db_url"]:
@@ -348,18 +413,30 @@ class SupabaseSyncWorker:
                 self._wake_event.clear()
                 continue
 
-            curr_ver = get_data_version(self.storage)
+            if probe is None:
+                try:
+                    probe = sqlite3.connect(self.storage.db_path, timeout=5, check_same_thread=False)
+                except sqlite3.Error:
+                    probe = None
+            curr_ver = get_data_version(self.storage, probe)
+            wait = cfg["interval"]
             if self._last_data_version is not None and curr_ver == self._last_data_version:
                 logger.debug("Database data_version unchanged (%d), skipping Supabase sync", curr_ver)
             else:
-                ok, msg, stats = sync_database(self.storage, self.settings)
+                ok, msg, stats = sync_database(self.storage, self.settings, state=state)
                 if ok:
+                    failures = 0
                     self._last_synced = time.time()
                     self._last_data_version = curr_ver
                     self._last_error = None
                     self._last_stats = stats
                 else:
+                    # back off instead of retrying a full copy every interval
+                    failures += 1
                     self._last_error = msg
+                    wait = min(cfg["interval"] * (2 ** min(failures, 6)), 1800)
 
-            self._wake_event.wait(timeout=cfg["interval"])
+            self._wake_event.wait(timeout=wait)
             self._wake_event.clear()
+        if probe is not None:
+            probe.close()

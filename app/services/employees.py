@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import logging
 from dataclasses import dataclass
 from datetime import date
@@ -364,7 +366,12 @@ def create_employee(storage: Storage, data: dict[str, Any]) -> int:
         if field in data and data[field] is not None and str(data[field]).strip() != "":
             extra[field] = data[field]
     if extra:
-        update_employee(storage, employee_id, extra)
+        try:
+            update_employee(storage, employee_id, extra)
+        except Exception:
+            # e.g. an invalid reporting manager: do not leave a half-created employee behind
+            storage.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
+            raise
 
     if gross > 0:
         set_salary(
@@ -442,6 +449,22 @@ def update_employee(storage: Storage, employee_id: int, data: dict[str, Any]) ->
             mid_val = int(mid)
             if mid_val == employee_id:
                 raise ValidationError("An employee cannot be their own reporting manager.")
+            manager = get_employee(storage, mid_val)
+            if manager is None:
+                raise ValidationError("The selected reporting manager does not exist.")
+            if manager.get("status") != "active" and mid_val != employee.get("manager_id"):
+                raise ValidationError(f"{manager['name']} is inactive and cannot be a reporting manager.")
+            # walk up the chain: A reports to B reports to A would leave leave requests nowhere to go
+            seen = {employee_id}
+            cursor_id: int | None = mid_val
+            while cursor_id is not None:
+                if cursor_id in seen:
+                    raise ValidationError(
+                        f"{manager['name']} already reports (directly or indirectly) to this employee."
+                    )
+                seen.add(cursor_id)
+                row = storage.query_one("SELECT manager_id FROM employees WHERE id = ?", (cursor_id,))
+                cursor_id = int(row["manager_id"]) if row and row.get("manager_id") else None
             updates["manager_id"] = mid_val
         else:
             updates["manager_id"] = None
@@ -572,6 +595,22 @@ def delete_employee(storage: Storage, employee_id: int, *, actor: str | None = N
             "SELECT selfie_name FROM field_checks WHERE employee_id = ? AND selfie_name IS NOT NULL", (employee_id,))]
         files += [("proofs", r["proof_name"]) for r in storage.query(
             "SELECT proof_name FROM tax_declarations WHERE employee_id = ? AND proof_name IS NOT NULL", (employee_id,))]
+        # face photos and gate snapshots are biometric data: they go with the person
+        if employee.get("photo_filename"):
+            files.append(("avatars", employee["photo_filename"]))
+        for r in storage.query(
+            "SELECT punch_in_photo, punch_out_photo FROM attendance WHERE employee_id = ?", (employee_id,)
+        ):
+            files += [("punches", name) for name in (r["punch_in_photo"], r["punch_out_photo"]) if name]
+        for r in storage.query(
+            "SELECT attachments FROM leave_requests WHERE employee_id = ? AND attachments IS NOT NULL", (employee_id,)
+        ):
+            try:
+                items = json.loads(r["attachments"] or "[]")
+            except ValueError:
+                items = []
+            files += [("leave", item["stored_name"]) for item in items
+                      if isinstance(item, dict) and item.get("stored_name")]
 
     for table in ("attendance", "leave_requests", "salary_revisions", "payslips"):
         storage.execute(f"DELETE FROM {table} WHERE employee_id = ?", (employee_id,))

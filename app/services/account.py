@@ -95,7 +95,7 @@ def verify_otp(storage: Storage, settings: Settings, user_id: int, code: str) ->
         (user_id,),
     )
     if row is None:
-        return False, "No reset code was requested for this account."
+        return False, "Incorrect code or account."  # same answer as an unknown account
     if int(row["attempts"]) >= settings.otp_max_attempts:
         return False, "Too many attempts. Request a new code."
     try:

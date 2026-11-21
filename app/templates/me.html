@@ -232,7 +232,7 @@
               <strong>{{ item.from_label }}{% if item.to_date != item.from_date %} → {{ item.to_label }}{% endif %}</strong>
               <span>{{ item.days | number }} day{{ '' if item.days == 1 else 's' }} · {{ item.type_label }}</span>
             </div>
-            <span class="chip {{ 'chip-ok' if item.status == 'approved' else ('chip-warn' if item.status == 'pending' else 'chip-muted') }}">{{ item.status }}</span>
+            <span class="chip {{ 'chip-ok' if item.status == 'approved' else ('chip-warn' if item.status in ('pending', 'pending_manager') else 'chip-muted') }}">{{ item.status | leave_status }}</span>
           </div>
         {% else %}
           <div class="empty-state">No leave taken yet.</div>

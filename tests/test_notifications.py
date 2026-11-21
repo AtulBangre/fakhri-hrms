@@ -20,6 +20,18 @@ from tests.helpers import csrf_of
 
 
 # ------------------------------------------------------------------- helpers
+def wait_until(check, timeout: float = 5.0) -> bool:
+    """Requests only queue messages and wake the background worker; give it a moment."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if check():
+            return True
+        time.sleep(0.05)
+    return check()
+
+
 def outbox_files(settings) -> list[Path]:
     outbox = Path(settings.data_dir) / "outbox"
     return sorted(outbox.glob("*.eml")) if outbox.exists() else []
@@ -261,6 +273,8 @@ def test_bulk_payslip_email_attaches_a_pdf(
     assert response.status_code == 303
     assert "ok=" in response.headers["location"]
 
+    assert wait_until(lambda: storage.scalar(
+        "SELECT COUNT(*) FROM notifications WHERE category='payslip' AND status='sent'") == 1)
     sent = storage.query("SELECT * FROM notifications WHERE category='payslip'")
     assert len(sent) == 1
     assert sent[0]["status"] == "sent"
@@ -574,4 +588,6 @@ def test_dispatch_button_from_the_ui(hr_client: TestClient, storage, settings):
     response = hr_client.post("/notifications/dispatch", data={"_csrf": token}, follow_redirects=False)
     assert response.status_code == 303
     assert "ok=" in response.headers["location"]
-    assert notify.outbox_stats(storage)["sent"] == 1
+    # the woken worker may also run its scheduled alerts, so check this message, not a total
+    assert wait_until(lambda: storage.scalar(
+        "SELECT status FROM notifications WHERE recipient = 'y@example.com'", default="") == "sent")

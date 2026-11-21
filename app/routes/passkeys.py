@@ -242,8 +242,9 @@ def login_options(request: Request, settings=Depends(get_settings_dep)):
 async def login_verify(request: Request, storage=Depends(get_storage), settings=Depends(get_settings_dep)):
     rp_id, origin = _required_party(request, settings)
     ip = request.client.host if request.client else None
+    failure_name = f"{FAILURE_NAME}:{ip or 'unknown'}"  # per IP, not one shared counter
     refused = JSONResponse({"detail": "Could not sign in with this device."}, status_code=401)
-    if auth.login_locked(storage, FAILURE_NAME, ip):
+    if auth.login_locked(storage, failure_name, ip):
         return JSONResponse({"detail": "Too many failed sign-ins. Wait 10 minutes and try again."}, status_code=429)
     body = await request.json()
     credential = body.get("credential") if isinstance(body, dict) else None
@@ -253,12 +254,12 @@ async def login_verify(request: Request, storage=Depends(get_storage), settings=
     owner = storage.get_setting(_index_key(credential_id), "") if credential_id else ""
     user = auth.get_user(storage, int(owner)) if owner.isdigit() else None
     if user is None or not user["active"] or user["role"] == auth.ROLE_KIOSK:
-        auth.record_login_failure(storage, FAILURE_NAME, ip)
+        auth.record_login_failure(storage, failure_name, ip)
         return refused
     rows = _load(storage, user["id"])
     stored = next((row for row in rows if row["id"] == credential_id), None)
     if stored is None:
-        auth.record_login_failure(storage, FAILURE_NAME, ip)
+        auth.record_login_failure(storage, failure_name, ip)
         return refused
     try:
         verified = verify_authentication_response(
@@ -267,13 +268,13 @@ async def login_verify(request: Request, storage=Depends(get_storage), settings=
             credential_current_sign_count=int(stored.get("sign_count") or 0), require_user_verification=True,
         )
     except Exception:
-        auth.record_login_failure(storage, FAILURE_NAME, ip)
+        auth.record_login_failure(storage, failure_name, ip)
         storage.audit(actor=user["username"][:40], action="passkey_login_failed", entity="user", ip=ip)
         return refused
 
     stored["sign_count"] = verified.new_sign_count
     _save(storage, user["id"], rows)
-    auth.clear_login_failures(storage, FAILURE_NAME)
+    auth.clear_login_failures(storage, failure_name)
     lifetime = settings.hr_session_hours * 3600
     token, session = auth.create_session_token(user, settings, lifetime_seconds=lifetime)
     storage.audit(actor=user["username"], action="login", entity="user", entity_id=user["id"],

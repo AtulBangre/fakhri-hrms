@@ -6,6 +6,8 @@ tracking repayment schedules, and loan closure.
 
 from __future__ import annotations
 
+import math
+
 from typing import Any
 from ..db import Storage, utcnow_iso
 from . import employees as employees_service
@@ -31,6 +33,8 @@ def create_loan(
 ) -> int:
     """Disburse a new loan or advance to an active employee."""
     emp = employees_service.require_employee(storage, employee_id)
+    if not (math.isfinite(principal_amount) and math.isfinite(monthly_emi)):
+        raise employees_service.ValidationError("Enter the amounts as plain numbers.")
     if principal_amount <= 0:
         raise employees_service.ValidationError("Principal amount must be greater than zero.")
     if loan_type == "salary_advance":
@@ -76,6 +80,8 @@ def apply_loan(
 ) -> int:
     """Employee submits a request for loan or salary advance."""
     emp = employees_service.require_employee(storage, employee_id)
+    if not (math.isfinite(principal_amount) and math.isfinite(monthly_emi)):
+        raise employees_service.ValidationError("Enter the amounts as plain numbers.")
     if principal_amount <= 0:
         raise employees_service.ValidationError("Requested amount must be greater than zero.")
     if loan_type == "salary_advance":
@@ -89,6 +95,13 @@ def apply_loan(
     if existing:
         raise employees_service.ValidationError(
             f"You already have an active loan (#{existing['id']}) with pending balance ₹{existing['remaining_balance']:,.2f}."
+        )
+    waiting = storage.query_one(
+        "SELECT id FROM employee_loans WHERE employee_id = ? AND status = 'requested' LIMIT 1", (employee_id,)
+    )
+    if waiting:
+        raise employees_service.ValidationError(
+            f"Your request #{waiting['id']} is still waiting for HR. Wait for a decision before asking again."
         )
 
     now = utcnow_iso()

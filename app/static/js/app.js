@@ -64,6 +64,76 @@
     });
   }
 
+  /* Styled "reason" dialog instead of window.prompt(): same look as the rest of the
+     app, works in installed PWAs, and can be cancelled with Esc or the Cancel button.
+     askReason({title, label, value, confirm, danger}, function (text) { ... })      */
+  function askReason(options, done) {
+    options = options || {};
+    var dialog = document.createElement("dialog");
+    dialog.className = "modal-dialog";
+    dialog.style.cssText = "max-width:440px;width:92%;padding:0";
+    dialog.innerHTML =
+      '<form method="dialog">' +
+        '<div class="modal-head"><h3></h3></div>' +
+        '<div class="modal-body"><div class="field" style="margin:0">' +
+          '<label for="ask-reason-text"></label>' +
+          '<textarea id="ask-reason-text" rows="3" maxlength="500" style="width:100%"></textarea>' +
+        '</div></div>' +
+        '<div class="modal-foot" style="display:flex;gap:.5rem;justify-content:flex-end">' +
+          '<button type="button" class="btn" data-cancel>Cancel</button>' +
+          '<button type="submit" class="btn"></button>' +
+        '</div>' +
+      '</form>';
+    $("h3", dialog).textContent = options.title || "Add a reason";
+    $("label", dialog).textContent = options.label || "Reason (optional)";
+    var text = $("textarea", dialog);
+    text.value = options.value || "";
+    var ok = $("button[type=submit]", dialog);
+    ok.textContent = options.confirm || "Continue";
+    ok.classList.add(options.danger ? "btn-danger" : "btn-primary");
+    var answered = false;
+    $("[data-cancel]", dialog).addEventListener("click", function () { dialog.close(); });
+    $("form", dialog).addEventListener("submit", function () { answered = true; });
+    dialog.addEventListener("close", function () {
+      var value = text.value.trim();
+      dialog.remove();
+      if (answered) done(value);
+    });
+    document.body.appendChild(dialog);
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+      text.focus();
+      text.select();
+    } else {  // very old browsers
+      dialog.remove();
+      var fallback = window.prompt(options.title || "Reason", options.value || "");
+      if (fallback !== null) done(fallback.trim());
+    }
+  }
+  window.askReason = askReason;
+
+  /* <form data-reason-prompt="Reject this request?" data-reason-field="reason"> */
+  function initReasonPrompt() {
+    document.addEventListener("submit", function (event) {
+      var form = event.target;
+      if (!form || !form.dataset || !form.dataset.reasonPrompt || form.dataset.reasonGiven) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      askReason({
+        title: form.dataset.reasonPrompt,
+        label: form.dataset.reasonLabel,
+        confirm: form.dataset.reasonConfirm,
+        danger: form.dataset.reasonDanger !== undefined,
+      }, function (value) {
+        var field = form.elements[form.dataset.reasonField || "reason"];
+        if (field) field.value = value;
+        form.dataset.reasonGiven = "1";
+        if (typeof form.requestSubmit === "function") form.requestSubmit(); else form.submit();
+        window.setTimeout(function () { delete form.dataset.reasonGiven; }, 0);
+      });
+    }, true);
+  }
+
   function initConfirm() {
     document.addEventListener("submit", function (event) {
       var form = event.target;
@@ -546,7 +616,8 @@
     function showToast(msg) {
       var toast = document.createElement('div');
       toast.className = 'ios-draft-toast';
-      toast.innerHTML = '<span class="pulse-dot"></span><span>' + msg + '</span><button type="button" aria-label="Dismiss">✕</button>';
+      toast.innerHTML = '<span class="pulse-dot"></span><span></span><button type="button" aria-label="Dismiss">✕</button>';
+      toast.querySelector('span:nth-child(2)').textContent = msg;
       document.body.appendChild(toast);
       window.setTimeout(function() { toast.classList.add('visible'); }, 50);
       var timer = window.setTimeout(function() {
@@ -621,6 +692,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     initDrawer();
     initAlerts();
+    initReasonPrompt();
     initConfirm();
     initRowToggles();
     initBulk();

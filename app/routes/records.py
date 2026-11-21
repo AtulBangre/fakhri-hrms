@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 
@@ -17,10 +19,12 @@ router = APIRouter(tags=["records"])
 
 
 def _as_float(value: str | None) -> float:
+    """A typed amount; anything unreadable, NaN or infinite counts as 0."""
     try:
-        return float((value or "0").replace(",", "").strip() or 0)
+        number = float((value or "0").replace(",", "").strip() or 0)
     except ValueError:
         return 0.0
+    return number if math.isfinite(number) else 0.0
 
 
 # ============================================================== DOCUMENTS (HR)
@@ -360,7 +364,7 @@ def claim_receipt(
     except UploadError as exc:
         return redirect("/expenses" if session.is_hr else "/me/expenses", err=str(exc))
     return FileResponse(path, media_type=claim["receipt_mime"] or "application/octet-stream",
-                        filename=f"receipt-{claim_id}")
+                        filename=f"receipt-{claim_id}{path.suffix}")
 
 
 # ========================================================== EXPENSES (employee)

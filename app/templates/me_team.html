@@ -57,8 +57,8 @@
               {% if item.attachment_files %}
                 <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
                   {% for att in item.attachment_files %}
-                    <a href="/leave/attachment/{{ att.stored_name }}" target="_blank" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.original_name }}">
-                      📎 {{ att.original_name }}
+                    <a href="/leave/attachment/{{ att.stored_name | urlencode }}" target="_blank" rel="noopener" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.filename or att.original_name or 'attachment' }}">
+                      📎 {{ att.filename or att.original_name or 'attachment' }}
                     </a>
                   {% endfor %}
                 </div>

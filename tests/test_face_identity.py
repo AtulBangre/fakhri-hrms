@@ -106,6 +106,7 @@ def kiosk(client, app, storage, staff, kiosk_user):
     fake = FakeFaceService()
     app.state.face = fake
     client.post("/login", data={"username": KIOSK_USERNAME, "password": KIOSK_PASSWORD})
+    client.headers["X-CSRF-Token"] = client.get("/api/kiosk/status").json()["csrf"]
     return client, fake, app
 
 
@@ -285,3 +286,16 @@ def test_report_finds_every_kind_of_problem():
     assert report["low_quality_templates"][0]["employee_code"] == "E4"
     reasons = {row["employee_code"]: row["reason"] for row in report["active_without_matching_template"]}
     assert reasons == {"E2": "template missing", "E3": "not enrolled"}
+
+
+def test_scan_without_csrf_token_is_refused(kiosk, storage, staff):
+    client, fake, _ = kiosk
+    employee = _set_face(storage, staff[0], "current")
+    fake.identify_result = _result(_candidate(employee, "current", 0.9), decision="match", is_live=True)
+    token = client.headers.pop("X-CSRF-Token")
+    try:
+        response = _scan(client)
+        assert response.status_code == 403 and response.json()["action"] == "session_expired"
+        assert storage.query("SELECT id FROM attendance WHERE employee_id = ?", (employee["id"],)) == []
+    finally:
+        client.headers["X-CSRF-Token"] = token

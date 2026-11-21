@@ -1653,6 +1653,7 @@ input[type=file]::file-selector-button {
   cursor: pointer; transition: all 0.18s var(--ios-spring-easing); white-space: nowrap;
 }
 .ios-segmented-btn:active { transform: scale(0.96); }
+a.ios-segmented-btn { text-decoration: none; }
 .ios-segmented-btn.active {
   background: var(--card); color: var(--ink);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 0.5px 1px rgba(0, 0, 0, 0.08);

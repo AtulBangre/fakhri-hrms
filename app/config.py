@@ -80,6 +80,17 @@ class Settings:
     faceapi_key: str = field(default_factory=lambda: _env("HRMS_FACEAPI_KEY", ""))
     face_collection: str = field(default_factory=lambda: _env("HRMS_FACE_COLLECTION", "employees"))
     face_timeout: float = field(default_factory=lambda: float(_env("HRMS_FACE_TIMEOUT", "20")))
+    #: Gate scans: a hung or overloaded Face API must never freeze the whole app.
+    #: At most ``face_max_concurrent`` inference calls run at once; a scan waits up to
+    #: ``face_queue_wait`` seconds for a slot, then the gate is told to scan again.
+    face_max_concurrent: int = field(default_factory=lambda: int(_env("HRMS_FACE_MAX_CONCURRENT", "4")))
+    face_queue_wait: float = field(default_factory=lambda: float(_env("HRMS_FACE_QUEUE_WAIT", "1.5")))
+    face_scan_timeout: float = field(default_factory=lambda: float(_env("HRMS_FACE_SCAN_TIMEOUT", "8")))
+    #: After this many timeouts / 5xx in a row, treat the Face API as down for a while.
+    face_breaker_failures: int = field(default_factory=lambda: int(_env("HRMS_FACE_BREAKER_FAILURES", "3")))
+    face_breaker_seconds: float = field(default_factory=lambda: float(_env("HRMS_FACE_BREAKER_SECONDS", "30")))
+    #: Worker threads for request handlers (FastAPI's default is 40).
+    threadpool_size: int = field(default_factory=lambda: int(_env("HRMS_THREADPOOL_SIZE", "100")))
     #: When true the kiosk only shows the scanner if the face service answered.
     face_required_for_kiosk: bool = field(default_factory=lambda: _env_bool("HRMS_FACE_REQUIRED", False))
 
@@ -116,6 +127,8 @@ class Settings:
     smtp_user: str = field(default_factory=lambda: _env("HRMS_SMTP_USER", ""))
     smtp_password: str = field(default_factory=lambda: _env("HRMS_SMTP_PASSWORD", ""))
     smtp_from: str = field(default_factory=lambda: _env("HRMS_SMTP_FROM", ""))
+    #: Where staff replies go, and the HR address named in emails.
+    hr_contact_email: str = field(default_factory=lambda: _env("HRMS_HR_EMAIL", "hr@fakhriitservices.com"))
     smtp_tls: str = field(
         default_factory=lambda: (
             _env("HRMS_SMTP_TLS")

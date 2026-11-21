@@ -36,6 +36,7 @@ from ..db import Storage, utcnow_iso
 from . import attendance as attendance_service
 from . import employees as employees_service
 from . import orgtime
+from .csvsafe import csv_cell
 
 RUN_STATUSES = ("draft", "finalized", "paid")
 
@@ -66,7 +67,10 @@ def basis_days_for(storage: Storage, period: str) -> int:
 
 
 #: Adjustments HR types onto a draft payslip; they survive a recalculation.
-ADJUSTMENT_FIELDS = ("bonus", "advance", "other_deduction", "tds_override", "note")
+#: ``other_override`` / ``advance_override`` hold HR's own figure; NULL means the line
+#: follows the deductions ledger / the loan EMI, so new ledger entries are picked up.
+ADJUSTMENT_FIELDS = ("bonus", "other_override", "advance_override", "tds_override", "note",
+                     "bonus_note", "advance_note", "other_deduction_note", "tds_note")
 
 
 def _require_started(settings: Settings, period: str) -> None:
@@ -253,6 +257,16 @@ def _blend_revisions(storage: Storage, employee_id: int, latest: dict[str, Any],
     return blended
 
 
+def _setting_or_default(value: Any, default: float) -> float:
+    """``0`` is a real choice (no retention), so only a missing value falls back to the default."""
+    if value is None or str(value).strip() == "":
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any], period: str) -> dict[str, Any]:
     """Pure calculation for one employee-month (no writes)."""
     basis_days = basis_days_for(storage, period)
@@ -297,8 +311,8 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
     retention_amount = 0.0
     retention_month_num = 0
     if employee.get("retention_enabled"):
-        percent = float(employee.get("retention_percent") or 20.0)
-        max_months = int(employee.get("retention_months") or 3)
+        percent = _setting_or_default(employee.get("retention_percent"), 20.0)
+        max_months = int(_setting_or_default(employee.get("retention_months"), 3))
         prev_slips = storage.query(
             """
             SELECT COUNT(*) AS count
@@ -385,16 +399,19 @@ def generate_run(
     with storage.transaction():
         run = get_run(storage, period)
         kept: dict[int, dict[str, Any]] = {}
+        holds: dict[int, dict[str, Any]] = {}
         if run:
             _require_draft(run)
+            rows = storage.query(
+                f"SELECT employee_id, status, hold_reason, {', '.join(ADJUSTMENT_FIELDS)} FROM payslips WHERE run_id = ?",
+                (run["id"],),
+            )
+            # a hold is a decision about the person, not an amount: it survives a reset too
+            holds = {row["employee_id"]: row for row in rows}
             if not reset_adjustments:
-                kept = {
-                    row["employee_id"]: row
-                    for row in storage.query(
-                        f"SELECT employee_id, status, hold_reason, {', '.join(ADJUSTMENT_FIELDS)} FROM payslips WHERE run_id = ?",
-                        (run["id"],),
-                    )
-                }
+                kept = {row["employee_id"]: row for row in rows}
+            # repayments recorded by an earlier finalisation point at these payslips
+            _reverse_loan_recoveries(storage, run["id"])
             storage.execute_tx("DELETE FROM payslips WHERE run_id = ?", (run["id"],))
             storage.execute_tx(
                 "UPDATE expense_claims SET payroll_run_id = NULL WHERE payroll_run_id = ? AND status = 'approved'",
@@ -413,26 +430,30 @@ def generate_run(
                    "basis_days": basis_days_for(storage, period)}
 
         now = utcnow_iso()
+        month_end = orgtime.month_bounds(period)[1].isoformat()
         for employee in staff:
             calc = compute_slip(storage, settings, employee, period)
-            _apply_adjustments(calc, kept.get(employee["id"]))
-            emp_kept = kept.get(employee["id"]) or {}
-            emp_status = emp_kept.get("status") or "draft"
-            emp_hold = emp_kept.get("hold_reason")
 
-            # Check for active loan EMI deduction
-            from . import loans as loans_service
-            active_loan = loans_service.get_active_loan_for_employee(storage, employee["id"])
+            # The EMI of an active loan disbursed by the end of this month is the default
+            # advance recovery; HR's own figure (advance_override) wins when there is one.
+            active_loan = storage.query_one(
+                "SELECT * FROM employee_loans WHERE employee_id = ? AND status = 'active' AND remaining_balance > 0 "
+                "AND (disbursed_on IS NULL OR disbursed_on <= ?) ORDER BY id ASC LIMIT 1",
+                (employee["id"], month_end),
+            )
             loan_id = None
             loan_emi = 0.0
+            loan_note = None
             if active_loan:
                 loan_id = active_loan["id"]
-                loan_emi = min(float(active_loan["monthly_emi"]), float(active_loan["remaining_balance"]))
-                if not emp_kept or "advance" not in emp_kept or emp_kept.get("advance") is None:
-                    calc["advance"] = loan_emi
-                    calc["advance_note"] = f"Loan #{active_loan['id']} ({active_loan['loan_type'].replace('_', ' ').title()}) EMI: ₹{loan_emi:,.0f}"
-                    calc["total_deductions"] = round(calc["pf"] + calc["esi"] + calc["professional_tax"] + calc["tds"] + calc["late_fine"] + calc["advance"] + calc["other_deduction"] + calc.get("retention_amount", 0.0), 2)
-                    calc.update(_settle(calc["earned_gross"], calc["bonus"], calc["reimbursement"], calc["total_deductions"]))
+                loan_emi = round(min(float(active_loan["monthly_emi"]), float(active_loan["remaining_balance"])), 2)
+                loan_note = (f"Loan #{active_loan['id']} ({active_loan['loan_type'].replace('_', ' ').title()}) "
+                             f"EMI: ₹{loan_emi:,.0f}")
+
+            _apply_adjustments(calc, kept.get(employee["id"]), loan_emi=loan_emi, loan_note=loan_note)
+            emp_hold_row = holds.get(employee["id"]) or {}
+            emp_status = "on_hold" if emp_hold_row.get("status") == "on_hold" else "draft"
+            emp_hold = emp_hold_row.get("hold_reason") if emp_status == "on_hold" else None
 
             storage.execute_tx(
                 """
@@ -441,8 +462,9 @@ def generate_run(
                                       professional_tax, tds, total_deductions, net_pay, created_at, updated_at,
                                       bonus, advance, other_deduction, tds_override, note, reimbursement, rounding,
                                       late_fine, status, hold_reason, loan_id, loan_emi, advance_note, other_deduction_note,
-                                      retention_amount, retention_month_num)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                      retention_amount, retention_month_num, other_override, advance_override,
+                                      bonus_note, tds_note)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     run["id"], employee["id"], period, calc["basis_days"], calc["present_days"],
@@ -453,6 +475,8 @@ def generate_run(
                     calc["reimbursement"], calc["rounding"], calc["late_fine"],
                     emp_status, emp_hold, loan_id, loan_emi, calc.get("advance_note"), calc.get("other_deduction_note"),
                     calc.get("retention_amount", 0.0), calc.get("retention_month_num", 0),
+                    calc.get("other_override"), calc.get("advance_override"),
+                    calc.get("bonus_note"), calc.get("tds_note"),
                 ),
             )
             if calc["claim_ids"]:
@@ -475,7 +499,11 @@ def generate_run(
             (round(row.get("gross", 0), 2), round(row.get("deductions", 0), 2), round(row.get("net", 0), 2), run["id"]),
         )
 
-    kept_count = sum(1 for row in kept.values() if any(row.get(f) for f in ADJUSTMENT_FIELDS))
+    kept_count = sum(
+        1 for row in kept.values()
+        if row.get("bonus") or row.get("note")
+        or any(row.get(f) is not None for f in ("other_override", "advance_override", "tds_override"))
+    )
     storage.audit(actor=actor, action="generate_payroll", entity="payroll_run", entity_id=run["id"],
                   detail=f"{period}: {len(staff)} payslip(s), {kept_count} kept adjustments")
     refreshed = get_run(storage, period)
@@ -484,30 +512,58 @@ def generate_run(
     return refreshed
 
 
-def _apply_adjustments(calc: dict[str, Any], kept: dict[str, Any] | None) -> None:
-    """Fold HR's saved adjustments into a freshly computed slip."""
+REDUCED_NOTE = "recovery reduced to fit this month's pay"
+
+
+def _apply_adjustments(calc: dict[str, Any], kept: dict[str, Any] | None, *,
+                       loan_emi: float = 0.0, loan_note: str | None = None) -> None:
+    """Fold HR's saved adjustments into a freshly computed slip.
+
+    * other deduction: HR's override if set, else the deductions ledger (``calc``).
+    * advance: HR's override if set, else the loan EMI for the month.
+    Both are cut back so the slip never pays out less than zero.
+    """
     kept = kept or {}
     bonus = float(kept.get("bonus") or 0)
-    advance = float(kept.get("advance") or 0)
-    other = float(kept["other_deduction"]) if ("other_deduction" in kept and kept["other_deduction"] is not None) else calc.get("other_deduction", 0.0)
-    other_note = kept.get("other_deduction_note") or calc.get("other_deduction_note")
+
+    other_override = kept.get("other_override")
+    if other_override is not None:
+        other = float(other_override)
+        other_note = kept.get("other_deduction_note") or calc.get("other_deduction_note")
+    else:
+        other = float(calc.get("other_deduction") or 0)
+        other_note = calc.get("other_deduction_note")
+
+    advance_override = kept.get("advance_override")
+    if advance_override is not None:
+        advance = float(advance_override)
+        advance_note = kept.get("advance_note") or (loan_note if advance else None)
+    else:
+        advance = float(loan_emi or 0)
+        advance_note = loan_note if advance else None
+
     override = kept.get("tds_override")
     tds = float(override) if override is not None else calc["tds"]
+    # never stack the automatic "reduced" remark on every recalculation
     note = kept.get("note")
+    if note:
+        note = note.replace(" · " + REDUCED_NOTE, "").replace(REDUCED_NOTE, "").strip() or None
     statutory = calc["pf"] + calc["esi"] + calc["professional_tax"] + tds + calc.get("late_fine", 0.0) + calc.get("retention_amount", 0.0)
     available = calc["earned_gross"] + bonus + calc["reimbursement"] - statutory
-    if advance + other > max(0.0, available):
+    if advance + other > max(0.0, available) + 0.005:
         # attendance changed since HR typed these: recover only what this month can carry
         excess = advance + other - max(0.0, available)
         cut_other = min(other, excess)
         other -= cut_other
         advance = max(0.0, advance - (excess - cut_other))
-        note = ((note + " · ") if note else "") + "recovery reduced to fit this month's pay"
+        note = ((note + " · ") if note else "") + REDUCED_NOTE
     total = statutory + advance + other
     calc.update(
         bonus=bonus, advance=round(advance, 2), other_deduction=round(other, 2),
-        other_deduction_note=other_note, tds=round(tds, 2),
+        other_deduction_note=other_note, advance_note=advance_note, tds=round(tds, 2),
         tds_override=override, note=note, total_deductions=round(total, 2),
+        other_override=other_override, advance_override=advance_override,
+        bonus_note=kept.get("bonus_note"), tds_note=kept.get("tds_note"),
         **_settle(calc["earned_gross"], bonus, calc["reimbursement"], total),
     )
 
@@ -569,18 +625,35 @@ def update_slip(
             f"Deductions exceed earnings by ₹{shortfall:,.2f} — reduce the advance recovery or other deduction."
         )
     settled = _settle(slip["earned_gross"], bonus, reimbursement, total_deductions)
+
+    # An amount equal to what the system would put there (ledger total / loan EMI) is not
+    # an override; anything else is HR's figure and survives a recalculation.
+    from . import deductions as deductions_service
+    ledger_other = round(sum(
+        float(d["amount"]) for d in deductions_service.employee_deductions_for_period(
+            storage, slip["employee_id"], slip["period"])
+        if d["category"] != "late_fine"
+    ), 2)
+    other_override = slip.get("other_override")
+    if abs(other_deduction - float(slip.get("other_deduction") or 0)) > 0.005 or other_override is not None:
+        other_override = None if abs(other_deduction - ledger_other) <= 0.005 else round(other_deduction, 2)
+    advance_override = slip.get("advance_override")
+    if abs(advance - float(slip.get("advance") or 0)) > 0.005 or advance_override is not None:
+        loan_emi = float(slip.get("loan_emi") or 0)
+        advance_override = None if abs(advance - loan_emi) <= 0.005 else round(advance, 2)
+
     storage.execute(
         """
         UPDATE payslips SET bonus = ?, advance = ?, other_deduction = ?, tds = ?, total_deductions = ?,
                             net_pay = ?, rounding = ?, note = ?, tds_override = ?,
                             bonus_note = ?, advance_note = ?, other_deduction_note = ?, tds_note = ?,
-                            updated_at = ?
+                            other_override = ?, advance_override = ?, updated_at = ?
         WHERE id = ?
         """,
         (bonus, advance, other_deduction, round(tds, 2), round(total_deductions, 2), settled["net_pay"],
          settled["rounding"], note, tds_override,
          bonus_note, advance_note, other_deduction_note, tds_note,
-         utcnow_iso(), slip_id),
+         other_override, advance_override, utcnow_iso(), slip_id),
     )
     _recompute_totals(storage, slip["run_id"])
     storage.audit(actor=actor, action="update_payslip", entity="payslip", entity_id=slip_id,
@@ -588,6 +661,60 @@ def update_slip(
     updated = storage.query_one("SELECT * FROM payslips WHERE id = ?", (slip_id,))
     assert updated is not None
     return updated
+
+
+def _record_loan_recovery(storage: Storage, run_id: int, slip: dict[str, Any], *, actor: str | None) -> None:
+    """Book the EMI actually taken from one finalised payslip against its loan (once)."""
+    if not slip.get("loan_id"):
+        return
+    already = storage.query_one(
+        "SELECT id FROM loan_repayments WHERE payroll_run_id = ? AND payslip_id = ?", (run_id, slip["id"])
+    )
+    if already:
+        return
+    loan = storage.query_one("SELECT remaining_balance FROM employee_loans WHERE id = ?", (slip["loan_id"],))
+    if not loan:
+        return
+    # what was really deducted, never more than the EMI or what is still owed
+    amount = min(float(slip.get("advance") or 0), float(slip.get("loan_emi") or 0),
+                 float(loan["remaining_balance"] or 0))
+    if amount <= 0:
+        return
+    from . import loans as loans_service
+    loans_service.record_repayment(
+        storage, loan_id=slip["loan_id"], amount=amount, payroll_run_id=run_id, payslip_id=slip["id"],
+        period=slip["period"], note=f"Payroll deduction for {slip['period']}", actor=actor,
+    )
+
+
+def _reverse_loan_recoveries(storage: Storage, run_id: int, slip_id: int | None = None) -> int:
+    """Undo repayments a run (or one of its payslips) booked, restoring each loan's balance.
+
+    Uses ``execute_tx`` so it joins the caller's transaction.
+    """
+    clause, params = ("AND payslip_id = ?", (run_id, slip_id)) if slip_id is not None else ("", (run_id,))
+    rows = storage.query(f"SELECT * FROM loan_repayments WHERE payroll_run_id = ? {clause}", params)
+    now = utcnow_iso()
+    for row in rows:
+        loan = storage.query_one("SELECT * FROM employee_loans WHERE id = ?", (row["loan_id"],))
+        if loan:
+            amount = float(row["amount"] or 0)
+            repaid = max(0.0, round(float(loan["total_repaid"] or 0) - amount, 2))
+            principal = float(loan["principal_amount"] or 0)
+            status = loan["status"]
+            remaining = float(loan["remaining_balance"] or 0)
+            closed_by_repayment = status == "closed" and float(loan["total_repaid"] or 0) >= principal - 0.005
+            if status == "active" or closed_by_repayment:
+                remaining = round(min(principal, remaining + amount), 2)
+                status = "active" if remaining > 0 else status
+            # a loan HR closed by hand (written off) stays closed; only the repaid total changes
+            storage.execute_tx(
+                "UPDATE employee_loans SET total_repaid = ?, remaining_balance = ?, status = ?, updated_at = ? "
+                "WHERE id = ?",
+                (repaid, remaining, status, now, loan["id"]),
+            )
+        storage.execute_tx("DELETE FROM loan_repayments WHERE id = ?", (row["id"],))
+    return len(rows)
 
 
 def set_run_status(storage: Storage, period: str, status: str, *, actor: str | None = None) -> dict[str, Any]:
@@ -598,8 +725,13 @@ def set_run_status(storage: Storage, period: str, status: str, *, actor: str | N
         raise employees_service.ValidationError(f"No payroll run found for {period}.")
     if run["status"] == "paid":
         raise employees_service.ValidationError("A paid run cannot be changed.")
-    if status in ("finalized", "paid"):
-        _require_closable(storage, storage.settings, period)
+    if status == "draft":
+        return reopen_run(storage, period, actor=actor)
+    if status == "paid" and run["status"] != "finalized":
+        raise employees_service.ValidationError("Finalise the run before marking it paid.")
+    if status == "finalized" and run["status"] == "finalized":
+        return run  # already final: nothing to do (and nothing is booked twice)
+    _require_closable(storage, storage.settings, period)
 
     column = "finalized_at" if status == "finalized" else "paid_at"
     now_ts = utcnow_iso()
@@ -612,39 +744,22 @@ def set_run_status(storage: Storage, period: str, status: str, *, actor: str | N
             "WHERE run_id = ? AND status != 'on_hold'",
             (now_ts, actor, run["id"]),
         )
+        for slip in storage.query(
+            "SELECT * FROM payslips WHERE run_id = ? AND loan_id IS NOT NULL AND status = 'finalized'", (run["id"],)
+        ):
+            _record_loan_recovery(storage, run["id"], slip, actor=actor)
     elif status == "paid":
         storage.execute(
             "UPDATE payslips SET status = 'paid' WHERE run_id = ? AND status = 'finalized'",
             (run["id"],),
         )
-    if status == "finalized":
-        loan_slips = storage.query(
-            "SELECT id, run_id, loan_id, loan_emi, period FROM payslips WHERE run_id = ? AND loan_id IS NOT NULL AND loan_emi > 0 AND status = 'finalized'",
-            (run["id"],),
-        )
-        for ls in loan_slips:
-            from . import loans as loans_service
-            already = storage.query_one(
-                "SELECT id FROM loan_repayments WHERE loan_id = ? AND payroll_run_id = ?",
-                (ls["loan_id"], run["id"]),
-            )
-            if not already:
-                loans_service.record_repayment(
-                    storage,
-                    loan_id=ls["loan_id"],
-                    amount=ls["loan_emi"],
-                    payroll_run_id=run["id"],
-                    payslip_id=ls["id"],
-                    period=period,
-                    note=f"Payroll deduction for {period}",
-                    actor=actor,
-                )
-    if status in ("finalized", "paid"):
-        storage.execute(
-            "UPDATE expense_claims SET status = 'paid', note = COALESCE(note, ?) "
-            "WHERE payroll_run_id = ? AND status = 'approved'",
-            (f"reimbursed in {orgtime.month_label(period)} payroll", run["id"]),
-        )
+    # a reimbursement only counts as paid once its payslip is actually released
+    storage.execute(
+        "UPDATE expense_claims SET status = 'paid', note = COALESCE(note, ?) "
+        "WHERE payroll_run_id = ? AND status = 'approved' AND employee_id IN "
+        "(SELECT employee_id FROM payslips WHERE run_id = ? AND status IN ('finalized','paid'))",
+        (f"reimbursed in {orgtime.month_label(period)} payroll", run["id"], run["id"]),
+    )
     storage.audit(actor=actor, action=f"payroll_{status}", entity="payroll_run", entity_id=run["id"],
                   detail=period)
     refreshed = get_run(storage, period)
@@ -653,24 +768,31 @@ def set_run_status(storage: Storage, period: str, status: str, *, actor: str | N
 
 
 def reopen_run(storage: Storage, period: str, *, actor: str | None = None) -> dict[str, Any]:
-    """Push a finalised run back to draft so a mistake can be corrected."""
+    """Push a finalised run back to draft so a mistake can be corrected.
+
+    Loan repayments the finalisation booked are reversed, so the loan balances are
+    back where they were and the run can be recalculated or deleted.
+    """
     run = get_run(storage, period)
     if run is None:
         raise employees_service.ValidationError(f"No payroll run found for {period}.")
     if run["status"] == "paid":
         raise employees_service.ValidationError("A paid run cannot be reopened.")
-    storage.execute(
-        "UPDATE payroll_runs SET status = 'draft', finalized_at = NULL WHERE id = ?", (run["id"],)
-    )
-    storage.execute(
-        "UPDATE payslips SET status = 'draft', finalized_at = NULL, finalized_by = NULL "
-        "WHERE run_id = ? AND status != 'on_hold'",
-        (run["id"],),
-    )
-    storage.execute(
-        "UPDATE expense_claims SET status = 'approved' WHERE payroll_run_id = ? AND status = 'paid'", (run["id"],)
-    )
-    storage.audit(actor=actor, action="payroll_reopen", entity="payroll_run", entity_id=run["id"], detail=period)
+    with storage.transaction():
+        reversed_count = _reverse_loan_recoveries(storage, run["id"])
+        storage.execute_tx(
+            "UPDATE payroll_runs SET status = 'draft', finalized_at = NULL WHERE id = ?", (run["id"],)
+        )
+        storage.execute_tx(
+            "UPDATE payslips SET status = 'draft', finalized_at = NULL, finalized_by = NULL "
+            "WHERE run_id = ? AND status != 'on_hold'",
+            (run["id"],),
+        )
+        storage.execute_tx(
+            "UPDATE expense_claims SET status = 'approved' WHERE payroll_run_id = ? AND status = 'paid'", (run["id"],)
+        )
+    storage.audit(actor=actor, action="payroll_reopen", entity="payroll_run", entity_id=run["id"],
+                  detail=period + (f" ({reversed_count} loan repayment(s) reversed)" if reversed_count else ""))
     refreshed = get_run(storage, period)
     assert refreshed is not None
     return refreshed
@@ -685,9 +807,11 @@ def delete_run(storage: Storage, period: str, *, actor: str | None = None) -> No
             "Only a draft run can be deleted — a paid run is a permanent record."
             if run["status"] == "paid" else "Reopen the run first; only a draft run can be deleted."
         )
-    storage.execute("DELETE FROM payslips WHERE run_id = ?", (run["id"],))
-    storage.execute("UPDATE expense_claims SET payroll_run_id = NULL WHERE payroll_run_id = ?", (run["id"],))
-    storage.execute("DELETE FROM payroll_runs WHERE id = ?", (run["id"],))
+    with storage.transaction():
+        _reverse_loan_recoveries(storage, run["id"])  # leftovers from before reopen reversed them
+        storage.execute_tx("DELETE FROM payslips WHERE run_id = ?", (run["id"],))
+        storage.execute_tx("UPDATE expense_claims SET payroll_run_id = NULL WHERE payroll_run_id = ?", (run["id"],))
+        storage.execute_tx("DELETE FROM payroll_runs WHERE id = ?", (run["id"],))
     storage.audit(actor=actor, action="delete_payroll", entity="payroll_run", entity_id=run["id"], detail=period)
 
 
@@ -706,6 +830,11 @@ def set_slip_status(
     run = get_run(storage, slip["period"])
     if run and run["status"] == "paid":
         raise employees_service.ValidationError("Cannot change payslips in a paid payroll run.")
+    run_final = bool(run and run["status"] == "finalized")
+    if status == "paid":
+        raise employees_service.ValidationError("Mark the whole run paid instead of a single payslip.")
+    if status == "draft" and run_final:
+        status = "finalized"  # "release" inside a finalised run means: release to the employee
 
     now = utcnow_iso()
     finalized_at = now if status == "finalized" else (slip.get("finalized_at") if status == "paid" else None)
@@ -720,6 +849,14 @@ def set_slip_status(
         """,
         (status, finalized_at, finalized_by, hold_reason, now, slip_id),
     )
+    if run_final:
+        # keep the loan ledger in step with what this payslip actually releases
+        if status == "finalized":
+            refreshed_slip = storage.query_one("SELECT * FROM payslips WHERE id = ?", (slip_id,))
+            _record_loan_recovery(storage, run["id"], refreshed_slip, actor=actor)
+        else:
+            with storage.transaction():
+                _reverse_loan_recoveries(storage, run["id"], slip_id)
     storage.audit(
         actor=actor,
         action="payslip_status",
@@ -867,10 +1004,7 @@ def export_bank_payout_csv(storage: Storage, period: str) -> str:
 
 
 def _csv_safe(value: object) -> str:
-    text = "" if value is None else str(value)
-    if any(ch in text for ch in (",", '"', "\n")):
-        return '"' + text.replace('"', '""') + '"'
-    return text
+    return csv_cell(value)  # formula-safe; see services/csvsafe.py
 
 
 def export_payslips_zip(storage: Storage, settings: Settings, period: str) -> bytes:
@@ -1005,7 +1139,12 @@ def retention_fund_analytics(storage: Storage) -> dict[str, Any]:
                e.retention_enabled, e.retention_percent, e.retention_months
         FROM employees e
         WHERE e.retention_enabled = 1
-           OR e.id IN (SELECT DISTINCT employee_id FROM payslips WHERE retention_amount > 0)
+           OR e.id IN (
+               SELECT DISTINCT p.employee_id
+               FROM payslips p
+               JOIN payroll_runs r ON p.run_id = r.id
+               WHERE p.retention_amount > 0 AND r.status IN ('finalized', 'paid')
+           )
         ORDER BY e.name COLLATE NOCASE
         """
     )
@@ -1021,8 +1160,8 @@ def retention_fund_analytics(storage: Storage) -> dict[str, Any]:
 
     for emp in rows:
         gross = float(emp.get("monthly_gross") or 0.0)
-        percent = float(emp.get("retention_percent") or 20.0)
-        months_cfg = int(emp.get("retention_months") or 3)
+        percent = _setting_or_default(emp.get("retention_percent"), 20.0)
+        months_cfg = int(_setting_or_default(emp.get("retention_months"), 3))
         monthly_deduct = round(gross * (percent / 100.0), 2)
         target_total = round(monthly_deduct * months_cfg, 2)
 
@@ -1031,7 +1170,7 @@ def retention_fund_analytics(storage: Storage) -> dict[str, Any]:
             SELECT p.id, p.period, p.retention_amount, p.retention_month_num, r.status AS run_status
             FROM payslips p
             JOIN payroll_runs r ON p.run_id = r.id
-            WHERE p.employee_id = ? AND p.retention_amount > 0
+            WHERE p.employee_id = ? AND p.retention_amount > 0 AND r.status IN ('finalized', 'paid')
             ORDER BY p.period ASC
             """,
             (emp["id"],),

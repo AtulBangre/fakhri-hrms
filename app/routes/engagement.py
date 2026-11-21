@@ -80,9 +80,8 @@ def create_announcement(
         queued = announcement_service.broadcast(storage, settings, announcement, channels=channels)
         message += f" Queued {queued.get('email', 0)} email(s) and {queued.get('whatsapp', 0)} WhatsApp message(s)."
         if send_now:
-            result = notify.dispatch(storage, settings, limit=100)
-            sent = sum(1 for row in result if row.get("ok"))
-            message += f" Sent {sent} now."
+            notify.wake()
+            message += " Sending now in the background."
     return redirect("/announcements", ok=message)
 
 
@@ -144,15 +143,12 @@ def dispatch_now(
     csrf: str = Form("", alias="_csrf"),
 ):
     verify_form_csrf(user, csrf)
-    results = notify.dispatch(storage, settings, limit=200)
-    sent = sum(1 for row in results if row.get("ok"))
-    failed = len(results) - sent
-    if not results:
+    waiting = notify.outbox_stats(storage)["pending"]
+    if not waiting:
         return redirect("/notifications", ok="Nothing waiting in the outbox.")
-    note = f"Processed {len(results)}: {sent} sent"
-    if failed:
-        note += f", {failed} failed (check the log)"
-    return redirect("/notifications", ok=note + ".")
+    notify.wake()
+    return redirect("/notifications",
+                    ok=f"Sending {waiting} queued message(s) in the background — refresh in a moment to see the results.")
 
 
 @router.post("/notifications/retry")
@@ -192,9 +188,9 @@ def send_test(
     )
     if row_id is None:
         return redirect(back, err="Enter a recipient first.")
-    result = notify.dispatch(storage, settings, limit=1)
-    ok = bool(result and result[0].get("ok"))
+    result = notify.dispatch_one(storage, settings, row_id)  # this message, not the oldest in the queue
+    ok = bool(result.get("ok"))
     if ok:
         return redirect(back, ok=f"Test {channel} delivered to {recipient}.")
-    detail = result[0].get("error") if result else "unknown error"
+    detail = result.get("error") or "unknown error"
     return redirect(back, err=f"Test {channel} failed: {detail}")

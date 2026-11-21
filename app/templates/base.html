@@ -21,7 +21,7 @@
     {% if remote_work_enabled %}{{ navlink('/kiosk', 'kiosk', 'scan', 'Kiosk punch') }}{% endif %}
     {% if self_punch and self_punch != 'disabled' %}{{ navlink('/me/field', 'me-field', 'pin', 'Field attendance') }}{% endif %}
     {% if needs_face_enrolment %}{{ navlink('/me/face', 'me-face', 'scan', 'Register face') }}{% endif %}
-    {{ navlink('/me/loans', 'me-loans', 'wallet', 'Loans & Advances') }}
+    {{ navlink('/me/loans', 'me-loans', 'coins', 'Loans & Advances') }}
     {{ navlink('/me/assets', 'me-assets', 'laptop', 'Assets') }}
     {{ navlink('/me/expenses', 'me-expenses', 'receipt', 'Expenses') }}
     {{ navlink('/me/exit', 'me-exit', 'user-x', 'Resignation') }}
@@ -32,24 +32,24 @@
     {{ navlink('/attendance', 'attendance', 'calendar', 'Daily board') }}
     {{ navlink('/attendance/register', 'register', 'grid', 'Monthly register') }}
     {{ navlink('/attendance/regularizations', 'regularizations', 'clock-edit', 'Regularizations', _pending.get('regularizations')) }}
-    {{ navlink('/attendance/lop', 'lop', 'file-edit', 'Loss of pay') }}
+    {{ navlink('/attendance/lop', 'lop', 'calendar-x', 'Loss of pay') }}
     {{ navlink('/leave', 'leave', 'leave', 'Leave', _pending.get('leave')) }}
     <div class="nav-section">People</div>
     {{ navlink('/employees', 'employees', 'users', 'Employees') }}
     {{ navlink('/celebrations', 'celebrations', 'gift', 'Celebrations') }}
     {{ navlink('/appraisals', 'appraisals', 'star', 'Appraisals', _pending.get('appraisals')) }}
     {{ navlink('/exits', 'exits', 'user-x', 'Exits & F&F', _pending.get('exits')) }}
-    {{ navlink('/profile-requests', 'profile-requests', 'file-edit', 'Profile changes', _pending.get('profile')) }}
+    {{ navlink('/profile-requests', 'profile-requests', 'user-check', 'Profile changes', _pending.get('profile')) }}
     <div class="nav-section">Payroll</div>
     {{ navlink('/payroll', 'payroll', 'wallet', 'Payroll') }}
     {{ navlink('/payroll/retention', 'retention', 'shield', 'Retention Funds') }}
-    {{ navlink('/deductions', 'deductions', 'receipt', 'Deductions & Fines') }}
-    {{ navlink('/loans', 'loans', 'wallet', 'Loans & Advances') }}
+    {{ navlink('/deductions', 'deductions', 'minus-circle', 'Deductions & Fines') }}
+    {{ navlink('/loans', 'loans', 'coins', 'Loans & Advances') }}
     {{ navlink('/tax', 'tax', 'calculator', 'Income tax / TDS') }}
     {{ navlink('/expenses', 'expenses', 'receipt', 'Expense claims', _pending.get('expenses')) }}
     <div class="nav-section">Records</div>
     {{ navlink('/documents', 'documents', 'folder', 'Documents') }}
-    {{ navlink('/letters', 'letters', 'file-edit', 'HR Letters') }}
+    {{ navlink('/letters', 'letters', 'file-text', 'HR Letters') }}
     {{ navlink('/assets', 'assets', 'laptop', 'Assets') }}
     {{ navlink('/locations', 'locations', 'pin', 'Field locations') }}
     <div class="nav-section">Communicate</div>
@@ -92,6 +92,14 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   </noscript>
   <link rel="stylesheet" href="/static/css/app.css?v={{ asset_version }}">
+  <script>
+    /* Escape any value before it goes into innerHTML. Names, reasons and notes are typed by users. */
+    window.escapeHtml = function (value) {
+      return String(value == null ? "" : value).replace(/[&<>"'`]/g, function (ch) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[ch];
+      });
+    };
+  </script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -167,7 +175,13 @@
       {{ navlink('/me', 'me', 'home', 'Home') }}
       {{ navlink('/me/attendance', 'me-attendance', 'calendar', 'Attendance') }}
       {{ navlink('/me/leave', 'me-leave', 'leave', 'Leave') }}
-      {{ navlink('/me/payslips', 'me-payslips', 'file', 'Payslips') }}
+      {% if remote_work_enabled %}
+        {{ navlink('/kiosk', 'kiosk', 'scan', 'Punch') }}
+      {% elif self_punch and self_punch != 'disabled' %}
+        {{ navlink('/me/field', 'me-field', 'pin', 'Punch') }}
+      {% else %}
+        {{ navlink('/me/payslips', 'me-payslips', 'file', 'Payslips') }}
+      {% endif %}
     {% else %}
       {{ navlink('/dashboard', 'dashboard', 'dashboard', 'Board') }}
       {{ navlink('/employees', 'employees', 'users', 'People') }}
@@ -180,20 +194,20 @@
 
 {% if user and (user.is_hr or user.is_employee) %}
   <!-- Floating Ask HR Assistant Button -->
-  <button type="button" class="ask-hr-fab no-print" id="openAskHrBtn" aria-label="Ask HR Assistant">
+  <button type="button" class="ask-hr-fab no-print" id="openAskHrBtn" aria-label="Ask HR Assistant" aria-haspopup="dialog" aria-expanded="false" aria-controls="askHrDrawer">
     {{ icon('sparkles') }} <span>Ask HR</span>
   </button>
 
   <!-- Ask HR Floating Drawer -->
-  <div id="askHrDrawer" class="ask-hr-drawer no-print">
+  <div id="askHrDrawer" class="ask-hr-drawer no-print" role="dialog" aria-modal="true" aria-labelledby="askHrTitle">
     <div class="ask-hr-head">
       <div style="display:flex;align-items:center;gap:7px">
         <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--primary)"></span>
-        <strong>Fakhri HR Assistant</strong>
+        <strong id="askHrTitle">{{ org_name }} HR Assistant</strong>
       </div>
-      <button type="button" class="btn btn-sm btn-ghost" id="closeAskHrBtn">✕</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="closeAskHrBtn" aria-label="Close assistant">✕</button>
     </div>
-    <div class="ask-hr-messages" id="askHrMessages">
+    <div class="ask-hr-messages" id="askHrMessages" aria-live="polite">
       <div class="ask-hr-msg bot">Hello {{ user.display_name.split(' ')[0] if user.display_name else 'there' }}! {% if user.is_hr %}Ask me about today's attendance, approvals, payroll, holidays, or type an employee's name.{% else %}Ask me about your attendance, leave, payslips, holidays or office timing.{% endif %} English or Hinglish both work.</div>
     </div>
     <div class="ask-hr-chips" id="askHrChips">
@@ -222,8 +236,17 @@
       var csrf = document.querySelector('meta[name="csrf-token"]');
       var busy = false;
 
-      function openDrawer() { drawer.classList.add("open"); input.focus(); }
-      function closeDrawer() { drawer.classList.remove("open"); }
+      function openDrawer() {
+        drawer.classList.add("open");
+        openBtn.setAttribute("aria-expanded", "true");
+        input.focus();
+      }
+      function closeDrawer() {
+        if (!drawer.classList.contains("open")) return;
+        drawer.classList.remove("open");
+        openBtn.setAttribute("aria-expanded", "false");
+        openBtn.focus();  // give focus back to where the person was
+      }
       function scrollDown() { msgContainer.scrollTop = msgContainer.scrollHeight; }
 
       function addMessage(kind, text) {
@@ -298,7 +321,14 @@
       openBtn.addEventListener("click", openDrawer);
       closeBtn.addEventListener("click", closeDrawer);
       document.addEventListener("keydown", function (event) {
-        if (event.key === "Escape") closeDrawer();
+        if (event.key === "Escape") { closeDrawer(); return; }
+        if (event.key !== "Tab" || !drawer.classList.contains("open")) return;
+        // keep keyboard focus inside the open dialog
+        var items = drawer.querySelectorAll("button, input, a[href]");
+        if (!items.length) return;
+        var first = items[0], last = items[items.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
       });
       chips.addEventListener("click", function (event) {
         var chip = event.target.closest("button");

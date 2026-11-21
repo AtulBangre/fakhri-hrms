@@ -64,6 +64,7 @@ services:
       HRMS_DATA_DIR: /app/data
       PORT: "8100"
       WORKERS: "1"
+      MALLOC_ARENA_MAX: "2"
     ports:
       - "${HOST_PORT:-8100}:8100"
     volumes:
@@ -72,7 +73,7 @@ services:
       resources:
         limits:
           cpus: "1.5"
-          memory: 700M
+          memory: 1G   # was 700M: load tests peaked near 500 MB before the memory fixes
     healthcheck:
       test:
         - CMD

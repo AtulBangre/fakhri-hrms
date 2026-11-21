@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import re
 from datetime import date, datetime
 from typing import Any
@@ -22,11 +23,16 @@ from ..services.payroll import basis_days_for
 
 
 def get_past_months(count: int = 18, reference_date: date | None = None) -> list[str]:
-    """Return past ``count`` months in YYYY-MM format going backwards from reference_date."""
+    """The ``count`` *completed* months before ``reference_date``, newest first (YYYY-MM).
+
+    The running month is never history: a "paid" run for it would block real payroll.
+    """
     if reference_date is None:
         reference_date = date.today()
     periods = []
-    y, m = reference_date.year, reference_date.month
+    y, m = reference_date.year, reference_date.month - 1
+    if m == 0:
+        y, m = y - 1, 12
     for _ in range(count):
         periods.append(f"{y:04d}-{m:02d}")
         m -= 1
@@ -67,7 +73,7 @@ def clean_number(val: Any) -> float | None:
         return None
     try:
         f = float(s)
-        return f if f >= 0 else None
+        return f if (math.isfinite(f) and f >= 0) else None
     except ValueError:
         return None
 
@@ -144,32 +150,48 @@ def generate_sample_csv(storage: Storage, settings: Settings) -> str:
     return out.getvalue()
 
 
+HISTORICAL_NOTE = "Historical payroll import"
+
+
 def record_historical_payslip(
     storage: Storage,
     *,
     employee_id: int,
     period: str,
     salary_amount: float,
-) -> None:
-    """Store or update disbursed salary for period in payroll_runs & payslips."""
+) -> bool:
+    """Record a salary already paid outside HRMS, as a paid historical payslip.
+
+    Returns whether it was stored. Only completed months are accepted, and only runs
+    this import created are written to: a real payroll run (draft, finalised or paid)
+    and its payslips are never touched.
+    """
     if salary_amount <= 0:
-        return
+        return False
+    try:
+        orgtime.month_bounds(period)
+    except (ValueError, TypeError):
+        return False
+    if period >= orgtime.period_of(orgtime.today(storage.settings)):
+        return False
 
     now = utcnow_iso()
     b_days = basis_days_for(storage, period)
 
-    # 1. Ensure a paid payroll_run exists for this period
-    run = storage.query_one("SELECT id, status FROM payroll_runs WHERE period = ?", (period,))
+    # 1. Ensure a paid historical payroll_run exists for this period
+    run = storage.query_one("SELECT id, status, note FROM payroll_runs WHERE period = ?", (period,))
     if run:
+        if run.get("note") != HISTORICAL_NOTE:
+            return False  # HRMS ran this month's payroll itself: that is the record
         run_id = int(run["id"])
     else:
         cursor = storage.execute(
             """
             INSERT INTO payroll_runs (period, status, basis_days, total_gross, total_deductions,
                                       total_net, generated_at, finalized_at, paid_at, note)
-            VALUES (?, 'paid', ?, 0, 0, 0, ?, ?, ?, 'Historical payroll import')
+            VALUES (?, 'paid', ?, 0, 0, 0, ?, ?, ?, ?)
             """,
-            (period, b_days, now, now, now),
+            (period, b_days, now, now, now, HISTORICAL_NOTE),
         )
         run_id = int(cursor.lastrowid)
 
@@ -197,10 +219,11 @@ def record_historical_payslip(
                 run_id, employee_id, period, basis_days, present_days, paid_leave_days,
                 lop_days, monthly_gross, per_day_rate, earned_gross, pf, esi,
                 professional_tax, tds, total_deductions, net_pay, created_at, updated_at,
-                bonus, advance, other_deduction, tds_override, note, reimbursement, rounding, late_fine
+                bonus, advance, other_deduction, tds_override, note, reimbursement, rounding, late_fine,
+                status
             )
-            VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?, 0, 0, 0, 0,
-                    'Historical disbursed salary', 0, 0, 0)
+            VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, 0, 0, 0, 0, ?, ?, ?, 0, 0, 0, NULL,
+                    'Historical disbursed salary', 0, 0, 0, 'paid')
             """,
             (
                 run_id, employee_id, period, b_days, b_days,
@@ -222,6 +245,7 @@ def record_historical_payslip(
         "UPDATE payroll_runs SET total_gross = ?, total_deductions = ?, total_net = ? WHERE id = ?",
         (totals["gross"], totals["deductions"], totals["net"], run_id),
     )
+    return True
 
 
 def import_employees_csv(
@@ -324,13 +348,12 @@ def import_employees_csv(
             salaries_saved = 0
             for col_name, period in salary_col_map.items():
                 salary_val = clean_number(clean_row.get(col_name))
-                if salary_val is not None and salary_val > 0:
-                    record_historical_payslip(
-                        storage,
-                        employee_id=emp_id,
-                        period=period,
-                        salary_amount=salary_val,
-                    )
+                if salary_val is not None and salary_val > 0 and record_historical_payslip(
+                    storage,
+                    employee_id=emp_id,
+                    period=period,
+                    salary_amount=salary_val,
+                ):
                     salaries_saved += 1
 
             storage.audit(

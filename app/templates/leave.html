@@ -54,8 +54,8 @@
               {% if item.attachment_files %}
                 <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
                   {% for att in item.attachment_files %}
-                    <a href="/leave/attachment/{{ att.stored_name }}" target="_blank" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.original_name }}">
-                      📎 {{ att.original_name }}
+                    <a href="/leave/attachment/{{ att.stored_name | urlencode }}" target="_blank" rel="noopener" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.filename or att.original_name or 'attachment' }}">
+                      📎 {{ att.filename or att.original_name or 'attachment' }}
                     </a>
                   {% endfor %}
                 </div>
@@ -74,7 +74,8 @@
                   <button class="btn btn-sm btn-primary" type="submit">Approve</button>
                 </form>
                 <form method="post" action="/leave/{{ item.id }}/reject"
-                      onsubmit="var r = prompt('Reason for rejection (optional):'); if (r === null) return false; this.reason.value = r; return true;">
+                      data-reason-prompt="Reject {{ item.employee_name }}'s leave?" data-reason-label="Reason the employee will see (optional)"
+                      data-reason-confirm="Reject request" data-reason-danger>
                   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
                   <input type="hidden" name="period" value="{{ period }}">
                   <input type="hidden" name="reason" value="">
@@ -111,6 +112,7 @@
             <div class="field">
               <label for="leave_type">Leave type</label>
               <select id="leave_type" name="leave_type" required>
+                <option value="" selected disabled>Choose leave type…</option>
                 {% for value in leave_types %}
                   <option value="{{ value }}">{{ leave_labels[value] }}{% if value == 'unpaid' %} — reduces salary{% endif %}</option>
                 {% endfor %}
@@ -187,15 +189,16 @@
               </td>
               <td data-label="Days" class="num">{{ item.days | number }}</td>
               <td data-label="Status">
-                <span class="chip {{ 'chip-ok' if item.status == 'approved' else 'chip-muted' }}">{{ item.status }}</span>
+                <span class="chip {{ 'chip-ok' if item.status == 'approved' else ('chip-warn' if item.status in ('pending', 'pending_manager') else 'chip-muted') }}">{{ item.status | leave_status }}</span>
               </td>
               <td data-label="Reason">
                 <div style="white-space:pre-wrap;max-width:320px">{{ item.reason or '—' }}</div>
+                {% if item.decision_note %}<div class="small muted" style="margin-top:4px">HR note: {{ item.decision_note }}</div>{% endif %}
                 {% if item.attachment_files %}
                   <div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">
                     {% for att in item.attachment_files %}
-                      <a href="/leave/attachment/{{ att.stored_name }}" target="_blank" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.original_name }}">
-                        📎 {{ att.original_name }}
+                      <a href="/leave/attachment/{{ att.stored_name | urlencode }}" target="_blank" rel="noopener" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none" title="Download {{ att.filename or att.original_name or 'attachment' }}">
+                        📎 {{ att.filename or att.original_name or 'attachment' }}
                       </a>
                     {% endfor %}
                   </div>
@@ -737,38 +740,46 @@
           return;
         }
 
+        var esc = window.escapeHtml;
         data.leaves.forEach(function(l) {
           var tr = document.createElement('tr');
 
-          var datesHtml = '<strong>' + l.from_label + '</strong>';
+          var datesHtml = '<strong>' + esc(l.from_label) + '</strong>';
           if (l.to_date !== l.from_date) {
-            datesHtml += ' &rarr; <strong>' + l.to_label + '</strong>';
+            datesHtml += ' &rarr; <strong>' + esc(l.to_label) + '</strong>';
           }
           if (l.days === 0.5) {
             datesHtml += ' <span class="chip" style="font-size:0.7rem;padding:1px 5px">Half day</span>';
           }
 
-          var statusChip = '<span class="chip ' + (l.status === 'approved' ? 'chip-ok' : (l.status === 'pending' || l.status === 'pending_manager' ? 'chip-warn' : 'chip-muted')) + '">' + l.status + '</span>';
-          var typeChip = '<span class="chip ' + (l.is_paid ? 'chip-info' : 'chip-warn') + '">' + l.type_label + '</span>';
+          var waiting = l.status === 'pending' || l.status === 'pending_manager';
+          var statusChip = '<span class="chip ' + (l.status === 'approved' ? 'chip-ok' : (waiting ? 'chip-warn' : 'chip-muted')) + '">' + esc(l.status_label || l.status) + '</span>';
+          var typeChip = '<span class="chip ' + (l.is_paid ? 'chip-info' : 'chip-warn') + '">' + esc(l.type_label) + '</span>';
 
           var attHtml = '—';
           if (l.attachment_files && l.attachment_files.length > 0) {
             attHtml = l.attachment_files.map(function(a) {
-              return '<a href="/leave/attachment/' + a.stored_name + '" target="_blank" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none;margin-right:3px" title="Download ' + a.original_name + '">📎 ' + a.original_name + '</a>';
+              var name = esc(a.filename || a.original_name || 'attachment');
+              return '<a href="/leave/attachment/' + encodeURIComponent(a.stored_name || '') + '" target="_blank" rel="noopener" class="chip chip-info" style="font-size:0.72rem;display:inline-flex;align-items:center;gap:3px;text-decoration:none;margin-right:3px" title="Download ' + name + '">📎 ' + name + '</a>';
             }).join(' ');
           }
 
-          tr.innerHTML = '<td>' + datesHtml + '<div class="small muted" style="font-size:0.73rem">' + l.applied_label + '</div></td>' +
+          var reasonHtml = esc(l.reason || '—');
+          if (l.decision_note) {
+            reasonHtml += '<div class="small muted" style="margin-top:4px">HR note: ' + esc(l.decision_note) + '</div>';
+          }
+
+          tr.innerHTML = '<td>' + datesHtml + '<div class="small muted" style="font-size:0.73rem">' + esc(l.applied_label) + '</div></td>' +
                          '<td>' + typeChip + '</td>' +
-                         '<td class="num font-bold">' + l.days + '</td>' +
+                         '<td class="num font-bold">' + esc(l.days) + '</td>' +
                          '<td>' + statusChip + '</td>' +
-                         '<td style="white-space:pre-wrap;font-size:0.82rem;max-width:240px">' + (l.reason || '—') + '</td>' +
+                         '<td style="white-space:pre-wrap;font-size:0.82rem;max-width:240px">' + reasonHtml + '</td>' +
                          '<td>' + attHtml + '</td>';
           tbody.appendChild(tr);
         });
       })
       .catch(function(err) {
-        document.getElementById('lh-table-body').innerHTML = '<tr><td colspan="6" class="empty-state" style="color:var(--danger)">Failed to load: ' + err.message + '</td></tr>';
+        document.getElementById('lh-table-body').innerHTML = '<tr><td colspan="6" class="empty-state" style="color:var(--danger)">Failed to load: ' + window.escapeHtml(err.message) + '</td></tr>';
       });
     });
   });

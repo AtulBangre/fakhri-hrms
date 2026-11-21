@@ -550,7 +550,8 @@ def manual_housekeeping(
     msg = (
         f"Housekeeping complete: Purged {purged.get('notifications', 0)} notifications (>30d), "
         f"{purged.get('audit_log', 0)} audit logs (>120d), "
-        f"{purged.get('password_tokens', 0) + purged.get('otp_codes', 0)} expired tokens."
+        f"{purged.get('password_tokens', 0) + purged.get('otp_codes', 0)} expired tokens, "
+        f"{purged.get('punch_photos', 0)} gate photos (>180d)."
     )
     return redirect("/settings#server-notes", ok=msg)
 
