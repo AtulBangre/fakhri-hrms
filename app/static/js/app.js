@@ -363,16 +363,21 @@
     }
 
     function capture() {
-      if (!stream) return;
+      if (!stream || captureBtn.disabled) return;
+      captureBtn.disabled = true;
       var width = video.videoWidth || 640;
       var height = video.videoHeight || 480;
       canvas.width = width;
       canvas.height = height;
       canvas.getContext("2d").drawImage(video, 0, 0, width, height);
-      setStatus("Uploading to the face service…");
+      setStatus("Processing and enrolling face… please wait");
 
       canvas.toBlob(function (blob) {
-        if (!blob) { setStatus("Could not read the frame — try again.", "error"); return; }
+        if (!blob) {
+          captureBtn.disabled = false;
+          setStatus("Could not read the frame — try again.", "error");
+          return;
+        }
         var data = new FormData();
         data.append("_csrf", options.csrf);
         data.append("image", blob, "enrolment.jpg");
@@ -386,6 +391,7 @@
           // The endpoint answers with a 303 back to the employee page.
           window.location.href = response.url || options.endpoint;
         }).catch(function () {
+          captureBtn.disabled = false;
           setStatus("Upload failed — check the connection and try again.", "error");
         });
       }, "image/jpeg", 0.9);

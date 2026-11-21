@@ -961,7 +961,7 @@
         </div>
         <div id="enrolStatus" class="small muted mt-1"></div>
 
-        <form method="post" action="/employees/{{ employee.id }}/face" enctype="multipart/form-data" class="mt-2" data-downscale-image>
+        <form method="post" action="/employees/{{ employee.id }}/face" enctype="multipart/form-data" class="mt-2" data-downscale-image onsubmit="var b=this.querySelector('button[type=submit]'); if(b){b.disabled=true; b.textContent='Processing face… please wait';}">
           <input type="hidden" name="_csrf" value="{{ csrf_token }}">
           <div class="field">
             <label for="image">…or upload a photo</label>

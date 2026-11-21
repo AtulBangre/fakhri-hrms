@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from .. import auth, notify
 from ..auth import SessionUser, generate_password, get_user_for_employee, require_hr
 from ..deps import get_face, get_settings_dep, get_storage, paginate, redirect, render
-from ..face import FaceServiceError, FaceServiceUnavailable
+from ..face import FaceServiceBusy, FaceServiceError, FaceServiceUnavailable
 from ..services import records
 from ..uploads import UploadError, read_capped
 from ..services import attendance as attendance_service
@@ -1016,6 +1016,8 @@ def enrol_face(
         )
     except employees_service.DuplicateFaceError as exc:
         return redirect(f"/employees/{employee_id}", err=str(exc))
+    except FaceServiceBusy:
+        return redirect(f"/employees/{employee_id}", err="The face service is currently busy processing another photo. Please wait a moment and try again.")
     except FaceServiceUnavailable as exc:
         return redirect(f"/employees/{employee_id}", err=f"Face service offline: {exc}")
     except FaceServiceError as exc:

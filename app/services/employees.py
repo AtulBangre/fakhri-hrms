@@ -762,7 +762,7 @@ def face_owner_conflict(storage: Storage, face_service: FaceService, employee_id
     employee's own template is still caught. Stale templates are ignored: one whose
     key maps to no employee, or to an employee whose current template is different.
     """
-    result = face_service.identify(image_bytes)
+    result = face_service.identify(image_bytes, timeout=15.0)
     threshold = result.threshold
     if threshold is None:  # no face in the photo, so nothing to compare
         return None

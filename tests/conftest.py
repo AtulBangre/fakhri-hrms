@@ -131,7 +131,7 @@ class FakeFaceService:
             return {"ok": False, "detail": "cannot reach http://127.0.0.1:8000"}
         return {"ok": True, "detail": "connected", "auth_mode": "api_key", "collection": self.collection}
 
-    def enrol_face(self, image_bytes: bytes, *, external_id: str, filename: str = "face.jpg") -> EnrolmentResult:
+    def enrol_face(self, image_bytes: bytes, *, external_id: str, filename: str = "face.jpg", **kwargs) -> EnrolmentResult:
         if not image_bytes:
             raise ValueError("empty image")
         self._counter += 1
@@ -157,7 +157,7 @@ class FakeFaceService:
         self.secure_calls.append((len(frames), challenge_token))
         return self.identify(frames[0])
 
-    def identify(self, image_bytes: bytes, *, filename: str = "scan.jpg", checks: bool = False) -> IdentificationResult:
+    def identify(self, image_bytes: bytes, *, filename: str = "scan.jpg", checks: bool = False, **kwargs) -> IdentificationResult:
         self.identify_checks.append(checks)
         if self.identify_result is not None:
             return self.identify_result

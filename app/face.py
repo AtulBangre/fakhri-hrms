@@ -124,11 +124,12 @@ class FaceService:
         yield self._pool
 
     @contextmanager
-    def _guarded(self):
+    def _guarded(self, timeout: float | None = None):
         """Run one inference call with a concurrency cap and a circuit breaker."""
         if time.monotonic() < self._open_until:
             raise FaceServiceUnavailable("The face service is not responding — please try again in a few seconds.")
-        if not self._slots.acquire(timeout=self._queue_wait):
+        wait = self._queue_wait if timeout is None else timeout
+        if not self._slots.acquire(timeout=wait):
             raise FaceServiceBusy("The scanner is busy — please scan again.")
         try:
             yield
@@ -258,8 +259,8 @@ class FaceService:
             raise FaceServiceUnavailable(f"Cannot reach the face service at {self.base_url}.") from exc
 
     # -------------------------------------------------------------- enrol
-    def enrol_face(self, image_bytes: bytes, *, external_id: str, filename: str = "face.jpg") -> EnrolmentResult:
-        with self._guarded():
+    def enrol_face(self, image_bytes: bytes, *, external_id: str, filename: str = "face.jpg", timeout: float | None = 15.0) -> EnrolmentResult:
+        with self._guarded(timeout=timeout):
             self.ensure_collection()
             try:
                 with self._client() as client:
@@ -294,10 +295,10 @@ class FaceService:
 
     # ------------------------------------------------------------ identify
     def identify(
-        self, image_bytes: bytes, *, filename: str = "scan.jpg", checks: bool = False
+        self, image_bytes: bytes, *, filename: str = "scan.jpg", checks: bool = False, timeout: float | None = None
     ) -> IdentificationResult:
         """1:N match one frame. ``checks`` adds FaceAPI's quality gate and passive liveness."""
-        with self._guarded():
+        with self._guarded(timeout=timeout):
             self.ensure_collection()
             try:
                 with self._client() as client:
