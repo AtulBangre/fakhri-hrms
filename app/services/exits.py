@@ -291,12 +291,14 @@ def compute_fnf(storage: Storage, settings: Settings, exit_row: dict[str, Any]) 
     period = orgtime.period_of(lwd)
     salary = payroll.salary_for_period(storage, employee["id"], period)
     gross = float(salary.get("monthly_gross") or 0)
-    basic = float(salary.get("basic") or 0) or gross
+    has_explicit_basic = bool(float(salary.get("basic") or 0))
+    # B22: Default to 50% of gross when no basic split is configured
+    basic = float(salary.get("basic") or 0) or (gross * 0.5)
     basis_days = payroll.basis_days_for(storage, period)
     per_day = gross / basis_days if basis_days else 0.0
     notes: list[str] = []
-    if not float(salary.get("basic") or 0):
-        notes.append("No basic split in the salary structure — gross is used for encashment and gratuity.")
+    if not has_explicit_basic:
+        notes.append(f"No basic split in the salary structure — using default 50% of gross (₹{basic:,.0f}) for encashment and gratuity.")
 
     earnings: list[dict[str, Any]] = []
     deductions: list[dict[str, Any]] = []
@@ -345,8 +347,18 @@ def compute_fnf(storage: Storage, settings: Settings, exit_row: dict[str, Any]) 
     if len(months) > 1:
         notes.append(f"Includes {len(months)} months not yet paid through payroll.")
 
-    # 2. leave encashment
-    leave_balance = max(0.0, float(leave_service.balance(storage, settings, employee["id"], as_of=lwd)["balance"]))
+    # 2. leave encashment (B4 & B5: strictly PL balance, pro-rated in fixed mode)
+    leave_info = leave_service.balance(storage, settings, employee["id"], as_of=lwd)
+    if leave_info.get("policy_mode") == "fixed":
+        cycle_start = orgtime.parse_date(leave_info["cycle_start"])
+        months_served = max(1, (lwd.year - cycle_start.year) * 12 + (lwd.month - cycle_start.month) + (1 if lwd.day >= 15 else 0))
+        annual_pl = float(leave_info.get("annual_pl") or 0.0)
+        carried_forward = float(leave_info.get("carried_forward") or 0.0)
+        prorated_accrued = round((annual_pl / 12.0) * min(months_served, 12) + carried_forward, 2)
+        leave_balance = max(0.0, round(prorated_accrued - float(leave_info.get("used_pl") or 0.0), 2))
+    else:
+        leave_balance = max(0.0, float(leave_info.get("pl_available", leave_info.get("balance", 0.0))))
+
     if leave_balance:
         earn("Leave encashment", leave_balance * basic / 30, f"{leave_balance:g} day(s) × basic ÷ 30")
 

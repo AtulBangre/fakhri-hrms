@@ -142,7 +142,8 @@ def _attendance_reminders(storage: Storage, settings: Settings, now: datetime) -
         return
     clock = now.hour * 60 + now.minute
     people = storage.query(
-        "SELECT e.id, e.name, e.shift_id, e.phone FROM employees e JOIN users u ON u.employee_id = e.id "
+        "SELECT e.id, e.name, e.shift_id, e.phone, e.custom_shift_start, e.custom_shift_end, e.custom_grace_minutes "
+        "FROM employees e JOIN users u ON u.employee_id = e.id "
         "WHERE e.status = 'active' AND u.active = 1 AND e.joined_on <= ?",
         (today.isoformat(),),
     )
@@ -150,21 +151,24 @@ def _attendance_reminders(storage: Storage, settings: Settings, now: datetime) -
         "SELECT employee_id, status, check_in, check_out FROM attendance WHERE work_date = ?", (today.isoformat(),)
     )}
     shifts = orgtime.shifts_by_id(storage)
-    groups: dict[Any, list[dict]] = {}
+    # B11: Group by effective shift timings including custom start/end and grace
+    groups: dict[tuple[str, str, int], list[tuple[dict, dict]]] = {}
     for person in people:
-        groups.setdefault(person["shift_id"] or "default", []).append(person)
+        shift = orgtime.shift_for(storage, person, shifts)
+        key = (shift["start_time"], shift["end_time"], int(shift.get("grace_minutes") or 0))
+        groups.setdefault(key, []).append((person, shift))
 
     wa_reminders_val = storage.get_setting("notify_whatsapp_reminders")
     wa_reminders_enabled = getattr(settings, "notify_whatsapp_reminders", True) if wa_reminders_val is None else (str(wa_reminders_val).strip() in ("1", "true", "True", "yes"))
 
-    for shift_key, members in groups.items():
-        shift = orgtime.shift_for(storage, members[0], shifts)
-        start, end = _minutes(shift["start_time"]), _minutes(shift["end_time"])
+    for (start_time, end_time, grace_minutes), members in groups.items():
+        start, end = _minutes(start_time), _minutes(end_time)
         if start is None or end is None:
             continue
-        due_in = start + int(shift["grace_minutes"] or 0)
+        due_in = start + grace_minutes
+        shift_key = f"{start_time}_{end_time}_{grace_minutes}".replace(":", "")
         if 0 <= clock - due_in <= REMINDER_WINDOW_HOURS * 60 and _claim(storage, f"missed_in:{shift_key}", today):
-            for person in members:
+            for person, shift in members:
                 if person["id"] not in rows:
                     notify.push_employee(storage, settings, person["id"], "You have not checked in yet",
                                          f"Your shift started at {shift['start_time']}. Scan at the gate when you arrive.",
@@ -176,7 +180,7 @@ def _attendance_reminders(storage: Storage, settings: Settings, now: datetime) -
                         )
         due_out = end + CHECKOUT_REMINDER_MINUTES
         if 0 <= clock - due_out <= REMINDER_WINDOW_HOURS * 60 and _claim(storage, f"missed_out:{shift_key}", today):
-            for person in members:
+            for person, shift in members:
                 row = rows.get(person["id"])
                 if row and row.get("check_in") and not row.get("check_out"):
                     notify.push_employee(storage, settings, person["id"], "Don't forget to check out",

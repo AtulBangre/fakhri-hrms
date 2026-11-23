@@ -48,6 +48,22 @@ def test_epfo_ecr_and_esic_exports(storage, settings, staff):
     period = "2026-06"
     payroll_service.generate_run(storage, settings, period)
 
+    # B1: When statutory deductions are OFF (default), slip PF=0 produces no ECR line
+    ecr_text_off = payroll_service.export_epfo_ecr(storage, period)
+    assert ecr_text_off == ""
+
+    # Enable statutory deductions and configure auto statutory mode on employee's salary
+    storage.set_setting("statutory_deductions_enabled", "yes")
+    employees_service.set_salary(
+        storage,
+        emp["id"],
+        monthly_gross=18000.0,
+        basic=9000.0,
+        statutory_mode="auto",
+        effective_from="2025-04-01",
+    )
+    payroll_service.generate_run(storage, settings, period)
+
     # EPFO ECR Export
     ecr_text = payroll_service.export_epfo_ecr(storage, period)
     assert "#~#" in ecr_text

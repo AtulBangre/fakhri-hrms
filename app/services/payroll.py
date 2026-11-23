@@ -364,6 +364,50 @@ def compute_slip(storage: Storage, settings: Settings, employee: dict[str, Any],
     }
 
 
+def calculate_arrears_for_period(storage: Storage, settings: Settings, employee_id: int, current_period: str) -> tuple[float, list[str]]:
+    """Compute retroactive salary revision arrears from past finalized months (B6)."""
+    finalized_slips = storage.query(
+        """
+        SELECT p.period, p.earned_gross, p.basis_days, p.lop_days, p.monthly_gross, r.finalized_at
+        FROM payslips p
+        JOIN payroll_runs r ON r.id = p.run_id
+        WHERE p.employee_id = ? AND p.period < ? AND r.status IN ('finalized', 'paid')
+        ORDER BY p.period ASC
+        """,
+        (employee_id, current_period),
+    )
+    total_arrears = 0.0
+    notes = []
+    for f_slip in finalized_slips:
+        f_period = f_slip["period"]
+        already_paid = storage.scalar(
+            "SELECT COUNT(*) FROM payslips p JOIN payroll_runs r ON r.id = p.run_id "
+            "WHERE p.employee_id = ? AND p.period > ? AND p.period < ? AND r.status IN ('finalized', 'paid') "
+            "AND (p.note LIKE ? OR p.bonus_note LIKE ?)",
+            (employee_id, f_period, current_period, f"%Arrears ({orgtime.month_label(f_period)})%", f"%Arrears ({orgtime.month_label(f_period)})%"),
+        )
+        if already_paid:
+            continue
+
+        current_sal = salary_for_period(storage, employee_id, f_period)
+        new_monthly = float(current_sal.get("monthly_gross") or 0)
+        old_monthly = float(f_slip.get("monthly_gross") or 0)
+        if new_monthly <= old_monthly:
+            continue
+
+        basis_days = f_slip["basis_days"]
+        per_day = new_monthly / basis_days if basis_days else 0.0
+        summary = attendance_service.employee_month_summary(storage, settings, employee_id, f_period)
+        month_days = orgtime.month_days(f_period)
+        employed_share = min(1.0, summary["employed_days"] / month_days) if month_days else 0.0
+        new_earned = max(0.0, new_monthly * employed_share - float(f_slip["lop_days"] or 0) * per_day)
+        diff = round(new_earned - float(f_slip["earned_gross"]), 2)
+        if diff > 0.0:
+            total_arrears += diff
+            notes.append(f"Arrears ({orgtime.month_label(f_period)}) ₹{diff:,.0f}")
+    return round(total_arrears, 2), notes
+
+
 def generate_run(
     storage: Storage,
     settings: Settings,
@@ -384,10 +428,19 @@ def generate_run(
         raise employees_service.ValidationError("Period must look like 2026-10.") from exc
     _require_started(settings, period)
 
-    clause = "" if include_inactive else "WHERE status = 'active'"
-    staff = storage.query(f"SELECT * FROM employees {clause} ORDER BY name COLLATE NOCASE")
+    month_bounds = orgtime.month_bounds(period)
+    month_start, month_end = month_bounds[0].isoformat(), month_bounds[1].isoformat()
+    if include_inactive:
+        staff = storage.query("SELECT * FROM employees ORDER BY name COLLATE NOCASE")
+    else:
+        # B13: Include all active employees plus inactive employees who worked during this month
+        staff = storage.query(
+            "SELECT * FROM employees WHERE (status = 'active' OR joined_on <= ?) "
+            "AND (status = 'active' OR id IN (SELECT DISTINCT employee_id FROM attendance WHERE work_date BETWEEN ? AND ?)) "
+            "ORDER BY name COLLATE NOCASE",
+            (month_end, month_start, month_end),
+        )
     # Someone settled through F&F before this month started is never paid again (EXIT-02).
-    month_start = orgtime.month_bounds(period)[0].isoformat()
     settled = {
         row["employee_id"] for row in storage.query(
             "SELECT employee_id FROM employee_exits WHERE status = 'settled' AND last_working_day < ?",
@@ -449,6 +502,17 @@ def generate_run(
                 loan_emi = round(min(float(active_loan["monthly_emi"]), float(active_loan["remaining_balance"])), 2)
                 loan_note = (f"Loan #{active_loan['id']} ({active_loan['loan_type'].replace('_', ' ').title()}) "
                              f"EMI: ₹{loan_emi:,.0f}")
+
+            # B6: Calculate retroactive arrears
+            arrears_amt, arrears_notes = calculate_arrears_for_period(storage, settings, employee["id"], period)
+            if arrears_amt > 0:
+                cur_kept = dict(kept.get(employee["id"]) or {})
+                cur_bonus = float(cur_kept.get("bonus") or 0.0) + arrears_amt
+                cur_kept["bonus"] = cur_bonus
+                arr_label = " · ".join(arrears_notes)
+                cur_kept["bonus_note"] = f"{cur_kept['bonus_note']} · {arr_label}" if cur_kept.get("bonus_note") else arr_label
+                cur_kept["note"] = f"{cur_kept['note']} · {arr_label}" if cur_kept.get("note") else arr_label
+                kept[employee["id"]] = cur_kept
 
             _apply_adjustments(calc, kept.get(employee["id"]), loan_emi=loan_emi, loan_note=loan_note)
             emp_hold_row = holds.get(employee["id"]) or {}
@@ -1044,6 +1108,7 @@ def export_epfo_ecr(storage: Storage, period: str) -> str:
     """
     slips = list_slips(storage, period)
     lines: list[str] = []
+    period_start = orgtime.month_bounds(period)[0]
     for slip in slips:
         if slip.get("status") == "on_hold":
             continue
@@ -1053,25 +1118,46 @@ def export_epfo_ecr(storage: Storage, period: str) -> str:
         uan = re.sub(r"\D", "", raw_uan) if raw_uan else ""
 
         pf = float(slip.get("pf") or 0)
-        # EPFO ECR is strictly for employees with PF deductions or valid UAN registered
-        if pf <= 0 and not uan:
+        # B1: EPFO ECR is strictly for employees with actual PF deducted and a valid 12-digit UAN
+        if pf <= 0 or not uan or len(uan) != 12:
             continue
 
         name = slip["name"].replace("#", "").replace("~", "")
         gross = int(round(float(slip.get("earned_gross") or 0)))
 
-        # EPF & EPS wages capped at 15000 standard ceiling
-        epf_wages = int(round(min(gross, 15000)))
-        eps_wages = epf_wages
+        # B2: EPF wages come from earned Basic (+ DA), capped at 15000 standard ceiling
+        salary = salary_for_period(storage, slip["employee_id"], period)
+        basic = float(salary.get("basic") or 0) or float(slip.get("monthly_gross") or 0) * 0.5
+        share = (float(slip.get("earned_gross") or 0) / float(slip.get("monthly_gross") or 1.0)) if float(slip.get("monthly_gross") or 0) else 0.0
+        earned_basic = basic * share
+        epf_wages = int(round(min(earned_basic, 15000)))
+        ee_share = int(round(pf))
+        # Ensure mathematical consistency for portal validation: EE share = round(12% * EPF wages)
+        if epf_wages > 0 and ee_share != int(round(epf_wages * 0.12)):
+            epf_wages = min(int(round(ee_share / 0.12)), 15000)
+
+        # Age check: members aged 58 and over do not contribute to EPS (EPS share = 0, ER share = EE share)
+        is_senior = False
+        dob_str = emp.get("date_of_birth")
+        if dob_str:
+            try:
+                dob = orgtime.parse_date(dob_str)
+                age = (period_start.year - dob.year) - ((period_start.month, period_start.day) < (dob.month, dob.day))
+                if age >= 58:
+                    is_senior = True
+            except Exception:
+                pass
+
+        if is_senior:
+            eps_wages = 0
+            eps_share = 0
+            er_share = ee_share
+        else:
+            eps_wages = epf_wages
+            eps_share = int(round(min(eps_wages * (8.33 / 100.0), 1250)))
+            er_share = max(ee_share - eps_share, 0)
+
         edli_wages = epf_wages
-        ee_share = int(round(pf)) if pf > 0 else int(round(epf_wages * 0.12))
-
-        # Standard EPFO formula: EPS 8.33% (max 1250), ER difference 3.67%
-        eps_share = int(round(min(eps_wages * 0.0833, 1250)))
-        if eps_share > ee_share:
-            eps_share = int(round(ee_share * (8.33 / 12.0)))
-        er_share = max(ee_share - eps_share, 0)
-
         ncp_days = int(round(float(slip.get("lop_days") or 0)))
         fields = [
             uan,
@@ -1099,20 +1185,23 @@ def export_esic_return(storage: Storage, period: str) -> str:
     slips = list_slips(storage, period)
     header = "IP Number,IP Name,No of Days Worked,Total Monthly Wages,Reason Code for Zero Working Days,Last Working Day"
     lines = [header]
+    month_days = orgtime.month_days(period)
     for slip in slips:
         if slip.get("status") == "on_hold":
             continue
         esi = float(slip.get("esi") or 0)
         emp = employees_service.require_employee(storage, slip["employee_id"])
-        ip_number = str(emp.get("esic_ip") or "").strip()
-        # Only include employees covered under ESIC
-        if esi <= 0 and not ip_number:
+        raw_ip = str(emp.get("esic_ip") or "").strip()
+        ip_number = re.sub(r"\D", "", raw_ip) if raw_ip else ""
+        # B17: Only include employees with actual ESI deducted (> 0) and a valid IP number.
+        if esi <= 0 or not ip_number:
             continue
 
-        name = slip["name"]
-        present = float(slip.get("present_days") or 0)
-        paid_leave = float(slip.get("paid_leave_days") or 0)
-        worked_days = int(round(present + paid_leave))
+        name = slip["name"].replace(",", " ")
+        # B18: Days for which wages were paid: employed days minus LOP days (including paid weekly offs & holidays)
+        lop_days = float(slip.get("lop_days") or 0)
+        employed_days = float(slip.get("employed_days") or month_days)
+        worked_days = max(0, int(round(employed_days - lop_days)))
         gross = f"{float(slip.get('earned_gross') or 0):.2f}"
         
         reason_code = ""

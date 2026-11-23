@@ -468,6 +468,21 @@ def mark_by_face(
     moment = moment or orgtime.local_now(settings)
     day = moment.date()
     now_clock = orgtime.hhmmss(moment)
+
+    # B3: Night shift work-date resolver.
+    # If the employee is on a shift that crosses midnight (end_time < start_time),
+    # check if yesterday has an open attendance row with check_in and no check_out.
+    # If yesterday is open and current scan is in the morning (<= 14:00),
+    # close yesterday's shift rather than creating a new check-in for today.
+    shift = orgtime.shift_for(storage, employee)
+    s_start, s_end = shift["start_time"], shift["end_time"]
+    if s_end < s_start:  # e.g. "06:00" < "22:00"
+        yesterday = day - timedelta(days=1)
+        yesterday_row = get_row(storage, employee["id"], yesterday)
+        if yesterday_row and yesterday_row.get("check_in") and not yesterday_row.get("check_out"):
+            if now_clock <= "14:00:00":
+                day = yesterday
+
     existing = get_row(storage, employee["id"], day)
 
     if locks.locked_status(storage, orgtime.period_of(day)):

@@ -131,7 +131,7 @@ def get_monthly_recognition(
                SUM(COALESCE(late_minutes, 0)) AS total_late_minutes,
                COUNT(CASE WHEN late_minutes > 0 THEN 1 END) AS late_days,
                SUM(COALESCE(worked_minutes, 0)) AS total_worked_minutes,
-               COUNT(CASE WHEN source = 'face' OR source = 'kiosk_face' THEN 1 END) AS face_scans
+               COUNT(CASE WHEN check_in IS NOT NULL THEN 1 END) AS verified_punches
         FROM attendance
         WHERE work_date >= ? AND work_date <= ?
         GROUP BY employee_id
@@ -174,7 +174,7 @@ def get_monthly_recognition(
         late_days = att.get("late_days") or 0
         late_mins = att.get("total_late_minutes") or 0
         worked_mins = att.get("total_worked_minutes") or 0
-        face_scans = att.get("face_scans") or 0
+        verified_punches = att.get("verified_punches") or 0
         reg_count = reg_by_emp.get(emp_id) or 0
         approved_leaves = leave_by_emp.get(emp_id) or 0.0
 
@@ -208,9 +208,9 @@ def get_monthly_recognition(
         # --- D. Leave Discipline & Zero Unexcused Absence (Max 15) ---
         s_discipline = round(max(0.0, 15.0 - (absent * 7.5)), 1)
 
-        # --- E. Biometric Kiosk Authenticity (Max 5) ---
-        kiosk_ratio = min(1.0, face_scans / max(1, present))
-        s_kiosk = round(kiosk_ratio * 5.0, 1)
+        # --- E. Verified Punch Authenticity (Max 5) ---
+        punch_ratio = min(1.0, verified_punches / max(1, present))
+        s_kiosk = round(punch_ratio * 5.0, 1)
 
         # --- F. Penalties ---
         penalties = round(min(5.0, reg_count * 1.0), 1)
@@ -243,8 +243,8 @@ def get_monthly_recognition(
             avg_hrs = round((worked_mins / effective_attended) / 60, 1)
             reasons.append(f"Avg {avg_hrs}h/day ({round(worked_mins / 60)}h logged)")
 
-        if face_scans >= present and present > 0:
-            reasons.append("100% kiosk face-scan verified")
+        if verified_punches >= present and present > 0:
+            reasons.append("100% verified punch attendance")
 
         candidates.append({
             "employee": {

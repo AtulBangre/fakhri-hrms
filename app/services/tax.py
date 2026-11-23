@@ -377,7 +377,23 @@ def project(
         std = min(STD_DEDUCTION_OLD, max(0.0, gross - hra_exempt))
         step("Less: standard deduction u/s 16(ia)", -std)
 
-        c80 = min(declared.get("80C", 0.0), CAP_80C)
+        # B10: Include employee's statutory PF contribution for the FY in 80C
+        actual_pf = float(storage.scalar(
+            "SELECT COALESCE(SUM(pf), 0) FROM payslips WHERE employee_id = ? AND period BETWEEN ? AND ?",
+            (employee["id"], fy_months(fy)[0], fy_months(fy)[-1]),
+        ) or 0.0)
+        actual_months_count = int(storage.scalar(
+            "SELECT COUNT(*) FROM payslips WHERE employee_id = ? AND period BETWEEN ? AND ?",
+            (employee["id"], fy_months(fy)[0], fy_months(fy)[-1]),
+        ) or 0)
+        months_in_fy = fy_months(fy)
+        remaining_months = max(0, len(months_in_fy) - actual_months_count)
+        latest_salary = payroll.salary_for_period(storage, employee["id"], orgtime.period_of(orgtime.today(settings)))
+        monthly_gross = float(latest_salary.get("monthly_gross") or employee.get("monthly_gross") or 0.0)
+        proj_monthly_pf, _, _ = payroll.statutory_deductions(latest_salary, monthly_gross, monthly_gross, storage=storage)
+        annual_pf = round(actual_pf + (proj_monthly_pf * remaining_months), 2)
+
+        c80 = min(declared.get("80C", 0.0) + annual_pf, CAP_80C)
         nps = min(declared.get("80CCD1B", 0.0), CAP_80CCD1B)
         d80 = min(declared.get("80D", 0.0), CAP_80D_SELF)
         tta = min(declared.get("80TTA", 0.0), CAP_80TTA)
@@ -385,7 +401,7 @@ def project(
         home = min(declared.get("24B", 0.0), CAP_24B)
         chapter = c80 + nps + d80 + tta + edu
         if c80:
-            step("Less: 80C", -c80, f"capped at {CAP_80C:,.0f}")
+            step("Less: 80C", -c80, f"capped at {CAP_80C:,.0f} (includes PF: {annual_pf:,.0f})")
         if nps:
             step("Less: 80CCD(1B) NPS", -nps)
         if d80:
@@ -418,6 +434,14 @@ def project(
     if rebate:
         step("Less: rebate u/s 87A", -rebate)
     after_rebate = max(0.0, base_tax - rebate)
+
+    # B7: Section 87A marginal relief under new tax regime when taxable income slightly exceeds rebate cap (12L)
+    if regime == "new" and taxable > rebate_cap:
+        tax_excess = max(0.0, taxable - rebate_cap)
+        if after_rebate > tax_excess:
+            relief = round(after_rebate - tax_excess, 2)
+            step("Less: section 87A marginal relief", -relief)
+            after_rebate = tax_excess
 
     surcharge_rate, surcharge = _surcharge(after_rebate, taxable, regime)
     if surcharge:

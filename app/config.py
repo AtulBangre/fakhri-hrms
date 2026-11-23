@@ -140,7 +140,7 @@ class Settings:
     #: WhatsApp / SMS provider: console | waha | twilio | meta
     whatsapp_provider: str = field(default_factory=lambda: _env("HRMS_WHATSAPP_PROVIDER", "waha"))
     waha_api_url: str = field(default_factory=lambda: _env("HRMS_WAHA_URL", "http://waha:3000"))
-    waha_api_key: str = field(default_factory=lambda: _env("HRMS_WAHA_API_KEY", "fakhri_hrms_waha_secret"))
+    waha_api_key: str = field(default_factory=lambda: _env("HRMS_WAHA_API_KEY", ""))
     waha_session: str = field(default_factory=lambda: _env("HRMS_WAHA_SESSION", "default"))
     sms_provider: str = field(default_factory=lambda: _env("HRMS_SMS_PROVIDER", "console"))
     twilio_account_sid: str = field(default_factory=lambda: _env("HRMS_TWILIO_ACCOUNT_SID", ""))
@@ -239,6 +239,13 @@ class Settings:
         path.chmod(0o600)
         self.secret_key = value
         return value
+
+    def __post_init__(self) -> None:
+        if self.whatsapp_provider == "waha":
+            if not self.waha_api_key or self.waha_api_key == "fakhri_hrms_waha_secret":
+                raise RuntimeError(
+                    "HRMS_WAHA_API_KEY must be set in environment when whatsapp_provider is 'waha' and cannot use committed default 'fakhri_hrms_waha_secret'."
+                )
 
 
 _settings: Settings | None = None

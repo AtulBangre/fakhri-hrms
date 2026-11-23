@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from .. import auth
 from ..auth import (
     ROLE_EMPLOYEE,
+    ROLE_HR,
     ROLE_KIOSK,
     authenticate,
     clear_session_cookie,
@@ -40,6 +41,12 @@ def is_safe_redirect(url: str | None) -> bool:
     return not parsed.netloc and not parsed.scheme
 
 
+def _show_demo_hint(request: Request, settings: Settings) -> bool:
+    host = request.client.host if request.client else ""
+    is_local = host in ("127.0.0.1", "::1", "localhost", "testclient")
+    return is_local and (settings.data_dir / "initial_credentials.txt").exists()
+
+
 @router.get("/login")
 def login_page(request: Request, next: str | None = None):
     settings = get_settings_dep(request)
@@ -53,7 +60,7 @@ def login_page(request: Request, next: str | None = None):
         active="login",
         user=None,
         next_url=next or "",
-        demo_hint=(settings.data_dir / "initial_credentials.txt").exists(),
+        demo_hint=_show_demo_hint(request, settings),
     )
 
 
@@ -74,7 +81,7 @@ def login_submit(
             request, "login.html", active="login", user=None,
             error="Too many failed sign-ins. Wait 10 minutes and try again, or reset your password.",
             username_value=username, next_url=next,
-            demo_hint=(settings.data_dir / "initial_credentials.txt").exists(),
+            demo_hint=_show_demo_hint(request, settings),
             status_code=429,
         )
     user = authenticate(storage, username, password)
@@ -93,11 +100,21 @@ def login_submit(
             error="Incorrect username or password.",
             username_value=username,
             next_url=next,
-            demo_hint=(settings.data_dir / "initial_credentials.txt").exists(),
+            demo_hint=_show_demo_hint(request, settings),
             status_code=401,
         )
 
     auth.clear_login_failures(storage, username)
+    # B20: Delete initial credentials upon successful HR login and purge legacy files
+    if user["role"] == ROLE_HR:
+        for fname in ("initial_credentials.txt", "employee_portal_logins.txt"):
+            p = settings.data_dir / fname
+            if p.exists():
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
     lifetime = settings.kiosk_session_days * 86400 if user["role"] == ROLE_KIOSK else settings.hr_session_hours * 3600
     token, session = create_session_token(user, settings, lifetime_seconds=lifetime)
     storage.audit(

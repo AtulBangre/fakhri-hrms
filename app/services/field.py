@@ -114,6 +114,7 @@ def check_in(
     kind: str = "check_in",
     note: str | None = None,
     actor: str | None = None,
+    face_service: Any = None,
 ) -> dict[str, Any]:
     """Validate the geo-fence and, if inside, mark attendance.
 
@@ -149,10 +150,45 @@ def check_in(
         inside = distance <= float(location["radius_m"])
     else:
         location, distance, inside = None, None, False
-    # "always_allowed": anywhere counts; the position is still recorded for HR (Feature 3)
-    allowed = inside or mode == "always_allowed"
+
     dist = round(distance, 1) if distance is not None else None
     place = location["name"] if (location and inside) else "Remote"
+
+    # B21: Reject GPS readings with weak accuracy (worse than geofence radius)
+    max_allowed_accuracy = float(location["radius_m"]) if location else 500.0
+    if accuracy is not None and accuracy > max_allowed_accuracy:
+        return {
+            "ok": False, "inside": False, "distance_m": dist, "location": location["name"] if location else None,
+            "message": f"GPS signal too weak (accuracy ±{accuracy:.0f}m is worse than allowed limit ±{max_allowed_accuracy:.0f}m). Please move to an open area.",
+        }
+
+    # B21: Mandatory selfie check if configured
+    require_selfie = storage.get_setting("field_require_selfie", "no") == "yes"
+    if require_selfie and not selfie:
+        return {
+            "ok": False, "inside": False, "distance_m": dist, "location": location["name"] if location else None,
+            "message": "A clear selfie photo is mandatory for mobile check-in.",
+        }
+
+    # B21: Verify selfie face match if selfie is uploaded and employee has enrolled face
+    if selfie and face_service and employee.get("face_id"):
+        s_data, _ = selfie
+        try:
+            matches = face_service.identify(s_data)
+            if not matches or not any(m.get("label") == employee["code"] for m in matches):
+                return {
+                    "ok": False, "inside": False, "distance_m": dist, "location": location["name"] if location else None,
+                    "message": "Selfie face verification failed: the photo does not match your registered profile face.",
+                }
+        except Exception:
+            if require_selfie:
+                return {
+                    "ok": False, "inside": False, "distance_m": dist, "location": location["name"] if location else None,
+                    "message": "Face verification service is currently busy. Please wait a moment and try again.",
+                }
+
+    # "always_allowed": anywhere counts; the position is still recorded for HR (Feature 3)
+    allowed = inside or mode == "always_allowed"
 
     selfie_name = None
     if selfie:

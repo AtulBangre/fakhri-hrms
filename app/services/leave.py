@@ -814,7 +814,38 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
     else:
         accrual = float(custom_pl) if custom_pl is not None and str(custom_pl).strip() != "" else storage.get_float("pl_accrual_per_month", 1.5)
         annual_pl = round(accrual * 12.0, 1)
-        accrued = round(months * accrual, 2)
+
+        # B23: Deduct months where employee had long unpaid absence / LOP (>= 15 days)
+        lop_months = storage.scalar(
+            """
+            SELECT COUNT(*) FROM (
+                SELECT strftime('%Y-%m', work_date) AS m
+                FROM attendance
+                WHERE employee_id = ? AND status IN ('unpaid_leave', 'absent', 'lop')
+                  AND work_date >= ? AND work_date <= ?
+                GROUP BY m
+                HAVING COUNT(*) >= 15
+            )
+            """,
+            (employee_id, joined.isoformat(), as_of.isoformat()),
+        ) or 0
+        unpaid_req_months = storage.scalar(
+            """
+            SELECT COUNT(*) FROM (
+                SELECT strftime('%Y-%m', from_date) AS m, SUM(days) as total_unpaid
+                FROM leave_requests
+                WHERE employee_id = ? AND status = 'approved' AND leave_type = 'unpaid'
+                  AND from_date >= ? AND to_date <= ?
+                GROUP BY m
+                HAVING total_unpaid >= 15
+            )
+            """,
+            (employee_id, joined.isoformat(), as_of.isoformat()),
+        ) or 0
+        reduced_months = max(int(lop_months), int(unpaid_req_months))
+        effective_months = max(0, months - reduced_months)
+
+        accrued = round(effective_months * accrual, 2)
         used_pl = float(
             storage.scalar(
                 "SELECT COALESCE(SUM(days),0) FROM leave_requests "
@@ -916,10 +947,11 @@ def balance(storage: Storage, settings: Settings, employee_id: int, *, as_of: da
         "carried_forward": carried_forward,
         "used_paid": round(used_paid, 2),
         "used_unpaid": round(used_unpaid, 2),
+        "used_pl": round(used_pl, 2),
         "pending": round(pending, 2),
-        "balance": round(accrued - used_paid, 2),
+        "balance": round(accrued - used_pl, 2),
         "pending_paid": round(pending_paid, 2),
-        "available": round(accrued - used_paid - pending_paid, 2),
+        "available": round(accrued - used_pl - pending_pl, 2),
         "total_available": total_available,
         "total_allocated": total_allocated,
         "total_used": total_used,

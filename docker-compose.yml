@@ -27,8 +27,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.5"
-          memory: 600M
+          cpus: "2.0"
+          memory: 1000M
+    ports:
+      - "${FACEAPI_PORT:-8000}:8000"
     tmpfs:
       # One-time liveness challenge markers, shared by the workers.
       - /tmp
@@ -59,8 +61,8 @@ services:
       HRMS_FACEAPI_URL: "http://faceapi:8000"
       HRMS_FACEAPI_KEY: "${HRMS_FACEAPI_KEY:-${FACEAPI_SERVICE_KEY:-}}"
       HRMS_WAHA_URL: "http://waha:3000"
-      HRMS_WAHA_API_KEY: "fakhri_hrms_waha_secret"
-      HRMS_WHATSAPP_PROVIDER: "waha"
+      HRMS_WAHA_API_KEY: "${HRMS_WAHA_API_KEY:-}"
+      HRMS_WHATSAPP_PROVIDER: "${HRMS_WHATSAPP_PROVIDER:-console}"
       HRMS_DATA_DIR: /app/data
       PORT: "8100"
       WORKERS: "1"
@@ -92,7 +94,7 @@ services:
       WHATSAPP_DEFAULT_ENGINE: NOWEB
       WAHA_HTTP_HOST: "0.0.0.0"
       PORT: "3000"
-      WAHA_API_KEY: "fakhri_hrms_waha_secret"
+      WAHA_API_KEY: "${HRMS_WAHA_API_KEY:-}"
       WAHA_ZIP_LOGS: "false"
       WAHA_PRINT_QR: "false"
       WAHA_DASHBOARD_ENABLED: "false"

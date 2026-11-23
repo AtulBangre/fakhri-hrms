@@ -10,6 +10,7 @@ from fpdf import FPDF
 
 from ..config import Settings
 from ..db import Storage, utcnow_iso
+from ..pdf import _text
 from . import employees as employees_service
 from . import orgtime
 
@@ -251,6 +252,13 @@ def render_letter_pdf(
     subject: str,
     body_text: str,
 ) -> bytes:
+    # B8: Sanitize unicode characters (₹, —, curly quotes, Hindi) for core Latin font
+    org_name = _text(org_name)
+    ref_no = _text(ref_no)
+    letter_date = _text(letter_date)
+    subject = _text(subject)
+    body_text = _text(body_text)
+
     pdf = LetterPDF(org_name=org_name)
     pdf.add_page()
     pdf.set_left_margin(18)

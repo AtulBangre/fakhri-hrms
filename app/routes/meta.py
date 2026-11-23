@@ -39,7 +39,20 @@ def api_health(
         storage.scalar("SELECT COUNT(*) AS n FROM employees")
     except Exception:  # pragma: no cover - defensive
         db_ok = False
+
+    session = get_session(request)
     health = face.health()
+    # B14: Anonymous callers receive basic status without internal URLs, queue or backpressure details
+    if not session:
+        return JSONResponse(
+            {
+                "status": "ok" if db_ok else "degraded",
+                "version": __version__,
+                "database": "ok" if db_ok else "error",
+                "org": storage.get_setting("org_name", settings.org_name),
+                "face_service": {"ok": bool(health.get("ok"))} if isinstance(health, dict) else {"ok": False},
+            }
+        )
     return JSONResponse(
         {
             "status": "ok" if db_ok else "degraded",

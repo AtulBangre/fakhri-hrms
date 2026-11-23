@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from ..auth import SessionUser, require_employee, require_hr, verify_form_csrf
-from ..deps import get_settings_dep, get_storage, redirect, render
+from ..deps import get_face, get_settings_dep, get_storage, redirect, render
 from ..uploads import read_capped
 from ..services import employees as employees_service
 from ..services import field as field_service
@@ -114,6 +114,7 @@ def field_check_api(
     kind: str = Form("check_in"),
     note: str = Form(""),
     selfie: UploadFile | None = File(None),
+    face=Depends(get_face),
 ):
     """JSON endpoint used by the field page (so the result can be shown inline)."""
     verify_form_csrf(user, csrf)
@@ -126,6 +127,7 @@ def field_check_api(
             storage, settings, employee=employee, lat=float(lat), lng=float(lng),
             accuracy=float(accuracy) if accuracy.strip() else None,
             selfie=payload, kind=kind, note=note or None, actor=user.username,
+            face_service=face,
         )
     except (ValueError, TypeError) as exc:
         return JSONResponse({"ok": False, "inside": False, "message": str(exc)}, status_code=400)

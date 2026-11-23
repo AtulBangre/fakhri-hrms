@@ -469,6 +469,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_sb.set_defaults(func=cmd_sync_supabase)
 
     prod_reset = sub.add_parser("production-reset", help="reset database to clean state with single HR admin account")
+    prod_reset.add_argument("--erase-all-data", action="store_true", help="confirm complete erasure of all operational data")
     prod_reset.set_defaults(func=cmd_production_reset)
 
     return parser
