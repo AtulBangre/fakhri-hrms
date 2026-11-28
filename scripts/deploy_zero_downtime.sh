@@ -64,8 +64,6 @@ docker run -d \
     --network fakhri-hrms_default \
     --env-file .env \
     -e HRMS_FACEAPI_URL=http://faceapi:8000 \
-    -e HRMS_WAHA_URL=http://waha:3000 \
-    -e HRMS_WHATSAPP_PROVIDER=waha \
     -e HRMS_DATA_DIR=/app/data \
     -e PORT=8100 \
     -e WORKERS=1 \
