@@ -66,3 +66,73 @@ def test_recognition_api_and_dashboard_integration(hr_client, storage, settings,
     assert "recognitionCard" in dash_res.text
     assert "recogPeriodSelect" in dash_res.text
     assert "scorecardModalOverlay" in dash_res.text
+
+
+def test_employee_portal_recognition_view(ess_client, storage, settings, ess_credentials):
+    today = orgtime.today(settings)
+    period = orgtime.period_of(today)
+    emp = ess_credentials["employee"]
+
+    # Record attendance for employee
+    storage.execute(
+        """
+        INSERT INTO attendance (employee_id, work_date, status, late_minutes, worked_minutes, source, created_at, updated_at)
+        VALUES (?, ?, 'present', 0, 500, 'face', '2026-11-01 10:00:00', '2026-11-01 18:00:00')
+        """,
+        (emp["id"], f"{period}-02"),
+    )
+
+    recognition_service.clear_cache()
+
+    # 1. Test get_employee_performance service helper
+    perf = recognition_service.get_employee_performance(storage, settings, emp["id"], period=period, use_cache=False)
+    assert perf is not None
+    assert perf["candidate"]["employee"]["id"] == emp["id"]
+    assert perf["candidate"]["rank"] >= 1
+    assert perf["candidate"]["score"] > 0
+    assert "attendance" in perf["candidate"]["breakdown"]
+
+    # 2. Test /me employee portal renders score banner & dialog modal
+    res = ess_client.get("/me")
+    assert res.status_code == 200
+    assert "me-score-banner" in res.text
+    assert "openScorecardModal" in res.text
+    assert "meScorecardModalOverlay" in res.text
+    assert "Score Breakdown by Dimension" in res.text
+
+
+def test_get_employee_performance(storage, settings, staff):
+    today = orgtime.today(settings)
+    period = orgtime.period_of(today)
+
+    emp1 = staff[0]
+    emp2 = staff[1]
+
+    storage.execute(
+        """
+        INSERT INTO attendance (employee_id, work_date, status, late_minutes, worked_minutes, source, created_at, updated_at)
+        VALUES (?, ?, 'present', 0, 510, 'face', '2026-11-01 10:00:00', '2026-11-01 18:00:00')
+        """,
+        (emp1["id"], f"{period}-02"),
+    )
+    storage.execute(
+        """
+        INSERT INTO attendance (employee_id, work_date, status, late_minutes, worked_minutes, source, created_at, updated_at)
+        VALUES (?, ?, 'present', 30, 450, 'manual', '2026-11-01 10:30:00', '2026-11-01 18:00:00')
+        """,
+        (emp2["id"], f"{period}-02"),
+    )
+
+    recognition_service.clear_cache()
+    perf1 = recognition_service.get_employee_performance(storage, settings, emp1["id"], period=period, use_cache=False)
+    assert perf1 is not None
+    assert perf1["candidate"]["rank"] == 1
+    assert perf1["candidate"]["employee"]["id"] == emp1["id"]
+    assert perf1["total_candidates"] >= 2
+
+    perf2 = recognition_service.get_employee_performance(storage, settings, emp2["id"], period=period, use_cache=False)
+    assert perf2 is not None
+    assert perf2["candidate"]["rank"] == 2
+    assert perf2["candidate"]["score"] < perf1["candidate"]["score"]
+    assert perf2["punctuality_potential"] > 0
+

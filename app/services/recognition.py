@@ -288,7 +288,8 @@ def get_monthly_recognition(
     )
 
     top3 = []
-    for rank_idx, cand in enumerate(candidates[:3], start=1):
+    candidates_by_id = {}
+    for rank_idx, cand in enumerate(candidates, start=1):
         cand["rank"] = rank_idx
         if rank_idx == 1:
             cand["badge_title"] = "Leading Contender" if is_live else "Employee of the Month"
@@ -315,12 +316,18 @@ def get_monthly_recognition(
                 cand["chance_label"] = f"Close contender (-{deficit} pts)"
             else:
                 cand["chance_label"] = "1st Runner-Up"
-        else:
+        elif rank_idx == 3:
             cand["badge_title"] = "3rd Place Contender" if is_live else "2nd Runner-Up"
             cand["badge_icon"] = "bronze"
             cand["chance_label"] = "Top 3 Contender" if is_live else "2nd Runner-Up"
+        else:
+            cand["badge_title"] = f"Rank #{rank_idx} Contender" if is_live else f"Rank #{rank_idx}"
+            cand["badge_icon"] = "contender"
+            cand["chance_label"] = f"Rank #{rank_idx}"
 
-        top3.append(cand)
+        candidates_by_id[cand["employee"]["id"]] = cand
+        if rank_idx <= 3:
+            top3.append(cand)
 
     result = {
         "period": period,
@@ -329,8 +336,44 @@ def get_monthly_recognition(
         "total_working_days": total_working_days,
         "candidates_count": len(candidates),
         "top3": top3,
+        "_candidates_by_id": candidates_by_id,
         "available_periods": available_periods(today),
     }
 
     _CACHE[cache_key] = (now, result)
     return result
+
+
+def get_employee_performance(
+    storage: Storage,
+    settings: Settings,
+    employee_id: int,
+    period: str | None = None,
+    use_cache: bool = True,
+) -> dict[str, Any] | None:
+    """Return an individual employee's recognition scorecard and race standing."""
+    data = get_monthly_recognition(storage, settings, period=period, use_cache=use_cache)
+    candidates_by_id = data.get("_candidates_by_id") or {}
+    cand = candidates_by_id.get(employee_id)
+    if not cand:
+        return None
+
+    top3 = data.get("top3") or []
+    points_to_top3 = 0.0
+    if cand["rank"] > 3 and len(top3) >= 3:
+        points_to_top3 = round(max(0.1, top3[2]["score"] - cand["score"] + 0.1), 1)
+
+    punctuality_potential = round(max(0.0, 25.0 - cand["breakdown"]["punctuality"]), 1)
+    hours_potential = round(max(0.0, 20.0 - cand["breakdown"]["hours"]), 1)
+
+    return {
+        "candidate": cand,
+        "period": data["period"],
+        "period_label": data["label"],
+        "is_live": data["is_live"],
+        "total_candidates": data["candidates_count"],
+        "top3": top3,
+        "points_to_top3": points_to_top3,
+        "punctuality_potential": punctuality_potential,
+        "hours_potential": hours_potential,
+    }

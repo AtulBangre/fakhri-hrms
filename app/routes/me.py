@@ -30,7 +30,7 @@ from ..services import attendance as attendance_service
 from ..services import employees as employees_service
 from ..services import leave as leave_service
 from ..services import loans as loans_service
-from ..services import orgtime, payroll, regularization
+from ..services import orgtime, payroll, recognition as recognition_service, regularization
 
 router = APIRouter(prefix="/me", tags=["self-service"])
 
@@ -132,6 +132,10 @@ def dashboard(
         worked_pct = min(100.0, max(0.0, round((elapsed_mins / shift_minutes) * 100, 1)))
         current_worked_label = orgtime.format_minutes(elapsed_mins)
 
+    recognition = recognition_service.get_employee_performance(
+        storage, settings, employee["id"], period
+    )
+
     return render(
         request,
         "me.html",
@@ -161,6 +165,7 @@ def dashboard(
         announcements=announcement_service.visible_for(storage, "employees"),
         company_notice_footer=storage.get_setting("company_notice_footer", ""),
         is_manager=_is_manager(storage, employee["id"]),
+        recognition=recognition,
     )
 
 
