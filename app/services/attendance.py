@@ -1118,12 +1118,16 @@ def monthly_register(
             cell = {"status": _CLASS_STATUS[cls], "cls": cls, "code": _CLASS_CODE[cls], "css": _CLASS_CSS[cls]}
             if record and cls != "not_employed":
                 fine_amount = float(record.get("late_fine") or 0.0)
+                has_in = bool(record.get("check_in") and str(record.get("check_in")).strip())
+                has_out = bool(record.get("check_out") and str(record.get("check_out")).strip())
+                missing_out = has_in and not has_out
                 cell.update(
                     check_in=orgtime.format_clock(record["check_in"]),
                     check_out=orgtime.format_clock(record["check_out"]),
                     late_minutes=record["late_minutes"], worked_minutes=record["worked_minutes"],
                     late_fine=fine_amount,
                     has_fine=(fine_amount > 0),
+                    missing_out=missing_out,
                     early_leave_approved=bool(record.get("early_leave_approved")),
                     leave_type=record["leave_type"], note=record["note"], title=_cell_title(record),
                 )
@@ -1133,6 +1137,8 @@ def monthly_register(
                     totals["fines"] += fine_amount
                 if record["worked_minutes"]:
                     totals["worked_minutes"] += int(record["worked_minutes"])
+                if missing_out:
+                    totals["missing_out"] = totals.get("missing_out", 0) + 1
             else:
                 cell["late_fine"] = 0.0
                 cell["has_fine"] = False
@@ -1244,6 +1250,8 @@ def _cell_title(record: dict) -> str:
         bits.append(f"in {orgtime.format_clock(record['check_in'])}")
     if record.get("check_out"):
         bits.append(f"out {orgtime.format_clock(record['check_out'])}")
+    elif record.get("check_in"):
+        bits.append("⚠️ no check-out")
     if record.get("late_minutes"):
         bits.append(f"late {record['late_minutes']}m" + (f" · fine ₹{record['late_fine']:g}" if record.get("late_fine") else ""))
     if record.get("worked_minutes"):

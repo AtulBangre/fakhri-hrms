@@ -43,6 +43,7 @@
         <label for="statusQuickFilter">Filter Exceptions</label>
         <select id="statusQuickFilter">
           <option value="">All statuses</option>
+          <option value="MISSING_OUT">⚠️ Missing Check-out</option>
           <option value="FINE">Has Fine (₹)</option>
           <option value="A">Has Absent (A)</option>
           <option value="½">Has Half-Day (½)</option>
@@ -77,13 +78,14 @@
       {% for row in register.rows %}
         <tr class="emp-row" data-shift="{{ row.shift.name or 'Company shift' }}" data-search="{{ (row.employee.name ~ ' ' ~ row.employee.code ~ ' ' ~ (row.employee.department or '')) | lower }}"
             data-codes="{% for c in row.cells %}{{ c.code }} {% endfor %}"
-            data-has-fine="{{ 'true' if (row.totals.fines and row.totals.fines > 0) else 'false' }}">
+            data-has-fine="{{ 'true' if (row.totals.fines and row.totals.fines > 0) else 'false' }}"
+            data-has-missing-out="{{ 'true' if (row.totals.missing_out and row.totals.missing_out > 0) else 'false' }}">
           <td class="sticky-col">
             <a href="/employees/{{ row.employee.id }}"><strong>{{ row.employee.name }}</strong></a>
             <span class="sub muted" style="display:block">{{ row.employee.code }}{% if row.employee.department %} · {{ row.employee.department }}{% endif %}</span>
           </td>
           {% for cell, day in row.cells | zip(register.days) %}
-            <td class="cell {{ cell.css }} interactive-cell {{ 'has-fine' if cell.has_fine }} {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
+            <td class="cell {{ cell.css }} interactive-cell {{ 'has-fine' if cell.has_fine }} {{ 'missing-out' if cell.missing_out }} {{ 'today-col' if day.is_today }} {{ 'weekend' if day.is_week_off or day.is_holiday }}"
                 data-emp-id="{{ row.employee.id }}"
                 data-emp-name="{{ row.employee.name }}"
                 data-date="{{ day.iso }}"
@@ -141,6 +143,7 @@
       <span class="chip chip-ghost">· · not marked</span>
       <span class="chip chip-ghost">– · not employed</span>
       <span class="chip chip-danger" style="position:relative;padding-left:1.35rem;"><span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);width:6px;height:6px;background:#ef4444;border-radius:50%;"></span>● · fined day</span>
+      <span class="chip" style="position:relative;padding-left:1.35rem;background:#fef9c3;color:#854d0e;border:1px solid #fef08a;"><span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);width:6px;height:6px;background:#eab308;border-radius:50%;"></span>● · missing check-out</span>
     </div>
     <div class="card-foot small muted">Tip: Click any attendance cell above to instantly adjust or regularize that day's record.</div>
   </div>
@@ -267,6 +270,8 @@
         var matchesStatus = true;
         if (requiredCode === "FINE") {
           matchesStatus = row.getAttribute("data-has-fine") === "true";
+        } else if (requiredCode === "MISSING_OUT") {
+          matchesStatus = row.getAttribute("data-has-missing-out") === "true";
         } else if (requiredCode) {
           matchesStatus = codes.indexOf(requiredCode) !== -1;
         }
